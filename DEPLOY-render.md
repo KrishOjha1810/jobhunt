@@ -29,7 +29,7 @@ also wakes the sleeping app).
 1. Sign up at https://cron-job.org (free).
 2. Create a cron job:
    - URL: `https://<your-app>.onrender.com/run?token=<your RUN_TOKEN>`
-   - Schedule: every 8 hours (or whatever cadence you want)
+   - Schedule: twice a day (e.g. 09:00 and 18:00) , set two daily times, or "every 12 hours"
    - Method: GET
 3. Save. It will ping `/run`, which kicks off matching in the background and Telegrams new matches.
 

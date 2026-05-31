@@ -17,6 +17,10 @@ services:
         value: /tmp/jobhunt    # ephemeral is fine: DB is external (Neon), resumes not needed after parse
       - key: ENABLE_SCHEDULER
         value: "0"             # free web sleeps; external cron hits /run instead
+      - key: MAX_MATCHES_PER_RUN
+        value: "20"            # up to 20 best-match jobs per run (sorted best-first)
+      - key: MIN_SCORE
+        value: "3"
       # optional, add in dashboard if you have them:
       # - key: ADZUNA_APP_ID    {sync:false}
       # - key: ADZUNA_APP_KEY   {sync:false}
