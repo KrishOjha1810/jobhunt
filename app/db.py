@@ -114,6 +114,8 @@ def is_seen(user_id, job_url):
 
 def log_job(user_id, job):
     """Record a job we sent to a user (the tracker row)."""
+    if not job.get("url"):
+        return  # a job with no apply link isn't useful and would break url-based dedup
     if is_seen(user_id, job.get("url")):
         return
     with engine.begin() as conn:

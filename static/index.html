@@ -212,7 +212,8 @@
         result.style.display = 'block';
         if (res.ok && data.ok) {
           result.className = 'ok';
-          const chips = (data.detected_keywords||[]).map(k => `<span class="chip">${k}</span>`).join('');
+          const esc = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+          const chips = (data.detected_keywords||[]).map(k => `<span class="chip">${esc(k)}</span>`).join('');
           const dash = data.dashboard_url ? `<br><br><a href="${data.dashboard_url}"><b>Open your tracker dashboard</b></a> (bookmark this, it's your private link)` : '';
           result.innerHTML = `<b>You're in!</b><br>${data.message}${dash}` +
             (chips ? `<div class="chips">${chips}</div>` : '');

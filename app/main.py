@@ -1,7 +1,11 @@
 """FastAPI app: signup UI + API. Users upload a resume + preferences and get a profile."""
+import os
+import re
 import shutil
 from pathlib import Path
 from fastapi import FastAPI, Request, Form, UploadFile, File, BackgroundTasks
+
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -45,17 +49,24 @@ async def signup(
     resume_file: UploadFile = File(...),
 ):
     channel = (channel or "email").lower()
+    if channel not in ("email", "telegram", "whatsapp"):
+        return JSONResponse({"error": "Invalid channel."}, status_code=400)
     if channel == "telegram" and not telegram_chat_id.strip():
         return JSONResponse({"error": "Telegram chat ID is required for the Telegram channel."}, status_code=400)
     if channel == "whatsapp" and not (whatsapp_phone.strip() and whatsapp_apikey.strip()):
         return JSONResponse({"error": "WhatsApp needs both phone and CallMeBot API key."}, status_code=400)
-    if channel == "email" and "@" not in email:
+    if channel == "email" and not EMAIL_RE.match(email.strip()):
         return JSONResponse({"error": "A valid email address is required for the Email channel."}, status_code=400)
-    # save resume
+    # save resume (sanitize both the name and the client-supplied filename to avoid path traversal)
     safe = "".join(c for c in name if c.isalnum() or c in "-_") or "user"
-    dest = RESUME_DIR / f"{safe}_{resume_file.filename}"
-    with open(dest, "wb") as f:
-        shutil.copyfileobj(resume_file.file, f)
+    raw = os.path.basename(resume_file.filename or "resume")
+    safe_file = "".join(c for c in raw if c.isalnum() or c in "-_.") or "resume"
+    dest = RESUME_DIR / f"{safe}_{safe_file}"
+    try:
+        with open(dest, "wb") as f:
+            shutil.copyfileobj(resume_file.file, f)
+    except Exception as e:
+        return JSONResponse({"error": f"could not save resume: {e}"}, status_code=400)
 
     # parse -> keywords
     try:
@@ -114,9 +125,9 @@ def api_update_job(job_id: int, token: str = "", applied: int = None,
         return JSONResponse({"error": "invalid token"}, status_code=403)
     fields = {}
     if applied is not None:
-        fields["applied"] = applied
+        fields["applied"] = 1 if int(applied) else 0
     if responded is not None:
-        fields["responded"] = responded
+        fields["responded"] = 1 if int(responded) else 0
     if resume_used is not None:
         fields["resume_used"] = resume_used
     if notes is not None:
