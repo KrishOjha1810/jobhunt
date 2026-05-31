@@ -10,6 +10,11 @@ DB_PATH = DATA_DIR / "jobhunt.db"
 RESUME_DIR = DATA_DIR / "resumes"
 RESUME_DIR.mkdir(exist_ok=True)
 
+# DB connection. Local default is SQLite; the cloud sets DATABASE_URL to the Neon Postgres URL.
+DATABASE_URL = os.environ.get("DATABASE_URL", f"sqlite:///{DB_PATH}")
+if DATABASE_URL.startswith("postgres://"):  # SQLAlchemy 2.x wants postgresql://
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
 
 def _load_dotenv():
     """Minimal .env loader (no external dependency)."""
@@ -42,3 +47,6 @@ LLM_MODEL = os.environ.get("LLM_MODEL", "")
 # In-process scheduler (for cloud, where launchd/cron don't exist). Set ENABLE_SCHEDULER=1.
 ENABLE_SCHEDULER = os.environ.get("ENABLE_SCHEDULER", "") == "1"
 SCHEDULER_HOURS = int(os.environ.get("SCHEDULER_HOURS", "8"))
+
+# Optional shared secret to protect the /run trigger endpoint (used by the external cron).
+RUN_TOKEN = os.environ.get("RUN_TOKEN", "")

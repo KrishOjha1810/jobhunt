@@ -5,3 +5,5 @@ pypdf
 python-docx
 python-multipart
 apscheduler
+sqlalchemy
+psycopg2-binary

@@ -1,12 +1,12 @@
 """FastAPI app: signup UI + API. Users upload a resume + preferences and get a profile."""
 import shutil
 from pathlib import Path
-from fastapi import FastAPI, Request, Form, UploadFile, File
+from fastapi import FastAPI, Request, Form, UploadFile, File, BackgroundTasks
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import db, resume, runner
-from .config import RESUME_DIR, BASE_DIR, ENABLE_SCHEDULER, SCHEDULER_HOURS
+from .config import RESUME_DIR, BASE_DIR, ENABLE_SCHEDULER, SCHEDULER_HOURS, RUN_TOKEN
 
 app = FastAPI(title="JobHunt")
 db.init_db()
@@ -83,8 +83,16 @@ async def signup(
     }
 
 
-@app.post("/run")
-def trigger_run():
-    """Manually trigger a matching run (handy for testing)."""
-    runner.run_once(verbose=False)
-    return {"ok": True, "message": "Run complete. Check Telegram."}
+@app.api_route("/run", methods=["GET", "POST"])
+def trigger_run(background_tasks: BackgroundTasks, token: str = ""):
+    """Trigger a matching run in the background (used by the external cron on Render free).
+    Returns immediately so the caller doesn't time out. Optionally guarded by RUN_TOKEN."""
+    if RUN_TOKEN and token != RUN_TOKEN:
+        return JSONResponse({"error": "invalid token"}, status_code=403)
+    background_tasks.add_task(runner.run_once, False)
+    return {"ok": True, "message": "Matching started; alerts will arrive shortly."}
+
+
+@app.get("/healthz")
+def healthz():
+    return {"ok": True}

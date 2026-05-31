@@ -1,0 +1,25 @@
+# Render Blueprint. On Render: New > Blueprint > pick the jobhunt repo. It reads this file.
+services:
+  - type: web
+    name: jobhunt
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /healthz
+    envVars:
+      - key: DATABASE_URL      # set in dashboard to your Neon Postgres URL (sync:false = secret)
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: RUN_TOKEN         # set a random string; the cron uses it
+        sync: false
+      - key: DATA_DIR
+        value: /tmp/jobhunt    # ephemeral is fine: DB is external (Neon), resumes not needed after parse
+      - key: ENABLE_SCHEDULER
+        value: "0"             # free web sleeps; external cron hits /run instead
+      # optional, add in dashboard if you have them:
+      # - key: ADZUNA_APP_ID    {sync:false}
+      # - key: ADZUNA_APP_KEY   {sync:false}
+      # - key: JSEARCH_RAPIDAPI_KEY  {sync:false}
+      # - key: LLM_PROVIDER     value: groq
+      # - key: LLM_API_KEY      {sync:false}

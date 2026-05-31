@@ -1,79 +1,67 @@
-"""SQLite storage for users and the seen-jobs ledger (dedup)."""
-import sqlite3
+"""Storage for users and the seen-jobs ledger. SQLAlchemy Core so the same code runs on
+local SQLite and cloud Postgres (Neon). Function signatures are unchanged from V1."""
 import json
-from contextlib import contextmanager
-from .config import DB_PATH
+from sqlalchemy import (
+    create_engine, MetaData, Table, Column, Integer, Text, select, insert,
+)
+from .config import DATABASE_URL
 
+_connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+engine = create_engine(DATABASE_URL, pool_pre_ping=True, connect_args=_connect_args)
+metadata = MetaData()
 
-@contextmanager
-def get_conn():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    try:
-        yield conn
-        conn.commit()
-    finally:
-        conn.close()
+users = Table(
+    "users", metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("name", Text, nullable=False),
+    Column("telegram_chat_id", Text, default=""),
+    Column("keywords", Text, nullable=False),
+    Column("locations", Text, nullable=False),
+    Column("resume_path", Text),
+    Column("resume_text", Text),
+    Column("channel", Text, default="telegram"),
+    Column("whatsapp_phone", Text),
+    Column("whatsapp_apikey", Text),
+    Column("active", Integer, default=1),
+)
+
+seen_jobs = Table(
+    "seen_jobs", metadata,
+    Column("user_id", Integer, primary_key=True),
+    Column("job_url", Text, primary_key=True),
+)
 
 
 def init_db():
-    with get_conn() as conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                telegram_chat_id TEXT NOT NULL,
-                keywords TEXT NOT NULL,          -- JSON list of skill/role keywords
-                locations TEXT NOT NULL,         -- JSON list, e.g. ["remote","india"]
-                resume_path TEXT,
-                resume_text TEXT,
-                active INTEGER DEFAULT 1,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
-            )
-            """
-        )
-        # migrations for older DBs: add any missing columns
-        cols = [r["name"] for r in conn.execute("PRAGMA table_info(users)").fetchall()]
-        for col, ddl in [
-            ("resume_text", "resume_text TEXT"),
-            ("channel", "channel TEXT DEFAULT 'telegram'"),
-            ("whatsapp_phone", "whatsapp_phone TEXT"),
-            ("whatsapp_apikey", "whatsapp_apikey TEXT"),
-        ]:
-            if col not in cols:
-                conn.execute(f"ALTER TABLE users ADD COLUMN {ddl}")
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS seen_jobs (
-                user_id INTEGER NOT NULL,
-                job_url TEXT NOT NULL,
-                seen_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (user_id, job_url)
-            )
-            """
-        )
+    metadata.create_all(engine)
 
 
 def add_user(name, telegram_chat_id, keywords, locations, resume_path=None, resume_text=None,
              channel="telegram", whatsapp_phone=None, whatsapp_apikey=None):
-    with get_conn() as conn:
-        cur = conn.execute(
-            "INSERT INTO users (name, telegram_chat_id, keywords, locations, resume_path, "
-            "resume_text, channel, whatsapp_phone, whatsapp_apikey) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (name, telegram_chat_id or "", json.dumps(keywords), json.dumps(locations),
-             resume_path, resume_text, channel, whatsapp_phone, whatsapp_apikey),
+    with engine.begin() as conn:
+        result = conn.execute(
+            insert(users).values(
+                name=name,
+                telegram_chat_id=telegram_chat_id or "",
+                keywords=json.dumps(keywords),
+                locations=json.dumps(locations),
+                resume_path=resume_path,
+                resume_text=resume_text,
+                channel=channel,
+                whatsapp_phone=whatsapp_phone,
+                whatsapp_apikey=whatsapp_apikey,
+                active=1,
+            )
         )
-        return cur.lastrowid
+        return result.inserted_primary_key[0]
 
 
 def list_active_users():
-    with get_conn() as conn:
-        rows = conn.execute("SELECT * FROM users WHERE active = 1").fetchall()
-    users = []
+    with engine.connect() as conn:
+        rows = conn.execute(select(users).where(users.c.active == 1)).mappings().all()
+    out = []
     for r in rows:
-        users.append(
+        out.append(
             {
                 "id": r["id"],
                 "name": r["name"],
@@ -81,26 +69,27 @@ def list_active_users():
                 "keywords": json.loads(r["keywords"]),
                 "locations": json.loads(r["locations"]),
                 "resume_path": r["resume_path"],
-                "resume_text": r["resume_text"] if "resume_text" in r.keys() else None,
-                "channel": (r["channel"] if "channel" in r.keys() else None) or "telegram",
-                "whatsapp_phone": r["whatsapp_phone"] if "whatsapp_phone" in r.keys() else None,
-                "whatsapp_apikey": r["whatsapp_apikey"] if "whatsapp_apikey" in r.keys() else None,
+                "resume_text": r["resume_text"],
+                "channel": r["channel"] or "telegram",
+                "whatsapp_phone": r["whatsapp_phone"],
+                "whatsapp_apikey": r["whatsapp_apikey"],
             }
         )
-    return users
+    return out
 
 
 def is_seen(user_id, job_url):
-    with get_conn() as conn:
+    with engine.connect() as conn:
         row = conn.execute(
-            "SELECT 1 FROM seen_jobs WHERE user_id = ? AND job_url = ?", (user_id, job_url)
-        ).fetchone()
+            select(seen_jobs).where(
+                seen_jobs.c.user_id == user_id, seen_jobs.c.job_url == job_url
+            )
+        ).first()
     return row is not None
 
 
 def mark_seen(user_id, job_url):
-    with get_conn() as conn:
-        conn.execute(
-            "INSERT OR IGNORE INTO seen_jobs (user_id, job_url) VALUES (?, ?)",
-            (user_id, job_url),
-        )
+    if is_seen(user_id, job_url):
+        return
+    with engine.begin() as conn:
+        conn.execute(insert(seen_jobs).values(user_id=user_id, job_url=job_url))
