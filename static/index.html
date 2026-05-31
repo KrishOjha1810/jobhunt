@@ -3,72 +3,112 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>JobHunt</title>
+  <title>JobHunt , get matched jobs on Telegram & WhatsApp</title>
   <style>
-    body { font-family: -apple-system, system-ui, sans-serif; max-width: 560px; margin: 40px auto; padding: 0 16px; color: #1a1a1a; }
-    h1 { font-size: 1.6rem; }
-    p.sub { color: #666; margin-top: -8px; }
-    label { display: block; margin: 16px 0 4px; font-weight: 600; font-size: 0.9rem; }
-    input[type=text], input[type=file] { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 8px; font-size: 1rem; box-sizing: border-box; }
-    small { color: #888; }
-    button { margin-top: 24px; width: 100%; padding: 12px; background: #2563eb; color: #fff; border: 0; border-radius: 8px; font-size: 1rem; font-weight: 600; cursor: pointer; }
-    button:disabled { opacity: .6; }
-    #result { margin-top: 20px; padding: 14px; border-radius: 8px; white-space: pre-wrap; font-size: .9rem; display: none; }
-    .ok { background: #ecfdf5; border: 1px solid #a7f3d0; }
-    .err { background: #fef2f2; border: 1px solid #fecaca; }
+    :root {
+      --bg1:#6d28d9; --bg2:#2563eb; --ink:#0f172a; --muted:#64748b;
+      --line:#e2e8f0; --accent:#4f46e5; --ok:#059669; --okbg:#ecfdf5; --err:#dc2626; --errbg:#fef2f2;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,system-ui,sans-serif;
+      color:var(--ink); min-height:100vh;
+      background:linear-gradient(135deg,var(--bg1),var(--bg2));
+      display:flex; align-items:flex-start; justify-content:center; padding:40px 16px;
+    }
+    .card {
+      width:100%; max-width:520px; background:#fff; border-radius:20px;
+      box-shadow:0 20px 60px rgba(15,23,42,.25); padding:36px 32px; animation:rise .4s ease;
+    }
+    @keyframes rise { from{opacity:0; transform:translateY(12px)} to{opacity:1; transform:none} }
+    .brand { display:flex; align-items:center; gap:10px; margin-bottom:4px; }
+    .logo { width:34px; height:34px; border-radius:9px; background:linear-gradient(135deg,var(--bg1),var(--bg2));
+      display:flex; align-items:center; justify-content:center; font-size:18px; }
+    h1 { font-size:1.55rem; margin:0; letter-spacing:-.02em; }
+    .sub { color:var(--muted); margin:6px 0 24px; font-size:.95rem; line-height:1.4; }
+    label { display:block; margin:16px 0 6px; font-weight:600; font-size:.85rem; }
+    input[type=text], input[type=file], select {
+      width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:10px;
+      font-size:1rem; background:#fff; transition:border .15s, box-shadow .15s;
+    }
+    input:focus, select:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(79,70,229,.15); }
+    small { color:var(--muted); display:block; margin-top:5px; font-size:.78rem; line-height:1.4; }
+    .seg { display:flex; gap:8px; margin-top:4px; }
+    .seg label { flex:1; margin:0; cursor:pointer; }
+    .seg input { position:absolute; opacity:0; }
+    .seg span { display:block; text-align:center; padding:11px; border:1px solid var(--line);
+      border-radius:10px; font-weight:600; font-size:.9rem; transition:.15s; }
+    .seg input:checked + span { border-color:var(--accent); background:#eef2ff; color:var(--accent); }
+    button { margin-top:26px; width:100%; padding:13px; border:0; border-radius:11px; cursor:pointer;
+      font-size:1.02rem; font-weight:700; color:#fff;
+      background:linear-gradient(135deg,var(--bg1),var(--bg2)); transition:opacity .15s, transform .05s; }
+    button:hover { opacity:.93; } button:active { transform:translateY(1px); } button:disabled { opacity:.6; cursor:default; }
+    #result { margin-top:20px; padding:15px; border-radius:12px; font-size:.9rem; line-height:1.5; display:none; }
+    #result.ok { background:var(--okbg); border:1px solid #a7f3d0; color:#065f46; }
+    #result.err { background:var(--errbg); border:1px solid #fecaca; color:#991b1b; }
+    .chips { margin-top:8px; display:flex; flex-wrap:wrap; gap:6px; }
+    .chip { background:#fff; border:1px solid #a7f3d0; color:var(--ok); padding:3px 9px; border-radius:999px; font-size:.75rem; }
+    .foot { text-align:center; color:var(--muted); font-size:.75rem; margin-top:18px; }
   </style>
 </head>
 <body>
-  <h1>JobHunt</h1>
-  <p class="sub">Upload your resume, get matching jobs on Telegram.</p>
-
-  <form id="form">
-    <label>Your name</label>
-    <input type="text" name="name" required placeholder="Krish Ojha" />
-
-    <label>Where should we send job alerts?</label>
-    <select name="channel" id="channel" style="width:100%;padding:10px;border:1px solid #ccc;border-radius:8px;font-size:1rem;">
-      <option value="telegram">Telegram</option>
-      <option value="whatsapp">WhatsApp</option>
-    </select>
-
-    <div id="telegram_fields">
-      <label>Telegram chat ID</label>
-      <input type="text" name="telegram_chat_id" placeholder="1460934377" />
-      <small>Message your bot, then open api.telegram.org/bot&lt;token&gt;/getUpdates to find your chat id.</small>
+  <div class="card">
+    <div class="brand">
+      <div class="logo">🎯</div>
+      <h1>JobHunt</h1>
     </div>
+    <p class="sub">Upload your resume once. We scan job boards daily and send the best matches straight to your Telegram or WhatsApp, with apply links.</p>
 
-    <div id="whatsapp_fields" style="display:none;">
-      <label>WhatsApp number (with country code)</label>
-      <input type="text" name="whatsapp_phone" placeholder="+91XXXXXXXXXX" />
-      <label>CallMeBot API key</label>
-      <input type="text" name="whatsapp_apikey" placeholder="123456" />
-      <small>One-time setup: save +34 644 94 58 67 as a contact, WhatsApp it "I allow callmebot to send me messages", it replies with your API key.</small>
-    </div>
+    <form id="form">
+      <label>Your name</label>
+      <input type="text" name="name" required placeholder="Krish Ojha" />
 
-    <label>Locations (comma separated)</label>
-    <input type="text" name="locations" value="remote,india" />
-    <small>e.g. remote, india, bangalore</small>
+      <label>Send alerts to</label>
+      <div class="seg">
+        <label><input type="radio" name="channel" value="telegram" checked /><span>Telegram</span></label>
+        <label><input type="radio" name="channel" value="whatsapp" /><span>WhatsApp</span></label>
+      </div>
 
-    <label>Extra keywords (optional, comma separated)</label>
-    <input type="text" name="extra_keywords" placeholder="rust, solidity, defi" />
+      <div id="telegram_fields">
+        <label>Telegram chat ID</label>
+        <input type="text" name="telegram_chat_id" placeholder="1460934377" />
+        <small>Message your bot, then open api.telegram.org/bot&lt;token&gt;/getUpdates to find your chat id.</small>
+      </div>
 
-    <label>Resume (PDF or DOCX)</label>
-    <input type="file" name="resume_file" accept=".pdf,.docx,.doc,.txt" required />
+      <div id="whatsapp_fields" style="display:none;">
+        <label>WhatsApp number (with country code)</label>
+        <input type="text" name="whatsapp_phone" placeholder="+9183XXXXXXXX" />
+        <label>CallMeBot API key</label>
+        <input type="text" name="whatsapp_apikey" placeholder="e.g. 7429154" />
+        <small>One-time: save +34 644 94 58 67 as a contact, WhatsApp it "I allow callmebot to send me messages", it replies with your key.</small>
+      </div>
 
-    <button type="submit">Sign up</button>
-  </form>
+      <label>Locations</label>
+      <input type="text" name="locations" value="remote,india" />
+      <small>Comma separated, e.g. remote, india, bangalore</small>
 
-  <div id="result"></div>
+      <label>Extra keywords <span style="font-weight:400;color:var(--muted)">(optional)</span></label>
+      <input type="text" name="extra_keywords" placeholder="rust, solidity, defi" />
+
+      <label>Resume (PDF or DOCX)</label>
+      <input type="file" name="resume_file" accept=".pdf,.docx,.doc,.txt" required />
+
+      <button type="submit">Start getting matches</button>
+    </form>
+
+    <div id="result"></div>
+    <p class="foot">Your resume is parsed for skills, not shared. Alerts only, no spam.</p>
+  </div>
 
   <script>
-    const channel = document.getElementById('channel');
     const tgF = document.getElementById('telegram_fields');
     const waF = document.getElementById('whatsapp_fields');
-    channel.addEventListener('change', () => {
-      const wa = channel.value === 'whatsapp';
-      waF.style.display = wa ? 'block' : 'none';
-      tgF.style.display = wa ? 'none' : 'block';
+    document.querySelectorAll('input[name="channel"]').forEach(r => {
+      r.addEventListener('change', () => {
+        const wa = document.querySelector('input[name="channel"]:checked').value === 'whatsapp';
+        waF.style.display = wa ? 'block' : 'none';
+        tgF.style.display = wa ? 'none' : 'block';
+      });
     });
 
     const form = document.getElementById('form');
@@ -76,25 +116,28 @@
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const btn = form.querySelector('button');
-      btn.disabled = true; btn.textContent = 'Submitting...';
+      btn.disabled = true; btn.textContent = 'Setting you up…';
       result.style.display = 'none';
       try {
-        const res = await fetch('/signup', { method: 'POST', body: new FormData(form) });
+        const res = await fetch('/signup', { method:'POST', body:new FormData(form) });
         const data = await res.json();
         result.style.display = 'block';
         if (res.ok && data.ok) {
           result.className = 'ok';
-          result.textContent = data.message + '\n\nDetected skills: ' + data.detected_keywords.join(', ');
+          const chips = (data.detected_keywords||[]).map(k => `<span class="chip">${k}</span>`).join('');
+          result.innerHTML = `<b>You're in! 🎉</b><br>${data.message}` +
+            (chips ? `<div class="chips">${chips}</div>` : '');
+          form.reset();
+          waF.style.display='none'; tgF.style.display='block';
         } else {
           result.className = 'err';
           result.textContent = data.error || 'Something went wrong.';
         }
       } catch (err) {
-        result.style.display = 'block';
-        result.className = 'err';
+        result.style.display = 'block'; result.className = 'err';
         result.textContent = 'Error: ' + err;
       }
-      btn.disabled = false; btn.textContent = 'Sign up';
+      btn.disabled = false; btn.textContent = 'Start getting matches';
     });
   </script>
 </body>
