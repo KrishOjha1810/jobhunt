@@ -11,9 +11,14 @@ RESUME_DIR = DATA_DIR / "resumes"
 RESUME_DIR.mkdir(exist_ok=True)
 
 # DB connection. Local default is SQLite; the cloud sets DATABASE_URL to the Neon Postgres URL.
-DATABASE_URL = os.environ.get("DATABASE_URL", f"sqlite:///{DB_PATH}")
-if DATABASE_URL.startswith("postgres://"):  # SQLAlchemy 2.x wants postgresql://
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+# Sanitize: strip stray quotes/whitespace, fall back to SQLite if empty so a missing/blank env
+# var can't crash startup, and normalize the postgres:// scheme SQLAlchemy 2.x rejects.
+_db = os.environ.get("DATABASE_URL", "").strip().strip('"').strip("'").strip()
+if not _db:
+    _db = f"sqlite:///{DB_PATH}"
+elif _db.startswith("postgres://"):
+    _db = _db.replace("postgres://", "postgresql://", 1)
+DATABASE_URL = _db
 
 
 def _load_dotenv():
