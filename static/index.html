@@ -1,63 +1,124 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>JobHunt , get matched jobs on Telegram & WhatsApp</title>
+  <title>JobHunt, get matched jobs on Telegram & WhatsApp</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <style>
     :root {
-      --bg1:#6d28d9; --bg2:#2563eb; --ink:#0f172a; --muted:#64748b;
-      --line:#e2e8f0; --accent:#4f46e5; --ok:#059669; --okbg:#ecfdf5; --err:#dc2626; --errbg:#fef2f2;
+      --accent:#6366f1; --accent2:#8b5cf6; --accent-soft:rgba(99,102,241,.12);
+      --grad:linear-gradient(135deg,#6366f1,#8b5cf6);
     }
-    * { box-sizing: border-box; }
+    html[data-theme="light"] {
+      --bg:#f4f5fb; --bg-glow1:rgba(99,102,241,.18); --bg-glow2:rgba(139,92,246,.16);
+      --card:#ffffff; --card-border:rgba(15,23,42,.08); --card-shadow:0 24px 60px rgba(15,23,42,.12);
+      --ink:#0f172a; --muted:#64748b; --line:#e6e8f0; --field:#f8fafc; --field-border:#e2e6ef;
+      --seg-bg:#f1f2f9; --seg-ink:#475569;
+      --ok-bg:#ecfdf5; --ok-border:#a7f3d0; --ok-ink:#065f46; --ok:#059669;
+      --err-bg:#fef2f2; --err-border:#fecaca; --err-ink:#991b1b;
+      --chip-bg:#ffffff; --chip-border:#a7f3d0; --chip-ink:#059669;
+      --toggle-bg:#ffffff; --toggle-border:rgba(15,23,42,.1);
+    }
+    html[data-theme="dark"] {
+      --bg:#0a0a14; --bg-glow1:rgba(99,102,241,.28); --bg-glow2:rgba(139,92,246,.22);
+      --card:rgba(22,23,38,.72); --card-border:rgba(255,255,255,.08); --card-shadow:0 30px 80px rgba(0,0,0,.55);
+      --ink:#f1f3f9; --muted:#9499b0; --line:rgba(255,255,255,.08); --field:rgba(255,255,255,.04); --field-border:rgba(255,255,255,.1);
+      --seg-bg:rgba(255,255,255,.04); --seg-ink:#c2c6da;
+      --ok-bg:rgba(5,150,105,.12); --ok-border:rgba(16,185,129,.35); --ok-ink:#6ee7b7; --ok:#34d399;
+      --err-bg:rgba(220,38,38,.12); --err-border:rgba(248,113,113,.35); --err-ink:#fca5a5;
+      --chip-bg:rgba(16,185,129,.1); --chip-border:rgba(16,185,129,.35); --chip-ink:#6ee7b7;
+      --toggle-bg:rgba(255,255,255,.06); --toggle-border:rgba(255,255,255,.12);
+    }
+    * { box-sizing:border-box; }
     body {
-      margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,system-ui,sans-serif;
-      color:var(--ink); min-height:100vh;
-      background:linear-gradient(135deg,var(--bg1),var(--bg2));
-      display:flex; align-items:flex-start; justify-content:center; padding:40px 16px;
+      margin:0; font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+      color:var(--ink); min-height:100vh; background:var(--bg); position:relative; overflow-x:hidden;
+      display:flex; align-items:flex-start; justify-content:center; padding:48px 16px;
+      transition:background .35s ease, color .35s ease;
     }
+    body::before, body::after {
+      content:""; position:fixed; border-radius:50%; filter:blur(90px); z-index:0; pointer-events:none;
+      transition:background .35s ease;
+    }
+    body::before { width:520px; height:520px; top:-160px; left:-120px; background:var(--bg-glow1); }
+    body::after { width:480px; height:480px; bottom:-180px; right:-120px; background:var(--bg-glow2); }
+    .topbar { position:fixed; top:18px; right:18px; z-index:5; }
+    .theme-toggle {
+      width:42px; height:42px; border-radius:12px; border:1px solid var(--toggle-border);
+      background:var(--toggle-bg); color:var(--ink); cursor:pointer; backdrop-filter:blur(12px);
+      display:flex; align-items:center; justify-content:center; transition:transform .15s, border-color .2s;
+    }
+    .theme-toggle:hover { transform:translateY(-1px); border-color:var(--accent); }
+    .theme-toggle svg { width:20px; height:20px; }
     .card {
-      width:100%; max-width:520px; background:#fff; border-radius:20px;
-      box-shadow:0 20px 60px rgba(15,23,42,.25); padding:36px 32px; animation:rise .4s ease;
+      position:relative; z-index:1; width:100%; max-width:540px; background:var(--card);
+      border:1px solid var(--card-border); border-radius:24px; box-shadow:var(--card-shadow);
+      padding:40px 36px; backdrop-filter:blur(20px); animation:rise .5s cubic-bezier(.2,.7,.3,1);
+      transition:background .35s ease, border-color .35s ease;
     }
-    @keyframes rise { from{opacity:0; transform:translateY(12px)} to{opacity:1; transform:none} }
-    .brand { display:flex; align-items:center; gap:10px; margin-bottom:4px; }
-    .logo { width:34px; height:34px; border-radius:9px; background:linear-gradient(135deg,var(--bg1),var(--bg2));
-      display:flex; align-items:center; justify-content:center; font-size:18px; }
-    h1 { font-size:1.55rem; margin:0; letter-spacing:-.02em; }
-    .sub { color:var(--muted); margin:6px 0 24px; font-size:.95rem; line-height:1.4; }
-    label { display:block; margin:16px 0 6px; font-weight:600; font-size:.85rem; }
+    @keyframes rise { from{opacity:0; transform:translateY(16px)} to{opacity:1; transform:none} }
+    .brand { display:flex; align-items:center; gap:12px; margin-bottom:8px; }
+    .logo { width:42px; height:42px; border-radius:13px; background:var(--grad);
+      display:flex; align-items:center; justify-content:center; box-shadow:0 8px 24px var(--accent-soft); }
+    .logo svg { width:22px; height:22px; color:#fff; }
+    h1 { font-size:1.7rem; margin:0; letter-spacing:-.03em; font-weight:800; }
+    .sub { color:var(--muted); margin:10px 0 28px; font-size:.96rem; line-height:1.55; }
+    label { display:block; margin:18px 0 7px; font-weight:600; font-size:.82rem; letter-spacing:.01em; }
     input[type=text], input[type=file], select {
-      width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:10px;
-      font-size:1rem; background:#fff; transition:border .15s, box-shadow .15s;
+      width:100%; padding:12px 14px; border:1px solid var(--field-border); border-radius:12px;
+      font-size:.97rem; font-family:inherit; background:var(--field); color:var(--ink);
+      transition:border .15s, box-shadow .15s, background .35s;
     }
-    input:focus, select:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(79,70,229,.15); }
-    small { color:var(--muted); display:block; margin-top:5px; font-size:.78rem; line-height:1.4; }
-    .seg { display:flex; gap:8px; margin-top:4px; }
+    input::placeholder { color:var(--muted); opacity:.7; }
+    input[type=file] { padding:10px 14px; cursor:pointer; }
+    input[type=file]::file-selector-button {
+      border:0; background:var(--accent-soft); color:var(--accent); font-weight:600; font-family:inherit;
+      padding:7px 12px; border-radius:8px; margin-right:12px; cursor:pointer;
+    }
+    input:focus, select:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 4px var(--accent-soft); }
+    small { color:var(--muted); display:block; margin-top:7px; font-size:.79rem; line-height:1.5; }
+    .seg { display:flex; gap:6px; margin-top:6px; background:var(--seg-bg); padding:5px; border-radius:14px; border:1px solid var(--field-border); }
     .seg label { flex:1; margin:0; cursor:pointer; }
-    .seg input { position:absolute; opacity:0; }
-    .seg span { display:block; text-align:center; padding:11px; border:1px solid var(--line);
-      border-radius:10px; font-weight:600; font-size:.9rem; transition:.15s; }
-    .seg input:checked + span { border-color:var(--accent); background:#eef2ff; color:var(--accent); }
-    button { margin-top:26px; width:100%; padding:13px; border:0; border-radius:11px; cursor:pointer;
-      font-size:1.02rem; font-weight:700; color:#fff;
-      background:linear-gradient(135deg,var(--bg1),var(--bg2)); transition:opacity .15s, transform .05s; }
-    button:hover { opacity:.93; } button:active { transform:translateY(1px); } button:disabled { opacity:.6; cursor:default; }
-    #result { margin-top:20px; padding:15px; border-radius:12px; font-size:.9rem; line-height:1.5; display:none; }
-    #result.ok { background:var(--okbg); border:1px solid #a7f3d0; color:#065f46; }
-    #result.err { background:var(--errbg); border:1px solid #fecaca; color:#991b1b; }
-    .chips { margin-top:8px; display:flex; flex-wrap:wrap; gap:6px; }
-    .chip { background:#fff; border:1px solid #a7f3d0; color:var(--ok); padding:3px 9px; border-radius:999px; font-size:.75rem; }
-    .foot { text-align:center; color:var(--muted); font-size:.75rem; margin-top:18px; }
+    .seg input { position:absolute; opacity:0; pointer-events:none; }
+    .seg span { display:flex; align-items:center; justify-content:center; gap:6px; text-align:center;
+      padding:10px; border-radius:10px; font-weight:600; font-size:.88rem; color:var(--seg-ink); transition:.2s; }
+    .seg span svg { width:15px; height:15px; }
+    .seg input:checked + span { background:var(--grad); color:#fff; box-shadow:0 6px 18px var(--accent-soft); }
+    .field-group { animation:fade .25s ease; }
+    @keyframes fade { from{opacity:0; transform:translateY(-4px)} to{opacity:1; transform:none} }
+    button.submit { margin-top:30px; width:100%; padding:14px; border:0; border-radius:14px; cursor:pointer;
+      font-size:1rem; font-weight:700; font-family:inherit; color:#fff; letter-spacing:.01em;
+      background:var(--grad); box-shadow:0 12px 30px var(--accent-soft); transition:transform .1s, box-shadow .2s, opacity .15s; }
+    button.submit:hover { transform:translateY(-2px); box-shadow:0 16px 38px var(--accent-soft); }
+    button.submit:active { transform:translateY(0); }
+    button.submit:disabled { opacity:.6; cursor:default; transform:none; }
+    #result { margin-top:22px; padding:16px 18px; border-radius:14px; font-size:.92rem; line-height:1.6; display:none; animation:fade .3s ease; }
+    #result.ok { background:var(--ok-bg); border:1px solid var(--ok-border); color:var(--ok-ink); }
+    #result.err { background:var(--err-bg); border:1px solid var(--err-border); color:var(--err-ink); }
+    #result a { color:inherit; }
+    .chips { margin-top:12px; display:flex; flex-wrap:wrap; gap:7px; }
+    .chip { background:var(--chip-bg); border:1px solid var(--chip-border); color:var(--chip-ink);
+      padding:4px 11px; border-radius:999px; font-size:.75rem; font-weight:500; }
+    .foot { text-align:center; color:var(--muted); font-size:.76rem; margin-top:22px; line-height:1.5; }
+    @media (max-width:480px) { .card { padding:30px 22px; } h1 { font-size:1.5rem; } }
   </style>
 </head>
 <body>
+  <div class="topbar">
+    <button class="theme-toggle" id="themeToggle" aria-label="Toggle theme" title="Toggle theme"></button>
+  </div>
+
   <div class="card">
     <div class="brand">
-      <div class="logo">🎯</div>
+      <div class="logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="11" y1="11" x2="11" y2="11"/><line x1="16.5" y1="16.5" x2="21" y2="21"/><circle cx="11" cy="11" r="2.5"/></svg>
+      </div>
       <h1>JobHunt</h1>
     </div>
-    <p class="sub">Upload your resume once. We scan job boards daily and send the best matches straight to your Telegram or WhatsApp, with apply links.</p>
+    <p class="sub">Upload your resume once. We scan job boards daily and send the best matches straight to your inbox, Telegram, or WhatsApp, with apply links.</p>
 
     <form id="form">
       <label>Your name</label>
@@ -65,24 +126,27 @@
 
       <label>Send alerts to</label>
       <div class="seg">
-        <label><input type="radio" name="channel" value="email" checked /><span>Email</span></label>
-        <label><input type="radio" name="channel" value="telegram" /><span>Telegram</span></label>
-        <label><input type="radio" name="channel" value="whatsapp" /><span>WhatsApp</span></label>
+        <label><input type="radio" name="channel" value="email" checked /><span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m2 6 10 7L22 6"/></svg>Email</span></label>
+        <label><input type="radio" name="channel" value="telegram" /><span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 3-9.5 9.5"/><path d="M22 3 15 21l-4-8-8-4 19-6Z"/></svg>Telegram</span></label>
+        <label><input type="radio" name="channel" value="whatsapp" /><span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5Z"/></svg>WhatsApp</span></label>
       </div>
 
-      <div id="email_fields">
+      <div class="field-group" id="email_fields">
         <label>Email address</label>
         <input type="text" name="email" placeholder="you@example.com" />
         <small>Easiest option, just your email. Matches arrive in your inbox.</small>
       </div>
 
-      <div id="telegram_fields" style="display:none;">
+      <div class="field-group" id="telegram_fields" style="display:none;">
         <label>Telegram chat ID</label>
         <input type="text" name="telegram_chat_id" placeholder="1460934377" />
         <small>Message your bot, then open api.telegram.org/bot&lt;token&gt;/getUpdates to find your chat id.</small>
       </div>
 
-      <div id="whatsapp_fields" style="display:none;">
+      <div class="field-group" id="whatsapp_fields" style="display:none;">
         <label>WhatsApp number (with country code)</label>
         <input type="text" name="whatsapp_phone" placeholder="+9183XXXXXXXX" />
         <label>CallMeBot API key</label>
@@ -100,7 +164,7 @@
       <label>Resume (PDF or DOCX)</label>
       <input type="file" name="resume_file" accept=".pdf,.docx,.doc,.txt" required />
 
-      <button type="submit">Start getting matches</button>
+      <button type="submit" class="submit">Start getting matches</button>
     </form>
 
     <div id="result"></div>
@@ -108,6 +172,21 @@
   </div>
 
   <script>
+    // Theme toggle (default dark, remembered in localStorage)
+    const sunIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>';
+    const moonIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>';
+    const toggle = document.getElementById('themeToggle');
+    function applyTheme(t) {
+      document.documentElement.setAttribute('data-theme', t);
+      toggle.innerHTML = t === 'dark' ? sunIcon : moonIcon;
+    }
+    applyTheme(localStorage.getItem('theme') || 'dark');
+    toggle.addEventListener('click', () => {
+      const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+      localStorage.setItem('theme', next); applyTheme(next);
+    });
+
+    // Channel show/hide (email default)
     const fields = {
       email: document.getElementById('email_fields'),
       telegram: document.getElementById('telegram_fields'),
@@ -125,7 +204,7 @@
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const btn = form.querySelector('button');
-      btn.disabled = true; btn.textContent = 'Setting you up…';
+      btn.disabled = true; btn.textContent = 'Setting you up...';
       result.style.display = 'none';
       try {
         const res = await fetch('/signup', { method:'POST', body:new FormData(form) });
@@ -134,8 +213,8 @@
         if (res.ok && data.ok) {
           result.className = 'ok';
           const chips = (data.detected_keywords||[]).map(k => `<span class="chip">${k}</span>`).join('');
-          const dash = data.dashboard_url ? `<br><br>📋 <a href="${data.dashboard_url}"><b>Open your tracker dashboard</b></a> (bookmark this, it's your private link)` : '';
-          result.innerHTML = `<b>You're in! 🎉</b><br>${data.message}${dash}` +
+          const dash = data.dashboard_url ? `<br><br><a href="${data.dashboard_url}"><b>Open your tracker dashboard</b></a> (bookmark this, it's your private link)` : '';
+          result.innerHTML = `<b>You're in!</b><br>${data.message}${dash}` +
             (chips ? `<div class="chips">${chips}</div>` : '');
         } else {
           result.className = 'err';

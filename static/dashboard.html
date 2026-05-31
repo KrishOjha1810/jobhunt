@@ -1,72 +1,189 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>JobHunt , my tracker</title>
+  <title>JobHunt, my tracker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <style>
-    :root { --ink:#0f172a; --muted:#64748b; --line:#e2e8f0; --accent:#4f46e5; --ok:#059669; }
+    :root {
+      --accent:#6366f1; --accent2:#8b5cf6; --accent-soft:rgba(99,102,241,.14);
+      --grad:linear-gradient(135deg,#6366f1,#8b5cf6);
+    }
+    html[data-theme="light"] {
+      --bg:#f4f5fb; --bg-glow:rgba(99,102,241,.12);
+      --card:#ffffff; --card-border:rgba(15,23,42,.07); --card-shadow:0 1px 3px rgba(15,23,42,.06);
+      --ink:#0f172a; --muted:#64748b; --line:#eceef5; --field:#f8fafc; --field-border:#e2e6ef;
+      --thead:#f8fafc; --row-hover:#f8faff; --seg-bg:#f1f2f9; --seg-ink:#475569;
+      --ok:#059669; --score-bg:rgba(5,150,105,.1); --score-ink:#059669; --score-border:rgba(5,150,105,.25);
+      --toggle-bg:#ffffff; --toggle-border:rgba(15,23,42,.1);
+    }
+    html[data-theme="dark"] {
+      --bg:#0a0a14; --bg-glow:rgba(99,102,241,.18);
+      --card:rgba(22,23,38,.7); --card-border:rgba(255,255,255,.07); --card-shadow:0 20px 50px rgba(0,0,0,.4);
+      --ink:#f1f3f9; --muted:#9499b0; --line:rgba(255,255,255,.07); --field:rgba(255,255,255,.05); --field-border:rgba(255,255,255,.12);
+      --thead:rgba(255,255,255,.03); --row-hover:rgba(255,255,255,.03); --seg-bg:rgba(255,255,255,.04); --seg-ink:#c2c6da;
+      --ok:#34d399; --score-bg:rgba(52,211,153,.12); --score-ink:#6ee7b7; --score-border:rgba(52,211,153,.3);
+      --toggle-bg:rgba(255,255,255,.06); --toggle-border:rgba(255,255,255,.12);
+    }
     * { box-sizing:border-box; }
-    body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,system-ui,sans-serif;
-      color:var(--ink); background:#f1f5f9; padding:24px 16px; }
-    .wrap { max-width:1100px; margin:0 auto; }
-    h1 { font-size:1.4rem; margin:0 0 2px; }
-    .sub { color:var(--muted); margin:0 0 18px; font-size:.9rem; }
-    .stats { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:18px; }
-    .stat { background:#fff; border:1px solid var(--line); border-radius:12px; padding:14px 16px; }
-    .stat b { font-size:1.6rem; display:block; }
-    .stat span { color:var(--muted); font-size:.78rem; }
-    .filters { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; align-items:center; }
-    select, .btn { padding:8px 12px; border:1px solid var(--line); border-radius:9px; background:#fff; font-size:.85rem; cursor:pointer; }
-    .btn.active { background:#eef2ff; border-color:var(--accent); color:var(--accent); font-weight:600; }
-    table { width:100%; border-collapse:collapse; background:#fff; border-radius:12px; overflow:hidden; box-shadow:0 1px 3px rgba(15,23,42,.06); }
-    th,td { text-align:left; padding:10px 12px; border-bottom:1px solid var(--line); font-size:.85rem; vertical-align:top; }
-    th { background:#f8fafc; color:var(--muted); font-weight:600; font-size:.72rem; text-transform:uppercase; letter-spacing:.03em; }
+    body { margin:0; font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+      color:var(--ink); background:var(--bg); padding:28px 18px 60px; position:relative; min-height:100vh;
+      transition:background .35s ease, color .35s ease; }
+    body::before { content:""; position:fixed; top:-200px; left:50%; transform:translateX(-50%);
+      width:900px; height:500px; background:var(--bg-glow); filter:blur(110px); border-radius:50%; z-index:0; pointer-events:none; }
+    .wrap { max-width:1140px; margin:0 auto; position:relative; z-index:1; }
+    .head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:22px; animation:rise .5s ease; }
+    h1 { font-size:1.55rem; margin:0 0 4px; letter-spacing:-.03em; font-weight:800; }
+    .sub { color:var(--muted); margin:0; font-size:.92rem; line-height:1.5; }
+    .theme-toggle { flex:0 0 auto; width:42px; height:42px; border-radius:12px; border:1px solid var(--toggle-border);
+      background:var(--toggle-bg); color:var(--ink); cursor:pointer; backdrop-filter:blur(12px);
+      display:flex; align-items:center; justify-content:center; transition:transform .15s, border-color .2s; }
+    .theme-toggle:hover { transform:translateY(-1px); border-color:var(--accent); }
+    .theme-toggle svg { width:20px; height:20px; }
+    .stats { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:22px; }
+    .stat { background:var(--card); border:1px solid var(--card-border); border-radius:16px; padding:18px 20px;
+      backdrop-filter:blur(16px); box-shadow:var(--card-shadow); animation:rise .5s ease both; transition:transform .15s, border-color .2s; }
+    .stat:hover { transform:translateY(-2px); border-color:var(--accent); }
+    .stat:nth-child(2){animation-delay:.04s} .stat:nth-child(3){animation-delay:.08s} .stat:nth-child(4){animation-delay:.12s}
+    .stat b { font-size:2rem; display:block; font-weight:800; letter-spacing:-.02em;
+      background:var(--grad); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; }
+    .stat span { color:var(--muted); font-size:.78rem; font-weight:500; }
+    @keyframes rise { from{opacity:0; transform:translateY(12px)} to{opacity:1; transform:none} }
+    .filters { display:flex; flex-wrap:wrap; gap:10px; margin-bottom:16px; align-items:center; }
+    .toggle-group { display:flex; gap:4px; background:var(--seg-bg); padding:4px; border-radius:11px; border:1px solid var(--field-border); }
+    .btn { padding:7px 14px; border:0; border-radius:8px; background:transparent; color:var(--seg-ink);
+      font-size:.84rem; font-weight:600; font-family:inherit; cursor:pointer; transition:.2s; }
+    .btn.active { background:var(--grad); color:#fff; box-shadow:0 6px 16px var(--accent-soft); }
+    select { padding:9px 13px; border:1px solid var(--field-border); border-radius:10px; background:var(--field);
+      color:var(--ink); font-size:.84rem; font-family:inherit; cursor:pointer; transition:border .15s, box-shadow .15s; }
+    select:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
+    .table-wrap { background:var(--card); border:1px solid var(--card-border); border-radius:18px; overflow:hidden;
+      box-shadow:var(--card-shadow); backdrop-filter:blur(16px); animation:rise .5s ease .1s both; }
+    .scroll { overflow-x:auto; }
+    table { width:100%; border-collapse:collapse; min-width:920px; }
+    th,td { text-align:left; padding:13px 14px; border-bottom:1px solid var(--line); font-size:.86rem; vertical-align:middle; }
+    th { background:var(--thead); color:var(--muted); font-weight:600; font-size:.7rem; text-transform:uppercase; letter-spacing:.05em;
+      position:sticky; top:0; z-index:2; backdrop-filter:blur(10px); }
+    tbody tr { transition:background .12s; }
+    tbody tr:hover { background:var(--row-hover); }
     tr:last-child td { border-bottom:0; }
-    .tag { display:inline-block; padding:2px 8px; border-radius:999px; font-size:.7rem; background:#eef2ff; color:var(--accent); }
-    .applylink { color:var(--accent); text-decoration:none; font-weight:600; }
-    .applylink:hover { text-decoration:underline; }
-    input[type=checkbox] { width:18px; height:18px; cursor:pointer; }
-    .notes { width:140px; border:1px solid var(--line); border-radius:6px; padding:4px 6px; font-size:.8rem; }
-    .res { font-size:.78rem; padding:4px 6px; }
-    .empty { text-align:center; color:var(--muted); padding:40px; }
-    .score { font-weight:700; color:var(--ok); }
+    .company { font-weight:600; }
+    .title { color:var(--ink); }
+    .date { color:var(--muted); font-size:.8rem; white-space:nowrap; }
+    .tag { display:inline-block; padding:3px 10px; border-radius:999px; font-size:.7rem; font-weight:600; border:1px solid transparent; }
+    .applylink { display:inline-flex; align-items:center; gap:4px; color:var(--accent); text-decoration:none; font-weight:600; font-size:.82rem;
+      padding:5px 10px; border-radius:8px; border:1px solid var(--field-border); background:var(--field); transition:.15s; white-space:nowrap; }
+    .applylink:hover { border-color:var(--accent); background:var(--accent-soft); }
+    .applylink svg { width:12px; height:12px; }
+    input[type=checkbox] { -webkit-appearance:none; appearance:none; width:20px; height:20px; border:1.5px solid var(--field-border);
+      border-radius:6px; background:var(--field); cursor:pointer; position:relative; transition:.15s; vertical-align:middle; }
+    input[type=checkbox]:checked { background:var(--grad); border-color:transparent; }
+    input[type=checkbox]:checked::after { content:""; position:absolute; left:6px; top:2px; width:5px; height:10px;
+      border:solid #fff; border-width:0 2px 2px 0; transform:rotate(45deg); }
+    input[type=checkbox]:focus { outline:none; box-shadow:0 0 0 3px var(--accent-soft); }
+    .notes { width:150px; border:1px solid var(--field-border); border-radius:8px; padding:6px 9px; font-size:.8rem;
+      font-family:inherit; background:var(--field); color:var(--ink); transition:border .15s, box-shadow .15s; }
+    .notes:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
+    .res { font-size:.8rem; padding:6px 9px; }
+    .empty { text-align:center; color:var(--muted); padding:56px 20px; font-size:.92rem; }
+    .score { display:inline-flex; align-items:center; justify-content:center; min-width:38px; padding:4px 9px;
+      border-radius:9px; font-weight:700; font-size:.82rem; background:var(--score-bg); color:var(--score-ink); border:1px solid var(--score-border); }
+    .errbox { background:var(--card); border:1px solid var(--card-border); border-radius:18px; padding:48px 28px; text-align:center;
+      color:var(--muted); box-shadow:var(--card-shadow); backdrop-filter:blur(16px); }
+    .errbox b { color:var(--ink); display:block; font-size:1.1rem; margin-bottom:6px; }
+    @media (max-width:600px) {
+      .stats { grid-template-columns:repeat(2,1fr); }
+      .stat b { font-size:1.6rem; }
+      h1 { font-size:1.3rem; }
+      .filters { gap:8px; }
+      select { flex:1; min-width:0; }
+    }
   </style>
 </head>
 <body>
   <div class="wrap">
-    <h1 id="hello">My JobHunt tracker</h1>
-    <p class="sub">Every job we sent you. Tick what you applied to, mark replies, note which resume you used.</p>
+    <div class="head">
+      <div>
+        <h1 id="hello">My JobHunt tracker</h1>
+        <p class="sub">Every job we sent you. Tick what you applied to, mark replies, note which resume you used.</p>
+      </div>
+      <button class="theme-toggle" id="themeToggle" aria-label="Toggle theme" title="Toggle theme"></button>
+    </div>
 
     <div class="stats" id="stats"></div>
 
     <div class="filters">
-      <button class="btn active" data-week="0" id="allBtn">All time</button>
-      <button class="btn" data-week="1" id="weekBtn">This week</button>
+      <div class="toggle-group">
+        <button class="btn active" data-week="0" id="allBtn">All time</button>
+        <button class="btn" data-week="1" id="weekBtn">This week</button>
+      </div>
       <select id="companyFilter"><option value="">All companies</option></select>
       <select id="categoryFilter"><option value="">All roles</option></select>
     </div>
 
-    <table>
-      <thead>
-        <tr>
-          <th>Company</th><th>Role</th><th>Job</th><th>Date</th><th>Match</th>
-          <th>Apply</th><th>Applied</th><th>Heard back</th><th>Resume</th><th>Notes</th>
-        </tr>
-      </thead>
-      <tbody id="rows"></tbody>
-    </table>
-    <div class="empty" id="empty" style="display:none;">No jobs yet. They'll appear here after the next run.</div>
+    <div class="table-wrap">
+      <div class="scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Company</th><th>Role</th><th>Job</th><th>Date</th><th>Match</th>
+              <th>Apply</th><th>Applied</th><th>Heard back</th><th>Resume</th><th>Notes</th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <div class="empty" id="empty" style="display:none;">No jobs yet. They'll appear here after the next run.</div>
+    </div>
   </div>
 
   <script>
+    // Theme toggle (default dark, remembered in localStorage)
+    const sunIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>';
+    const moonIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>';
+    function setupToggle() {
+      const toggle = document.getElementById('themeToggle');
+      if (!toggle) return;
+      const apply = t => { document.documentElement.setAttribute('data-theme', t); toggle.innerHTML = t === 'dark' ? sunIcon : moonIcon; };
+      apply(localStorage.getItem('theme') || 'dark');
+      toggle.addEventListener('click', () => {
+        const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+        localStorage.setItem('theme', next); apply(next);
+      });
+    }
+    setupToggle();
+
+    // Category tag colors (deterministic by name, falls back gracefully)
+    const tagColors = [
+      ['rgba(99,102,241,.14)','#818cf8','rgba(99,102,241,.3)'],
+      ['rgba(16,185,129,.14)','#34d399','rgba(16,185,129,.3)'],
+      ['rgba(236,72,153,.14)','#f472b6','rgba(236,72,153,.3)'],
+      ['rgba(245,158,11,.14)','#fbbf24','rgba(245,158,11,.3)'],
+      ['rgba(14,165,233,.14)','#38bdf8','rgba(14,165,233,.3)'],
+      ['rgba(168,85,247,.14)','#c084fc','rgba(168,85,247,.3)'],
+    ];
+    function tagStyle(cat) {
+      let h = 0; const s = String(cat || 'Other');
+      for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+      const c = tagColors[h % tagColors.length];
+      return `background:${c[0]};color:${c[1]};border-color:${c[2]}`;
+    }
+    function esc(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
     const token = new URLSearchParams(location.search).get('token') || '';
     let all = [];
     let weekOnly = 0;
 
     async function load() {
       const res = await fetch(`/api/jobs?token=${encodeURIComponent(token)}`);
-      if (!res.ok) { document.body.innerHTML = '<div class="wrap"><p>Invalid or missing dashboard link.</p></div>'; return; }
+      if (!res.ok) {
+        document.querySelector('.wrap').innerHTML =
+          '<div class="errbox"><b>Invalid or missing dashboard link.</b>Check the private link from your signup confirmation and try again.</div>';
+        return;
+      }
       const data = await res.json();
       document.getElementById('hello').textContent = `${data.name}'s JobHunt tracker`;
       renderStats(data.stats);
@@ -87,9 +204,9 @@
       const comp = [...new Set(all.map(j => j.company).filter(Boolean))].sort();
       const cat = [...new Set(all.map(j => j.category).filter(Boolean))].sort();
       document.getElementById('companyFilter').innerHTML =
-        '<option value="">All companies</option>' + comp.map(c => `<option>${c}</option>`).join('');
+        '<option value="">All companies</option>' + comp.map(c => `<option>${esc(c)}</option>`).join('');
       document.getElementById('categoryFilter').innerHTML =
-        '<option value="">All roles</option>' + cat.map(c => `<option>${c}</option>`).join('');
+        '<option value="">All roles</option>' + cat.map(c => `<option>${esc(c)}</option>`).join('');
     }
 
     function render() {
@@ -104,12 +221,12 @@
       document.getElementById('empty').style.display = rows.length ? 'none' : 'block';
       tb.innerHTML = rows.map(j => `
         <tr>
-          <td>${j.company||''}</td>
-          <td><span class="tag">${j.category||'Other'}</span></td>
-          <td>${j.title||''}</td>
-          <td>${(j.sent_at||'').slice(0,10)}</td>
-          <td class="score">${j.score||''}</td>
-          <td>${j.url?`<a class="applylink" href="${j.url}" target="_blank">Apply ↗</a>`:''}</td>
+          <td class="company">${esc(j.company)}</td>
+          <td><span class="tag" style="${tagStyle(j.category)}">${esc(j.category || 'Other')}</span></td>
+          <td class="title">${esc(j.title)}</td>
+          <td class="date">${esc((j.sent_at||'').slice(0,10))}</td>
+          <td>${j.score ? `<span class="score">${esc(j.score)}</span>` : ''}</td>
+          <td>${j.url?`<a class="applylink" href="${esc(j.url)}" target="_blank" rel="noopener">Apply <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8"/></svg></a>`:''}</td>
           <td><input type="checkbox" ${j.applied?'checked':''} onchange="upd(${j.id},'applied',this.checked?1:0)"></td>
           <td><input type="checkbox" ${j.responded?'checked':''} onchange="upd(${j.id},'responded',this.checked?1:0)"></td>
           <td><select class="res" onchange="upd(${j.id},'resume_used',this.value)">
