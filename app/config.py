@@ -40,7 +40,7 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 ADZUNA_APP_ID = os.environ.get("ADZUNA_APP_ID", "")
 ADZUNA_APP_KEY = os.environ.get("ADZUNA_APP_KEY", "")
 JSEARCH_RAPIDAPI_KEY = os.environ.get("JSEARCH_RAPIDAPI_KEY", "")
-MAX_MATCHES_PER_RUN = int(os.environ.get("MAX_MATCHES_PER_RUN", "8"))
+MAX_MATCHES_PER_RUN = int(os.environ.get("MAX_MATCHES_PER_RUN", "10"))
 MIN_SCORE = int(os.environ.get("MIN_SCORE", "3"))
 
 # V2: LLM resume tailoring. Optional; if LLM_API_KEY is empty, enrichment is skipped.

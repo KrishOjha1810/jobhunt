@@ -4,7 +4,7 @@ import json
 import secrets
 from datetime import datetime, timedelta
 from sqlalchemy import (
-    create_engine, MetaData, Table, Column, Integer, Text, DateTime, inspect, text,
+    create_engine, MetaData, Table, Column, Integer, Text, DateTime, Index, inspect, text,
     select, insert, update, func,
 )
 from .config import DATABASE_URL
@@ -45,6 +45,9 @@ job_log = Table(
     Column("notes", Text, default=""),
     Column("sent_at", DateTime, default=datetime.utcnow),
 )
+
+# Speeds up the per-job dedup lookups (is_seen / log_job) as the log grows.
+Index("ix_joblog_user_url", job_log.c.user_id, job_log.c.url)
 
 
 def init_db():

@@ -1,7 +1,12 @@
-"""Source registry: fetch jobs from all available providers and de-duplicate by URL."""
+"""Source registry. Fetch jobs from all available providers and de-duplicate.
+
+fetch_pool() fetches ONE shared pool per run (union of all users' query terms) so N users cost
+the same as 1; each user is then matched against that shared pool. fetch_all() is the single-user
+path kept for tests/compatibility.
+"""
+import re as _re
 from . import remotive, remoteok, arbeitnow, adzuna, jsearch
 
-# Distinctive terms we turn into individual searches (each yields relevant results).
 PRIORITY_TERMS = [
     "rust", "solidity", "typescript", "python", "java", "golang", "go",
     "blockchain", "smart contract", "backend", "frontend", "full-stack", "fullstack",
@@ -10,7 +15,6 @@ PRIORITY_TERMS = [
 
 
 def query_terms(keywords: list) -> list:
-    """Pick up to 5 distinctive search terms from the resume keywords."""
     picked = [t for t in PRIORITY_TERMS if t in keywords]
     if not picked:
         picked = keywords[:5]
@@ -18,36 +22,10 @@ def query_terms(keywords: list) -> list:
 
 
 def build_query(keywords: list) -> str:
-    """A single combined query string (used by sources that take one query)."""
     return " ".join(query_terms(keywords)[:3]) or "software engineer"
 
 
-def fetch_all(keywords: list, locations: list) -> list:
-    terms = query_terms(keywords)
-    jobs = []
-
-    # Remotive: one targeted query per term gives far more relevant results than one AND-query.
-    for term in terms:
-        jobs += remotive.fetch(term, limit=30)
-
-    # RemoteOK + Arbeitnow return their whole feeds regardless of query; the matcher filters them.
-    jobs += remoteok.fetch("")
-    jobs += arbeitnow.fetch("")
-
-    # Adzuna (India + global) if keys are present.
-    if adzuna.available():
-        india_wanted = any("india" in (l or "").lower() for l in locations)
-        country = "in" if india_wanted else "gb"
-        for term in terms[:3]:
-            jobs += adzuna.fetch(term, country=country)
-
-    # JSearch (Google-for-Jobs incl. LinkedIn/Indeed) if key present.
-    if jsearch.available():
-        jobs += jsearch.fetch(" ".join(terms[:2]) + " remote")
-
-    # de-dupe by url AND by a fuzzy title+company key (catches the same role reposted at a
-    # different url across boards).
-    import re as _re
+def _dedup(jobs: list) -> list:
     seen_urls, seen_keys, unique = set(), set(), []
     for j in jobs:
         u = (j.get("url") or "").strip()
@@ -61,3 +39,37 @@ def fetch_all(keywords: list, locations: list) -> list:
             seen_keys.add(key)
         unique.append(j)
     return unique
+
+
+def _fetch(terms: list, india_wanted: bool, max_adzuna_terms: int = 4) -> list:
+    jobs = []
+    for term in terms:
+        jobs += remotive.fetch(term)
+    # whole-feed sources (query ignored); fetched once regardless of term count
+    jobs += remoteok.fetch("")
+    jobs += arbeitnow.fetch("")
+    if adzuna.available():
+        country = "in" if india_wanted else "gb"
+        for term in terms[:max_adzuna_terms]:
+            jobs += adzuna.fetch(term, country=country)
+    if jsearch.available():
+        jobs += jsearch.fetch(" ".join(terms[:3]) + " remote")
+    return _dedup(jobs)
+
+
+def fetch_all(keywords: list, locations: list) -> list:
+    """Single-user fetch (kept for tests/compatibility)."""
+    india = any("india" in (l or "").lower() for l in locations)
+    return _fetch(query_terms(keywords), india)
+
+
+def fetch_pool(users: list) -> list:
+    """Fetch ONE shared pool for all users this run (union of their query terms)."""
+    terms, india = [], False
+    for u in users:
+        for t in query_terms(u.get("keywords", [])):
+            if t not in terms:
+                terms.append(t)
+        if any("india" in (l or "").lower() for l in u.get("locations", [])):
+            india = True
+    return _fetch(terms[:12], india)

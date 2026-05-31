@@ -75,6 +75,20 @@ def send(chat_id: str, text: str) -> bool:
     return send_telegram(chat_id, text)
 
 
+def format_digest(user: dict, jobs: list) -> str:
+    """One message listing all of a user's new matches (keeps us under send-rate/quota limits)."""
+    lines = [f"\U0001F4CB {len(jobs)} new job match(es) for you:", ""]
+    for j in jobs:
+        cat = f" [{j.get('category')}]" if j.get("category") else ""
+        lines.append(f"\U0001F539 {j.get('title','')} @ {j.get('company','')}{cat}")
+        lines.append(f"   {j.get('location','')} | match {j.get('score','')}")
+        if j.get("reason"):
+            lines.append(f"   {j['reason']}")
+        lines.append(f"   Apply: {j.get('url','')}")
+        lines.append("")
+    return "\n".join(lines)
+
+
 def format_job(job: dict) -> str:
     reason = job.get("reason") or (
         "Matches: " + ", ".join(job.get("matched", [])[:6])
