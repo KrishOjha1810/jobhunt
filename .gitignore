@@ -1,0 +1,11 @@
+# secrets and local state
+.env
+data/*.db
+data/resumes/
+data/*.log
+
+# python
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
