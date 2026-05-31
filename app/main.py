@@ -48,7 +48,9 @@ async def signup(
             keywords.append(kw)
 
     loc_list = [l.strip().lower() for l in locations.split(",") if l.strip()]
-    user_id = db.add_user(name, telegram_chat_id, keywords, loc_list, str(dest))
+    user_id = db.add_user(
+        name, telegram_chat_id, keywords, loc_list, str(dest), profile.get("text", "")
+    )
     return {
         "ok": True,
         "user_id": user_id,

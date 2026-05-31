@@ -27,11 +27,16 @@ def init_db():
                 keywords TEXT NOT NULL,          -- JSON list of skill/role keywords
                 locations TEXT NOT NULL,         -- JSON list, e.g. ["remote","india"]
                 resume_path TEXT,
+                resume_text TEXT,
                 active INTEGER DEFAULT 1,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
             """
         )
+        # migration for older DBs created before resume_text existed
+        cols = [r["name"] for r in conn.execute("PRAGMA table_info(users)").fetchall()]
+        if "resume_text" not in cols:
+            conn.execute("ALTER TABLE users ADD COLUMN resume_text TEXT")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS seen_jobs (
@@ -44,12 +49,13 @@ def init_db():
         )
 
 
-def add_user(name, telegram_chat_id, keywords, locations, resume_path=None):
+def add_user(name, telegram_chat_id, keywords, locations, resume_path=None, resume_text=None):
     with get_conn() as conn:
         cur = conn.execute(
-            "INSERT INTO users (name, telegram_chat_id, keywords, locations, resume_path) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (name, telegram_chat_id, json.dumps(keywords), json.dumps(locations), resume_path),
+            "INSERT INTO users (name, telegram_chat_id, keywords, locations, resume_path, resume_text) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (name, telegram_chat_id, json.dumps(keywords), json.dumps(locations),
+             resume_path, resume_text),
         )
         return cur.lastrowid
 
@@ -67,6 +73,7 @@ def list_active_users():
                 "keywords": json.loads(r["keywords"]),
                 "locations": json.loads(r["locations"]),
                 "resume_path": r["resume_path"],
+                "resume_text": r["resume_text"] if "resume_text" in r.keys() else None,
             }
         )
     return users

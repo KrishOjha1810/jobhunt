@@ -67,4 +67,4 @@ def profile_from_resume(path: str) -> dict:
     text = extract_text(path)
     keywords = extract_keywords(text)
     seniority = [s for s in SENIORITY if re.search(r"(?<![a-z])" + s + r"(?![a-z])", text.lower())]
-    return {"keywords": keywords, "seniority": seniority, "text_len": len(text)}
+    return {"keywords": keywords, "seniority": seniority, "text": text, "text_len": len(text)}

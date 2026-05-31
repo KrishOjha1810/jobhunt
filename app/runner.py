@@ -3,7 +3,7 @@
 Run directly (python -m app.runner) or via cron. Safe to run repeatedly; the seen-jobs
 ledger prevents re-notifying the same listing.
 """
-from . import db, sources, matcher, notifier
+from . import db, sources, matcher, notifier, enrich
 from .config import MIN_SCORE, MAX_MATCHES_PER_RUN
 
 
@@ -31,6 +31,10 @@ def run_once(verbose: bool = True):
         )
         for job in to_send:
             notifier.send(user["telegram_chat_id"], notifier.format_job(job))
+            # V2: LLM tailoring (only if a key is configured)
+            block = enrich.tailor(job, user.get("resume_text") or "")
+            if block:
+                notifier.send(user["telegram_chat_id"], "✂️ Tailoring:\n" + block)
             db.mark_seen(user["id"], job["url"])
 
 

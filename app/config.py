@@ -31,3 +31,9 @@ ADZUNA_APP_KEY = os.environ.get("ADZUNA_APP_KEY", "")
 JSEARCH_RAPIDAPI_KEY = os.environ.get("JSEARCH_RAPIDAPI_KEY", "")
 MAX_MATCHES_PER_RUN = int(os.environ.get("MAX_MATCHES_PER_RUN", "8"))
 MIN_SCORE = int(os.environ.get("MIN_SCORE", "3"))
+
+# V2: LLM resume tailoring. Optional; if LLM_API_KEY is empty, enrichment is skipped.
+# LLM_PROVIDER: "openai" | "groq" | "gemini" | "anthropic"  (first three use the OpenAI-style API)
+LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "groq").lower()
+LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
+LLM_MODEL = os.environ.get("LLM_MODEL", "")
