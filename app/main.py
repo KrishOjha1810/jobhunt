@@ -35,19 +35,22 @@ def home():
 @app.post("/signup")
 async def signup(
     name: str = Form(...),
-    channel: str = Form("telegram"),
+    channel: str = Form("email"),
     telegram_chat_id: str = Form(""),
     whatsapp_phone: str = Form(""),
     whatsapp_apikey: str = Form(""),
+    email: str = Form(""),
     locations: str = Form("remote,india"),
     extra_keywords: str = Form(""),
     resume_file: UploadFile = File(...),
 ):
-    channel = (channel or "telegram").lower()
+    channel = (channel or "email").lower()
     if channel == "telegram" and not telegram_chat_id.strip():
         return JSONResponse({"error": "Telegram chat ID is required for the Telegram channel."}, status_code=400)
     if channel == "whatsapp" and not (whatsapp_phone.strip() and whatsapp_apikey.strip()):
         return JSONResponse({"error": "WhatsApp needs both phone and CallMeBot API key."}, status_code=400)
+    if channel == "email" and "@" not in email:
+        return JSONResponse({"error": "A valid email address is required for the Email channel."}, status_code=400)
     # save resume
     safe = "".join(c for c in name if c.isalnum() or c in "-_") or "user"
     dest = RESUME_DIR / f"{safe}_{resume_file.filename}"
@@ -68,19 +71,58 @@ async def signup(
             keywords.append(kw)
 
     loc_list = [l.strip().lower() for l in locations.split(",") if l.strip()]
-    user_id = db.add_user(
+    user_id, token = db.add_user(
         name, telegram_chat_id, keywords, loc_list, str(dest), profile.get("text", ""),
         channel=channel, whatsapp_phone=whatsapp_phone.strip() or None,
-        whatsapp_apikey=whatsapp_apikey.strip() or None,
+        whatsapp_apikey=whatsapp_apikey.strip() or None, email=email.strip() or None,
     )
+    dash_url = f"/dashboard?token={token}"
     return {
         "ok": True,
         "user_id": user_id,
         "detected_keywords": keywords,
         "locations": loc_list,
         "channel": channel,
+        "dashboard_url": dash_url,
         "message": f"Signed up. You'll get job matches on {channel.title()} on the next run.",
     }
+
+
+@app.get("/dashboard", response_class=HTMLResponse)
+def dashboard():
+    return (STATIC_DIR / "dashboard.html").read_text()
+
+
+@app.get("/api/jobs")
+def api_jobs(token: str = "", week: int = 0, company: str = "", category: str = ""):
+    user = db.user_by_token(token)
+    if not user:
+        return JSONResponse({"error": "invalid or missing token"}, status_code=403)
+    jobs = db.list_jobs(user["id"], week=bool(week), company=company or None, category=category or None)
+    # serialize datetimes
+    for j in jobs:
+        if j.get("sent_at"):
+            j["sent_at"] = str(j["sent_at"])[:16]
+    return {"ok": True, "name": user["name"], "stats": db.stats(user["id"]), "jobs": jobs}
+
+
+@app.post("/api/jobs/{job_id}")
+def api_update_job(job_id: int, token: str = "", applied: int = None,
+                   responded: int = None, resume_used: str = None, notes: str = None):
+    user = db.user_by_token(token)
+    if not user:
+        return JSONResponse({"error": "invalid token"}, status_code=403)
+    fields = {}
+    if applied is not None:
+        fields["applied"] = applied
+    if responded is not None:
+        fields["responded"] = responded
+    if resume_used is not None:
+        fields["resume_used"] = resume_used
+    if notes is not None:
+        fields["notes"] = notes
+    db.update_job(job_id, user["id"], **fields)
+    return {"ok": True}
 
 
 @app.api_route("/run", methods=["GET", "POST"])

@@ -55,3 +55,15 @@ SCHEDULER_HOURS = int(os.environ.get("SCHEDULER_HOURS", "8"))
 
 # Optional shared secret to protect the /run trigger endpoint (used by the external cron).
 RUN_TOKEN = os.environ.get("RUN_TOKEN", "")
+
+# Email notifications (easiest channel for end users). Off until SMTP creds are set.
+# For Gmail: SMTP_HOST=smtp.gmail.com, SMTP_PORT=587, SMTP_USER=you@gmail.com,
+# SMTP_PASS=<app password>, EMAIL_FROM=you@gmail.com
+SMTP_HOST = os.environ.get("SMTP_HOST", "")
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+SMTP_USER = os.environ.get("SMTP_USER", "")
+SMTP_PASS = os.environ.get("SMTP_PASS", "")
+EMAIL_FROM = os.environ.get("EMAIL_FROM", "") or SMTP_USER
+
+# Public base URL (for building dashboard links in messages). e.g. https://jobhunt-8i1m.onrender.com
+BASE_URL = os.environ.get("BASE_URL", "").rstrip("/")

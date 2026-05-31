@@ -65,11 +65,18 @@
 
       <label>Send alerts to</label>
       <div class="seg">
-        <label><input type="radio" name="channel" value="telegram" checked /><span>Telegram</span></label>
+        <label><input type="radio" name="channel" value="email" checked /><span>Email</span></label>
+        <label><input type="radio" name="channel" value="telegram" /><span>Telegram</span></label>
         <label><input type="radio" name="channel" value="whatsapp" /><span>WhatsApp</span></label>
       </div>
 
-      <div id="telegram_fields">
+      <div id="email_fields">
+        <label>Email address</label>
+        <input type="text" name="email" placeholder="you@example.com" />
+        <small>Easiest option, just your email. Matches arrive in your inbox.</small>
+      </div>
+
+      <div id="telegram_fields" style="display:none;">
         <label>Telegram chat ID</label>
         <input type="text" name="telegram_chat_id" placeholder="1460934377" />
         <small>Message your bot, then open api.telegram.org/bot&lt;token&gt;/getUpdates to find your chat id.</small>
@@ -101,13 +108,15 @@
   </div>
 
   <script>
-    const tgF = document.getElementById('telegram_fields');
-    const waF = document.getElementById('whatsapp_fields');
+    const fields = {
+      email: document.getElementById('email_fields'),
+      telegram: document.getElementById('telegram_fields'),
+      whatsapp: document.getElementById('whatsapp_fields'),
+    };
     document.querySelectorAll('input[name="channel"]').forEach(r => {
       r.addEventListener('change', () => {
-        const wa = document.querySelector('input[name="channel"]:checked').value === 'whatsapp';
-        waF.style.display = wa ? 'block' : 'none';
-        tgF.style.display = wa ? 'none' : 'block';
+        const v = document.querySelector('input[name="channel"]:checked').value;
+        Object.entries(fields).forEach(([k, el]) => el.style.display = (k === v) ? 'block' : 'none');
       });
     });
 
@@ -125,10 +134,9 @@
         if (res.ok && data.ok) {
           result.className = 'ok';
           const chips = (data.detected_keywords||[]).map(k => `<span class="chip">${k}</span>`).join('');
-          result.innerHTML = `<b>You're in! 🎉</b><br>${data.message}` +
+          const dash = data.dashboard_url ? `<br><br>📋 <a href="${data.dashboard_url}"><b>Open your tracker dashboard</b></a> (bookmark this, it's your private link)` : '';
+          result.innerHTML = `<b>You're in! 🎉</b><br>${data.message}${dash}` +
             (chips ? `<div class="chips">${chips}</div>` : '');
-          form.reset();
-          waF.style.display='none'; tgF.style.display='block';
         } else {
           result.className = 'err';
           result.textContent = data.error || 'Something went wrong.';

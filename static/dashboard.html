@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>JobHunt , my tracker</title>
+  <style>
+    :root { --ink:#0f172a; --muted:#64748b; --line:#e2e8f0; --accent:#4f46e5; --ok:#059669; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,system-ui,sans-serif;
+      color:var(--ink); background:#f1f5f9; padding:24px 16px; }
+    .wrap { max-width:1100px; margin:0 auto; }
+    h1 { font-size:1.4rem; margin:0 0 2px; }
+    .sub { color:var(--muted); margin:0 0 18px; font-size:.9rem; }
+    .stats { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:18px; }
+    .stat { background:#fff; border:1px solid var(--line); border-radius:12px; padding:14px 16px; }
+    .stat b { font-size:1.6rem; display:block; }
+    .stat span { color:var(--muted); font-size:.78rem; }
+    .filters { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; align-items:center; }
+    select, .btn { padding:8px 12px; border:1px solid var(--line); border-radius:9px; background:#fff; font-size:.85rem; cursor:pointer; }
+    .btn.active { background:#eef2ff; border-color:var(--accent); color:var(--accent); font-weight:600; }
+    table { width:100%; border-collapse:collapse; background:#fff; border-radius:12px; overflow:hidden; box-shadow:0 1px 3px rgba(15,23,42,.06); }
+    th,td { text-align:left; padding:10px 12px; border-bottom:1px solid var(--line); font-size:.85rem; vertical-align:top; }
+    th { background:#f8fafc; color:var(--muted); font-weight:600; font-size:.72rem; text-transform:uppercase; letter-spacing:.03em; }
+    tr:last-child td { border-bottom:0; }
+    .tag { display:inline-block; padding:2px 8px; border-radius:999px; font-size:.7rem; background:#eef2ff; color:var(--accent); }
+    .applylink { color:var(--accent); text-decoration:none; font-weight:600; }
+    .applylink:hover { text-decoration:underline; }
+    input[type=checkbox] { width:18px; height:18px; cursor:pointer; }
+    .notes { width:140px; border:1px solid var(--line); border-radius:6px; padding:4px 6px; font-size:.8rem; }
+    .res { font-size:.78rem; padding:4px 6px; }
+    .empty { text-align:center; color:var(--muted); padding:40px; }
+    .score { font-weight:700; color:var(--ok); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1 id="hello">My JobHunt tracker</h1>
+    <p class="sub">Every job we sent you. Tick what you applied to, mark replies, note which resume you used.</p>
+
+    <div class="stats" id="stats"></div>
+
+    <div class="filters">
+      <button class="btn active" data-week="0" id="allBtn">All time</button>
+      <button class="btn" data-week="1" id="weekBtn">This week</button>
+      <select id="companyFilter"><option value="">All companies</option></select>
+      <select id="categoryFilter"><option value="">All roles</option></select>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Company</th><th>Role</th><th>Job</th><th>Date</th><th>Match</th>
+          <th>Apply</th><th>Applied</th><th>Heard back</th><th>Resume</th><th>Notes</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div class="empty" id="empty" style="display:none;">No jobs yet. They'll appear here after the next run.</div>
+  </div>
+
+  <script>
+    const token = new URLSearchParams(location.search).get('token') || '';
+    let all = [];
+    let weekOnly = 0;
+
+    async function load() {
+      const res = await fetch(`/api/jobs?token=${encodeURIComponent(token)}`);
+      if (!res.ok) { document.body.innerHTML = '<div class="wrap"><p>Invalid or missing dashboard link.</p></div>'; return; }
+      const data = await res.json();
+      document.getElementById('hello').textContent = `${data.name}'s JobHunt tracker`;
+      renderStats(data.stats);
+      all = data.jobs;
+      buildFilterOptions();
+      render();
+    }
+
+    function renderStats(s) {
+      document.getElementById('stats').innerHTML = `
+        <div class="stat"><b>${s.total}</b><span>jobs sent</span></div>
+        <div class="stat"><b>${s.applied_week}</b><span>applied this week</span></div>
+        <div class="stat"><b>${s.applied_month}</b><span>applied this month</span></div>
+        <div class="stat"><b>${s.responses}</b><span>responses</span></div>`;
+    }
+
+    function buildFilterOptions() {
+      const comp = [...new Set(all.map(j => j.company).filter(Boolean))].sort();
+      const cat = [...new Set(all.map(j => j.category).filter(Boolean))].sort();
+      document.getElementById('companyFilter').innerHTML =
+        '<option value="">All companies</option>' + comp.map(c => `<option>${c}</option>`).join('');
+      document.getElementById('categoryFilter').innerHTML =
+        '<option value="">All roles</option>' + cat.map(c => `<option>${c}</option>`).join('');
+    }
+
+    function render() {
+      const week = weekOnly ? Date.now() - 7*864e5 : 0;
+      const co = document.getElementById('companyFilter').value;
+      const ca = document.getElementById('categoryFilter').value;
+      const rows = all.filter(j =>
+        (!co || j.company === co) && (!ca || j.category === ca) &&
+        (!week || (j.sent_at && new Date(j.sent_at.replace(' ','T')).getTime() >= week))
+      );
+      const tb = document.getElementById('rows');
+      document.getElementById('empty').style.display = rows.length ? 'none' : 'block';
+      tb.innerHTML = rows.map(j => `
+        <tr>
+          <td>${j.company||''}</td>
+          <td><span class="tag">${j.category||'Other'}</span></td>
+          <td>${j.title||''}</td>
+          <td>${(j.sent_at||'').slice(0,10)}</td>
+          <td class="score">${j.score||''}</td>
+          <td>${j.url?`<a class="applylink" href="${j.url}" target="_blank">Apply ↗</a>`:''}</td>
+          <td><input type="checkbox" ${j.applied?'checked':''} onchange="upd(${j.id},'applied',this.checked?1:0)"></td>
+          <td><input type="checkbox" ${j.responded?'checked':''} onchange="upd(${j.id},'responded',this.checked?1:0)"></td>
+          <td><select class="res" onchange="upd(${j.id},'resume_used',this.value)">
+            ${['','Backend','Blockchain','FullStack','Other'].map(r=>`<option ${j.resume_used===r?'selected':''}>${r}</option>`).join('')}
+          </select></td>
+          <td><input class="notes" value="${(j.notes||'').replace(/"/g,'&quot;')}" onblur="upd(${j.id},'notes',this.value)" placeholder="notes..."></td>
+        </tr>`).join('');
+    }
+
+    async function upd(id, field, value) {
+      const p = new URLSearchParams({ token }); p.set(field, value);
+      await fetch(`/api/jobs/${id}?${p.toString()}`, { method:'POST' });
+      const j = all.find(x => x.id === id); if (j) j[field] = value;
+    }
+
+    document.getElementById('allBtn').onclick = () => { weekOnly=0; toggle('allBtn','weekBtn'); render(); };
+    document.getElementById('weekBtn').onclick = () => { weekOnly=1; toggle('weekBtn','allBtn'); render(); };
+    function toggle(on,off){ document.getElementById(on).classList.add('active'); document.getElementById(off).classList.remove('active'); }
+    document.getElementById('companyFilter').onchange = render;
+    document.getElementById('categoryFilter').onchange = render;
+
+    load();
+  </script>
+</body>
+</html>

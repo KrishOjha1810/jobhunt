@@ -32,7 +32,7 @@ def run_once(verbose: bool = True):
             block = enrich.tailor(job, user.get("resume_text") or "")
             if block:
                 notifier.send_to_user(user, "✂️ Tailoring:\n" + block)
-            db.mark_seen(user["id"], job["url"])
+            db.log_job(user["id"], job)
 
 
 if __name__ == "__main__":

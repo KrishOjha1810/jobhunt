@@ -1,7 +1,11 @@
-"""Send job alerts via Telegram or WhatsApp (CallMeBot)."""
+"""Send job alerts via Telegram, WhatsApp (CallMeBot), or Email (SMTP)."""
+import smtplib
 import urllib.parse
+from email.mime.text import MIMEText
 import requests
-from .config import TELEGRAM_BOT_TOKEN
+from .config import (
+    TELEGRAM_BOT_TOKEN, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, EMAIL_FROM,
+)
 
 
 def send_telegram(chat_id: str, text: str) -> bool:
@@ -37,10 +41,32 @@ def send_whatsapp(phone: str, apikey: str, text: str) -> bool:
         return False
 
 
+def send_email(to_addr: str, text: str, subject: str = "JobHunt: new job matches") -> bool:
+    if not (SMTP_HOST and SMTP_USER and SMTP_PASS and to_addr):
+        print("[notifier] email not configured / no address")
+        return False
+    try:
+        msg = MIMEText(text)
+        msg["Subject"] = subject
+        msg["From"] = EMAIL_FROM
+        msg["To"] = to_addr
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=25) as s:
+            s.starttls()
+            s.login(SMTP_USER, SMTP_PASS)
+            s.sendmail(EMAIL_FROM, [to_addr], msg.as_string())
+        return True
+    except Exception as e:
+        print(f"[notifier] email error: {e}")
+        return False
+
+
 def send_to_user(user: dict, text: str) -> bool:
     """Dispatch to the user's chosen channel."""
-    if user.get("channel") == "whatsapp":
+    ch = user.get("channel")
+    if ch == "whatsapp":
         return send_whatsapp(user.get("whatsapp_phone"), user.get("whatsapp_apikey"), text)
+    if ch == "email":
+        return send_email(user.get("email"), text)
     return send_telegram(user.get("telegram_chat_id"), text)
 
 
