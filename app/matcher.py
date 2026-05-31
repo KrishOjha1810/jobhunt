@@ -77,17 +77,22 @@ def rank_matches(jobs: list, keywords: list, locations: list, min_score: int) ->
         score, matched = score_job(job, keywords)
         if score >= min_score:
             job = dict(job)
-            # Deprioritize roles asking for far more experience than a mid-level fit (don't drop,
-            # just rank lower) so the most realistic "you could actually get this" jobs lead.
+            # Roles asking far more experience than a mid-level fit are deprioritized (not dropped).
             yrs = years_required(job.get("description", ""))
-            penalty = 2 if yrs >= 8 else (1 if yrs >= 6 else 0)
-            job["score"] = max(score - penalty, 1)
+            penalty = 25 if yrs >= 8 else (12 if yrs >= 6 else 0)
+            # Normalized 0-100 fit: scaled skill+title overlap, minus a seniority-gap penalty.
+            # Fixed scale (not within-run) so a "90" means the same thing every time.
+            fit = max(15, min(100, score * 8 - penalty))
+            job["raw_score"] = score
+            job["score"] = fit
             job["matched"] = matched
             job["category"] = categorize(job)
             job["seniority_note"] = f"{yrs}+ yrs asked" if yrs >= 6 else ""
+            tier = "Strong fit" if fit >= 75 else ("Good fit" if fit >= 50 else "Possible fit")
             top = ", ".join(matched[:5])
-            job["reason"] = (f"Matches {len(matched)} of your skills" + (f": {top}" if top else "")
-                             + (f" (note: {yrs}+ yrs experience asked)" if yrs >= 6 else ""))
+            job["reason"] = (f"{tier} ({fit}/100). Matches {len(matched)} of your skills"
+                             + (f": {top}" if top else "")
+                             + (f". Note: {yrs}+ yrs experience asked" if yrs >= 6 else ""))
             results.append(job)
     results.sort(key=lambda j: j["score"], reverse=True)
     return results
