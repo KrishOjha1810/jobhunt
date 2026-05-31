@@ -76,9 +76,14 @@ def send(chat_id: str, text: str) -> bool:
 
 
 def format_job(job: dict) -> str:
-    matched = ", ".join(job.get("matched", [])[:6])
+    reason = job.get("reason") or (
+        "Matches: " + ", ".join(job.get("matched", [])[:6])
+    )
+    cat = job.get("category", "")
     return (
-        f"\U0001F539 {job['title']} @ {job['company']}\n"
-        f"{job.get('location','')} | match: {job['score']} ({matched})\n"
+        f"\U0001F539 {job['title']} @ {job['company']}"
+        + (f"  [{cat}]" if cat else "") + "\n"
+        f"{job.get('location','')} | match score {job['score']}\n"
+        f"{reason}\n"
         f"Apply: {job['url']}"
     )

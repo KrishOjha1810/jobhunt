@@ -8,22 +8,36 @@ def _contains(text: str, term: str) -> bool:
 
 REMOTE_TERMS = ("remote", "anywhere", "worldwide", "global", "")
 
+# So "india" as a preference also matches jobs listed in Indian cities / "IN".
+INDIA_CITIES = (
+    "india", "bengaluru", "bangalore", "mumbai", "delhi", "ncr", "gurgaon", "gurugram",
+    "noida", "hyderabad", "pune", "chennai", "kolkata", "ahmedabad", "indore", "jaipur",
+)
+COUNTRY_ALIASES = {"india": INDIA_CITIES}
+
 
 def location_ok(job_location: str, locations: list) -> bool:
     """True if the job's location is acceptable to the user."""
     if not locations:
         return True
     loc = (job_location or "").lower().strip()
-    # Remote-by-nature listings (blank / worldwide / global / anywhere) always pass.
     if loc in REMOTE_TERMS:
         return True
     for want in locations:
         w = want.lower().strip()
         if w in ("remote", "anywhere") and any(t and t in loc for t in REMOTE_TERMS):
             return True
-        if w and w in loc:
+        # expand country aliases (e.g. "india" matches its cities and "IN")
+        aliases = COUNTRY_ALIASES.get(w, (w,))
+        if any(a and a in loc for a in aliases):
             return True
     return False
+
+
+def years_required(text: str) -> int:
+    """Best-effort: highest 'N+ years' figure mentioned in the JD (0 if none)."""
+    nums = re.findall(r"(\d{1,2})\s*\+?\s*(?:years|yrs)", text.lower())
+    return max((int(n) for n in nums), default=0)
 
 
 CATEGORY_RULES = [
@@ -63,9 +77,17 @@ def rank_matches(jobs: list, keywords: list, locations: list, min_score: int) ->
         score, matched = score_job(job, keywords)
         if score >= min_score:
             job = dict(job)
-            job["score"] = score
+            # Deprioritize roles asking for far more experience than a mid-level fit (don't drop,
+            # just rank lower) so the most realistic "you could actually get this" jobs lead.
+            yrs = years_required(job.get("description", ""))
+            penalty = 2 if yrs >= 8 else (1 if yrs >= 6 else 0)
+            job["score"] = max(score - penalty, 1)
             job["matched"] = matched
             job["category"] = categorize(job)
+            job["seniority_note"] = f"{yrs}+ yrs asked" if yrs >= 6 else ""
+            top = ", ".join(matched[:5])
+            job["reason"] = (f"Matches {len(matched)} of your skills" + (f": {top}" if top else "")
+                             + (f" (note: {yrs}+ yrs experience asked)" if yrs >= 6 else ""))
             results.append(job)
     results.sort(key=lambda j: j["score"], reverse=True)
     return results

@@ -45,13 +45,19 @@ def fetch_all(keywords: list, locations: list) -> list:
     if jsearch.available():
         jobs += jsearch.fetch(" ".join(terms[:2]) + " remote")
 
-    # de-dupe by url
-    seen = set()
-    unique = []
+    # de-dupe by url AND by a fuzzy title+company key (catches the same role reposted at a
+    # different url across boards).
+    import re as _re
+    seen_urls, seen_keys, unique = set(), set(), []
     for j in jobs:
         u = (j.get("url") or "").strip()
-        if not u or u in seen:
+        if not u or u in seen_urls:
             continue
-        seen.add(u)
+        key = _re.sub(r"[^a-z0-9]", "", (j.get("title", "") + j.get("company", "")).lower())
+        if key and key in seen_keys:
+            continue
+        seen_urls.add(u)
+        if key:
+            seen_keys.add(key)
         unique.append(j)
     return unique
