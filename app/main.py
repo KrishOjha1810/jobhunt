@@ -1,19 +1,46 @@
-"""FastAPI app: signup UI + API. Users upload a resume + preferences and get a profile."""
+"""FastAPI app: signup, auth (password + optional Google OAuth), tracker API + dashboard."""
 import os
 import re
 import shutil
 from pathlib import Path
 from fastapi import FastAPI, Request, Form, UploadFile, File, BackgroundTasks
-
-EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.sessions import SessionMiddleware
 
 from . import db, resume, runner
-from .config import RESUME_DIR, BASE_DIR, ENABLE_SCHEDULER, SCHEDULER_HOURS, RUN_TOKEN
+from .config import (
+    RESUME_DIR, BASE_DIR, ENABLE_SCHEDULER, SCHEDULER_HOURS, RUN_TOKEN,
+    SECRET_KEY, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
+)
+
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 app = FastAPI(title="JobHunt")
+app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
 db.init_db()
+
+# Optional Google OAuth, active only when both client id and secret are configured.
+oauth = None
+if GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET:
+    try:
+        from authlib.integrations.starlette_client import OAuth
+        oauth = OAuth()
+        oauth.register(
+            name="google",
+            client_id=GOOGLE_CLIENT_ID,
+            client_secret=GOOGLE_CLIENT_SECRET,
+            server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
+            client_kwargs={"scope": "openid email profile"},
+        )
+    except Exception as e:
+        print(f"[oauth] disabled: {e}")
+        oauth = None
+
+
+def current_user(request: Request):
+    uid = request.session.get("uid")
+    return db.get_user_by_id(uid) if uid else None
 
 
 @app.on_event("startup")
@@ -38,12 +65,14 @@ def home():
 
 @app.post("/signup")
 async def signup(
+    request: Request,
     name: str = Form(...),
     channel: str = Form("email"),
     telegram_chat_id: str = Form(""),
     whatsapp_phone: str = Form(""),
     whatsapp_apikey: str = Form(""),
     email: str = Form(""),
+    password: str = Form(""),
     locations: str = Form("remote,india"),
     extra_keywords: str = Form(""),
     resume_file: UploadFile = File(...),
@@ -87,6 +116,9 @@ async def signup(
         channel=channel, whatsapp_phone=whatsapp_phone.strip() or None,
         whatsapp_apikey=whatsapp_apikey.strip() or None, email=email.strip() or None,
     )
+    if password.strip():
+        db.set_password(user_id, password.strip())
+    request.session["uid"] = user_id  # log them in immediately
     dash_url = f"/dashboard?token={token}"
     return {
         "ok": True,
@@ -100,15 +132,72 @@ async def signup(
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
-def dashboard():
-    return (STATIC_DIR / "dashboard.html").read_text()
+def dashboard(request: Request, token: str = ""):
+    # token link (existing behavior, never breaks) OR a logged-in session; else go log in.
+    if (token and db.user_by_token(token)) or current_user(request):
+        return HTMLResponse((STATIC_DIR / "dashboard.html").read_text())
+    return RedirectResponse("/login", status_code=302)
+
+
+@app.get("/login", response_class=HTMLResponse)
+def login_get():
+    return (STATIC_DIR / "login.html").read_text()
+
+
+@app.post("/login")
+def login_post(request: Request, email: str = Form(...), password: str = Form(...)):
+    u = db.verify_login(email.strip(), password)
+    if not u:
+        return RedirectResponse("/login?error=1", status_code=302)
+    request.session["uid"] = u["id"]
+    return RedirectResponse("/dashboard", status_code=302)
+
+
+@app.get("/logout")
+def logout(request: Request):
+    request.session.clear()
+    return RedirectResponse("/", status_code=302)
+
+
+@app.get("/authconfig")
+def authconfig():
+    return {"google": oauth is not None}
+
+
+@app.get("/auth/google")
+async def auth_google(request: Request):
+    if not oauth:
+        return RedirectResponse("/login")
+    return await oauth.google.authorize_redirect(request, request.url_for("auth_google_callback"))
+
+
+@app.get("/auth/google/callback")
+async def auth_google_callback(request: Request):
+    if not oauth:
+        return RedirectResponse("/login")
+    try:
+        token = await oauth.google.authorize_access_token(request)
+        info = token.get("userinfo") or {}
+        email = info.get("email")
+        if not email:
+            return RedirectResponse("/login?error=1")
+        u = db.upsert_oauth_user(email, info.get("name"))
+        request.session["uid"] = u["id"]
+        return RedirectResponse("/dashboard", status_code=302)
+    except Exception as e:
+        print(f"[oauth] callback error: {e}")
+        return RedirectResponse("/login?error=1")
+
+
+def _resolve_user(request: Request, token: str):
+    return (db.user_by_token(token) if token else None) or current_user(request)
 
 
 @app.get("/api/jobs")
-def api_jobs(token: str = "", week: int = 0, company: str = "", category: str = ""):
-    user = db.user_by_token(token)
+def api_jobs(request: Request, token: str = "", week: int = 0, company: str = "", category: str = ""):
+    user = _resolve_user(request, token)
     if not user:
-        return JSONResponse({"error": "invalid or missing token"}, status_code=403)
+        return JSONResponse({"error": "unauthorized"}, status_code=403)
     jobs = db.list_jobs(user["id"], week=bool(week), company=company or None, category=category or None)
     # serialize datetimes
     for j in jobs:
@@ -118,11 +207,11 @@ def api_jobs(token: str = "", week: int = 0, company: str = "", category: str = 
 
 
 @app.post("/api/jobs/{job_id}")
-def api_update_job(job_id: int, token: str = "", applied: int = None,
+def api_update_job(request: Request, job_id: int, token: str = "", applied: int = None,
                    responded: int = None, resume_used: str = None, notes: str = None):
-    user = db.user_by_token(token)
+    user = _resolve_user(request, token)
     if not user:
-        return JSONResponse({"error": "invalid token"}, status_code=403)
+        return JSONResponse({"error": "unauthorized"}, status_code=403)
     fields = {}
     if applied is not None:
         fields["applied"] = 1 if int(applied) else 0

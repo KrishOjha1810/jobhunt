@@ -1,5 +1,6 @@
 """Configuration loaded from environment / .env file."""
 import os
+import secrets
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -67,3 +68,10 @@ EMAIL_FROM = os.environ.get("EMAIL_FROM", "") or SMTP_USER
 
 # Public base URL (for building dashboard links in messages). e.g. https://jobhunt-8i1m.onrender.com
 BASE_URL = os.environ.get("BASE_URL", "").rstrip("/")
+
+# Auth: session signing key. Defaults to a secure random per-process value (sessions reset on
+# restart). Set SECRET_KEY in the environment to keep sessions persistent across restarts.
+SECRET_KEY = os.environ.get("SECRET_KEY") or secrets.token_hex(32)
+# Google OAuth (inert until both are set in the environment).
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")

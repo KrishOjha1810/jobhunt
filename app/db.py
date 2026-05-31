@@ -2,6 +2,7 @@
 on local SQLite and cloud Postgres (Neon)."""
 import json
 import secrets
+import hashlib
 from datetime import datetime, timedelta
 from sqlalchemy import (
     create_engine, MetaData, Table, Column, Integer, Text, DateTime, Index, inspect, text,
@@ -27,6 +28,7 @@ users = Table(
     Column("whatsapp_phone", Text),
     Column("whatsapp_apikey", Text),
     Column("dash_token", Text),
+    Column("password_hash", Text),
     Column("active", Integer, default=1),
 )
 
@@ -56,7 +58,7 @@ def init_db():
     insp = inspect(engine)
     existing = {c["name"] for c in insp.get_columns("users")}
     with engine.begin() as conn:
-        for col in ("email", "dash_token"):
+        for col in ("email", "dash_token", "password_hash"):
             if col not in existing:
                 conn.execute(text(f"ALTER TABLE users ADD COLUMN {col} TEXT"))
     # backfill dashboard tokens for any user missing one
@@ -166,3 +168,66 @@ def stats(user_id):
             "applied_month": count(job_log.c.applied == 1, job_log.c.sent_at >= mo),
             "responses": count(job_log.c.responded == 1),
         }
+
+
+# ---- auth ----
+
+def hash_password(pw):
+    salt = secrets.token_hex(16)
+    h = hashlib.pbkdf2_hmac("sha256", pw.encode(), salt.encode(), 200_000).hex()
+    return f"pbkdf2${salt}${h}"
+
+
+def verify_password(pw, stored):
+    try:
+        _algo, salt, h = stored.split("$", 2)
+        return secrets.compare_digest(
+            hashlib.pbkdf2_hmac("sha256", pw.encode(), salt.encode(), 200_000).hex(), h
+        )
+    except Exception:
+        return False
+
+
+def _row_to_user(r):
+    if not r:
+        return None
+    d = dict(r)
+    d["keywords"] = json.loads(d["keywords"]) if d.get("keywords") else []
+    d["locations"] = json.loads(d["locations"]) if d.get("locations") else []
+    d["channel"] = d.get("channel") or "telegram"
+    return d
+
+
+def get_user_by_id(uid):
+    with engine.connect() as c:
+        r = c.execute(select(users).where(users.c.id == uid)).mappings().first()
+    return _row_to_user(r)
+
+
+def get_user_by_email(email):
+    with engine.connect() as c:
+        r = c.execute(
+            select(users).where(func.lower(users.c.email) == (email or "").lower())
+        ).mappings().first()
+    return _row_to_user(r)
+
+
+def set_password(user_id, pw):
+    with engine.begin() as c:
+        c.execute(update(users).where(users.c.id == user_id).values(password_hash=hash_password(pw)))
+
+
+def verify_login(email, pw):
+    u = get_user_by_email(email)
+    if u and u.get("password_hash") and verify_password(pw, u["password_hash"]):
+        return u
+    return None
+
+
+def upsert_oauth_user(email, name):
+    """Find a user by email, or create a minimal account for Google sign-in."""
+    u = get_user_by_email(email)
+    if u:
+        return u
+    uid, _token = add_user(name or email.split("@")[0], "", [], ["remote"], channel="email", email=email)
+    return get_user_by_id(uid)

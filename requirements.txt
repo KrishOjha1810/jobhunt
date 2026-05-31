@@ -7,3 +7,5 @@ python-multipart
 apscheduler
 sqlalchemy
 psycopg2-binary
+itsdangerous
+authlib
