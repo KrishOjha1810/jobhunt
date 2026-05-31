@@ -3,8 +3,9 @@ import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-DATA_DIR = BASE_DIR / "data"
-DATA_DIR.mkdir(exist_ok=True)
+# DATA_DIR is env-overridable so the cloud can point it at a persistent volume (e.g. /data).
+DATA_DIR = Path(os.environ.get("DATA_DIR", str(BASE_DIR / "data")))
+DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "jobhunt.db"
 RESUME_DIR = DATA_DIR / "resumes"
 RESUME_DIR.mkdir(exist_ok=True)
@@ -37,3 +38,7 @@ MIN_SCORE = int(os.environ.get("MIN_SCORE", "3"))
 LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "groq").lower()
 LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
 LLM_MODEL = os.environ.get("LLM_MODEL", "")
+
+# In-process scheduler (for cloud, where launchd/cron don't exist). Set ENABLE_SCHEDULER=1.
+ENABLE_SCHEDULER = os.environ.get("ENABLE_SCHEDULER", "") == "1"
+SCHEDULER_HOURS = int(os.environ.get("SCHEDULER_HOURS", "8"))

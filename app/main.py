@@ -6,10 +6,22 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import db, resume, runner
-from .config import RESUME_DIR, BASE_DIR
+from .config import RESUME_DIR, BASE_DIR, ENABLE_SCHEDULER, SCHEDULER_HOURS
 
 app = FastAPI(title="JobHunt")
 db.init_db()
+
+
+@app.on_event("startup")
+def _maybe_start_scheduler():
+    """In the cloud there's no launchd/cron, so optionally run the matcher in-process."""
+    if not ENABLE_SCHEDULER:
+        return
+    from apscheduler.schedulers.background import BackgroundScheduler
+    sched = BackgroundScheduler(daemon=True)
+    sched.add_job(lambda: runner.run_once(verbose=False), "interval", hours=SCHEDULER_HOURS)
+    sched.start()
+    print(f"[scheduler] in-process matcher every {SCHEDULER_HOURS}h")
 
 STATIC_DIR = BASE_DIR / "static"
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
