@@ -26,9 +26,25 @@
     <label>Your name</label>
     <input type="text" name="name" required placeholder="Krish Ojha" />
 
-    <label>Telegram chat ID</label>
-    <input type="text" name="telegram_chat_id" required placeholder="1460934377" />
-    <small>Message your bot, then open api.telegram.org/bot&lt;token&gt;/getUpdates to find your chat id.</small>
+    <label>Where should we send job alerts?</label>
+    <select name="channel" id="channel" style="width:100%;padding:10px;border:1px solid #ccc;border-radius:8px;font-size:1rem;">
+      <option value="telegram">Telegram</option>
+      <option value="whatsapp">WhatsApp</option>
+    </select>
+
+    <div id="telegram_fields">
+      <label>Telegram chat ID</label>
+      <input type="text" name="telegram_chat_id" placeholder="1460934377" />
+      <small>Message your bot, then open api.telegram.org/bot&lt;token&gt;/getUpdates to find your chat id.</small>
+    </div>
+
+    <div id="whatsapp_fields" style="display:none;">
+      <label>WhatsApp number (with country code)</label>
+      <input type="text" name="whatsapp_phone" placeholder="+91XXXXXXXXXX" />
+      <label>CallMeBot API key</label>
+      <input type="text" name="whatsapp_apikey" placeholder="123456" />
+      <small>One-time setup: WhatsApp "I allow callmebot to send me messages" to +34 644 51 95 23, it replies with your API key.</small>
+    </div>
 
     <label>Locations (comma separated)</label>
     <input type="text" name="locations" value="remote,india" />
@@ -46,6 +62,15 @@
   <div id="result"></div>
 
   <script>
+    const channel = document.getElementById('channel');
+    const tgF = document.getElementById('telegram_fields');
+    const waF = document.getElementById('whatsapp_fields');
+    channel.addEventListener('change', () => {
+      const wa = channel.value === 'whatsapp';
+      waF.style.display = wa ? 'block' : 'none';
+      tgF.style.display = wa ? 'none' : 'block';
+    });
+
     const form = document.getElementById('form');
     const result = document.getElementById('result');
     form.addEventListener('submit', async (e) => {

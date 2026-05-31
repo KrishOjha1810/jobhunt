@@ -23,11 +23,19 @@ def home():
 @app.post("/signup")
 async def signup(
     name: str = Form(...),
-    telegram_chat_id: str = Form(...),
+    channel: str = Form("telegram"),
+    telegram_chat_id: str = Form(""),
+    whatsapp_phone: str = Form(""),
+    whatsapp_apikey: str = Form(""),
     locations: str = Form("remote,india"),
     extra_keywords: str = Form(""),
     resume_file: UploadFile = File(...),
 ):
+    channel = (channel or "telegram").lower()
+    if channel == "telegram" and not telegram_chat_id.strip():
+        return JSONResponse({"error": "Telegram chat ID is required for the Telegram channel."}, status_code=400)
+    if channel == "whatsapp" and not (whatsapp_phone.strip() and whatsapp_apikey.strip()):
+        return JSONResponse({"error": "WhatsApp needs both phone and CallMeBot API key."}, status_code=400)
     # save resume
     safe = "".join(c for c in name if c.isalnum() or c in "-_") or "user"
     dest = RESUME_DIR / f"{safe}_{resume_file.filename}"
@@ -49,14 +57,17 @@ async def signup(
 
     loc_list = [l.strip().lower() for l in locations.split(",") if l.strip()]
     user_id = db.add_user(
-        name, telegram_chat_id, keywords, loc_list, str(dest), profile.get("text", "")
+        name, telegram_chat_id, keywords, loc_list, str(dest), profile.get("text", ""),
+        channel=channel, whatsapp_phone=whatsapp_phone.strip() or None,
+        whatsapp_apikey=whatsapp_apikey.strip() or None,
     )
     return {
         "ok": True,
         "user_id": user_id,
         "detected_keywords": keywords,
         "locations": loc_list,
-        "message": "Signed up. You'll get job matches on Telegram on the next run.",
+        "channel": channel,
+        "message": f"Signed up. You'll get job matches on {channel.title()} on the next run.",
     }
 
 

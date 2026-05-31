@@ -25,16 +25,13 @@ def run_once(verbose: bool = True):
             )
         if not to_send:
             continue
-        notifier.send(
-            user["telegram_chat_id"],
-            f"\U0001F4CB {len(to_send)} new job match(es) for you:",
-        )
+        notifier.send_to_user(user, f"\U0001F4CB {len(to_send)} new job match(es) for you:")
         for job in to_send:
-            notifier.send(user["telegram_chat_id"], notifier.format_job(job))
+            notifier.send_to_user(user, notifier.format_job(job))
             # V2: LLM tailoring (only if a key is configured)
             block = enrich.tailor(job, user.get("resume_text") or "")
             if block:
-                notifier.send(user["telegram_chat_id"], "✂️ Tailoring:\n" + block)
+                notifier.send_to_user(user, "✂️ Tailoring:\n" + block)
             db.mark_seen(user["id"], job["url"])
 
 
