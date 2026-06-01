@@ -11,7 +11,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from . import db, resume, runner, notifier
 from .config import (
     RESUME_DIR, BASE_DIR, ENABLE_SCHEDULER, SCHEDULER_HOURS, RUN_TOKEN,
-    SECRET_KEY, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
+    SECRET_KEY, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, APP_VERSION,
 )
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -178,7 +178,7 @@ def me(request: Request):
         return JSONResponse({"authenticated": False}, status_code=401)
     return {"authenticated": True, "name": u["name"], "email": u.get("email"),
             "subscribed": db.is_subscribed(u), "channel": u.get("channel"),
-            "dash_token": u.get("dash_token")}
+            "dash_token": u.get("dash_token"), "version": APP_VERSION}
 
 
 @app.post("/subscribe")

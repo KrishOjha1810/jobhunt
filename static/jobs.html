@@ -255,6 +255,7 @@
             <span>${esc(j.company||'')}</span>
             ${j.category?`<span class="tag">${esc(j.category)}</span>`:''}
             ${j.location?`<span>${esc(j.location)}</span>`:''}
+            ${j.salary?`<span class="sal">${esc(j.salary)}</span>`:''}
             ${a?`<span class="ago">${a}</span>`:''}
           </div></div>
           ${u?`<a class="apply" href="${esc(u)}" target="_blank" rel="noopener">Apply</a>`:''}
@@ -265,8 +266,8 @@
 
     // ----- Multi-step walkthrough tour -----
     const overlay = document.getElementById('overlay');
-    const DISMISS_KEY = 'jh_onboard_dismissed';
-    let subscribed = false;
+    const TOUR_VER_KEY = 'jh_tour_version';
+    let subscribed = false, appVersion = '';
     const ICONS = {
       search:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg>',
       list:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="3.5" cy="6" r="1"/><circle cx="3.5" cy="12" r="1"/><circle cx="3.5" cy="18" r="1"/></svg>',
@@ -293,8 +294,7 @@
     function startTour(){ step=0; renderStep(); overlay.classList.add('show'); }
     function endTour(){
       overlay.classList.remove('show');
-      localStorage.setItem(DISMISS_KEY, '1');
-      if (!subscribed) document.getElementById('sbanner').style.display = 'flex';
+      if (appVersion) localStorage.setItem(TOUR_VER_KEY, appVersion);
     }
     document.getElementById('tourNext').addEventListener('click', ()=>{
       if (step < STEPS.length-1){ step++; renderStep(); } else { window.location.href = '/subscribe'; }
@@ -310,13 +310,10 @@
         if (!r.ok) return;  // not logged in
         const me = await r.json();
         subscribed = !!me.subscribed;
-        if (subscribed) {
-          document.getElementById('subnote').style.display = 'flex';
-        } else if (localStorage.getItem(DISMISS_KEY)) {
-          document.getElementById('sbanner').style.display = 'flex';
-        } else {
-          startTour();
-        }
+        appVersion = me.version || '';
+        document.getElementById(subscribed ? 'subnote' : 'sbanner').style.display = 'flex';
+        // show the walkthrough once per deployed version, to everyone
+        if (localStorage.getItem(TOUR_VER_KEY) !== appVersion) startTour();
       } catch (e) { /* ignore */ }
     }
 

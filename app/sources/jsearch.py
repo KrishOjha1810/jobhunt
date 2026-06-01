@@ -27,6 +27,15 @@ def fetch(query: str, limit: int = 30) -> list:
     jobs = []
     for j in data.get("data", [])[:limit]:
         loc = ", ".join(filter(None, [j.get("job_city"), j.get("job_country")])) or "Remote"
+        mn, mx = j.get("job_min_salary"), j.get("job_max_salary")
+        cur = j.get("job_salary_currency") or ""
+        per = j.get("job_salary_period") or ""
+        if mn and mx:
+            sal = f"{cur} {int(mn):,}-{int(mx):,} {per}".strip()
+        elif mn:
+            sal = f"{cur} {int(mn):,}+ {per}".strip()
+        else:
+            sal = ""
         jobs.append(
             {
                 "title": j.get("job_title", ""),
@@ -35,6 +44,7 @@ def fetch(query: str, limit: int = 30) -> list:
                 "url": j.get("job_apply_link", ""),
                 "description": (j.get("job_description", "") or "")[:4000],
                 "posted_at": j.get("job_posted_at_datetime_utc", "") or "",
+                "salary": sal,
                 "source": "jsearch",
             }
         )

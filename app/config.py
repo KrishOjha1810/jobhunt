@@ -50,6 +50,9 @@ LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "groq").lower()
 LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
 LLM_MODEL = os.environ.get("LLM_MODEL", "")
 
+# App version. Bump this on a deploy to re-show the walkthrough to every user once.
+APP_VERSION = os.environ.get("APP_VERSION", "") or "2026-06-01.2"
+
 # In-process scheduler (for cloud, where launchd/cron don't exist). Set ENABLE_SCHEDULER=1.
 ENABLE_SCHEDULER = os.environ.get("ENABLE_SCHEDULER", "") == "1"
 SCHEDULER_HOURS = int(os.environ.get("SCHEDULER_HOURS", "8"))

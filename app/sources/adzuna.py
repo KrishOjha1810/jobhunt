@@ -27,6 +27,13 @@ def fetch(query: str, country: str = "in", limit: int = 50) -> list:
         return []
     jobs = []
     for j in data.get("results", []):
+        mn, mx = j.get("salary_min"), j.get("salary_max")
+        if mn and mx:
+            sal = f"{int(mn):,} - {int(mx):,}"
+        elif mn:
+            sal = f"{int(mn):,}+"
+        else:
+            sal = ""
         jobs.append(
             {
                 "title": j.get("title", ""),
@@ -35,6 +42,7 @@ def fetch(query: str, country: str = "in", limit: int = 50) -> list:
                 "url": j.get("redirect_url", ""),
                 "description": j.get("description", "")[:4000],
                 "posted_at": j.get("created", "") or "",
+                "salary": sal,
                 "source": f"adzuna:{country}",
             }
         )

@@ -62,6 +62,7 @@ jobs_catalog = Table(
     Column("location", Text),
     Column("source", Text),
     Column("posted_at", Text),
+    Column("salary", Text),
     Column("description", Text),
     Column("first_seen_at", DateTime, default=datetime.utcnow),
 )
@@ -81,6 +82,11 @@ def init_db():
         jl_cols = {c["name"] for c in insp.get_columns("job_log")}
         if "posted_at" not in jl_cols:
             conn.execute(text("ALTER TABLE job_log ADD COLUMN posted_at TEXT"))
+        # jobs_catalog.salary for older DBs
+        if insp.has_table("jobs_catalog"):
+            cat_cols = {c["name"] for c in insp.get_columns("jobs_catalog")}
+            if "salary" not in cat_cols:
+                conn.execute(text("ALTER TABLE jobs_catalog ADD COLUMN salary TEXT"))
     # backfill dashboard tokens for any user missing one
     with engine.begin() as conn:
         rows = conn.execute(select(users.c.id).where(users.c.dash_token.is_(None))).all()
@@ -163,7 +169,7 @@ def upsert_job(job):
             url=url, title=job.get("title"), company=job.get("company"),
             category=job.get("category"), location=job.get("location"),
             source=job.get("source"), posted_at=job.get("posted_at"),
-            description=(job.get("description") or "")[:2000],
+            salary=job.get("salary"), description=(job.get("description") or "")[:2000],
         ))
 
 
