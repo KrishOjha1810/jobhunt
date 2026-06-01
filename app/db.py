@@ -29,6 +29,8 @@ users = Table(
     Column("whatsapp_apikey", Text),
     Column("dash_token", Text),
     Column("password_hash", Text),
+    Column("ref_code", Text),
+    Column("referred_by", Integer),
     Column("active", Integer, default=1),
 )
 
@@ -75,9 +77,11 @@ def init_db():
     insp = inspect(engine)
     existing = {c["name"] for c in insp.get_columns("users")}
     with engine.begin() as conn:
-        for col in ("email", "dash_token", "password_hash"):
+        for col in ("email", "dash_token", "password_hash", "ref_code"):
             if col not in existing:
                 conn.execute(text(f"ALTER TABLE users ADD COLUMN {col} TEXT"))
+        if "referred_by" not in existing:
+            conn.execute(text("ALTER TABLE users ADD COLUMN referred_by INTEGER"))
         # job_log.posted_at for older DBs
         jl_cols = {c["name"] for c in insp.get_columns("job_log")}
         if "posted_at" not in jl_cols:
@@ -87,11 +91,12 @@ def init_db():
             cat_cols = {c["name"] for c in insp.get_columns("jobs_catalog")}
             if "salary" not in cat_cols:
                 conn.execute(text("ALTER TABLE jobs_catalog ADD COLUMN salary TEXT"))
-    # backfill dashboard tokens for any user missing one
+    # backfill dashboard tokens + referral codes for any user missing them
     with engine.begin() as conn:
-        rows = conn.execute(select(users.c.id).where(users.c.dash_token.is_(None))).all()
-        for (uid,) in rows:
+        for (uid,) in conn.execute(select(users.c.id).where(users.c.dash_token.is_(None))).all():
             conn.execute(update(users).where(users.c.id == uid).values(dash_token=secrets.token_urlsafe(16)))
+        for (uid,) in conn.execute(select(users.c.id).where(users.c.ref_code.is_(None))).all():
+            conn.execute(update(users).where(users.c.id == uid).values(ref_code=secrets.token_urlsafe(6)))
 
 
 def add_user(name, telegram_chat_id, keywords, locations, resume_path=None, resume_text=None,
@@ -104,11 +109,35 @@ def add_user(name, telegram_chat_id, keywords, locations, resume_path=None, resu
                 keywords=json.dumps(keywords), locations=json.dumps(locations),
                 resume_path=resume_path, resume_text=resume_text, channel=channel,
                 whatsapp_phone=whatsapp_phone, whatsapp_apikey=whatsapp_apikey,
-                dash_token=token, active=1,
+                dash_token=token, ref_code=secrets.token_urlsafe(6), active=1,
             )
         )
         uid = result.inserted_primary_key[0]
     return uid, token
+
+
+def get_user_by_ref(code):
+    if not code:
+        return None
+    with engine.connect() as c:
+        r = c.execute(select(users).where(users.c.ref_code == code)).mappings().first()
+    return _row_to_user(r)
+
+
+def set_referred_by(user_id, referrer_id):
+    if not referrer_id or referrer_id == user_id:
+        return
+    with engine.begin() as c:
+        c.execute(update(users).where(
+            users.c.id == user_id, users.c.referred_by.is_(None)
+        ).values(referred_by=referrer_id))
+
+
+def referral_count(user_id):
+    with engine.connect() as c:
+        return c.execute(
+            select(func.count()).select_from(users).where(users.c.referred_by == user_id)
+        ).scalar() or 0
 
 
 def list_active_users():

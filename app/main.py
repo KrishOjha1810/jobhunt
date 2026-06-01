@@ -76,6 +76,7 @@ def register(request: Request, email: str = Form(...), password: str = Form(...)
     if db.email_exists(email):
         return RedirectResponse("/login?error=exists", status_code=302)
     uid = db.create_account(email, password, name)
+    _attribute_referral(request, uid)
     request.session["uid"] = uid
     return RedirectResponse("/jobs", status_code=302)
 
@@ -243,8 +244,28 @@ def api_catalog(category: str = "", q: str = ""):
 
 
 @app.get("/login", response_class=HTMLResponse)
-def login_get():
+def login_get(request: Request, ref: str = ""):
+    if ref:
+        request.session["pending_ref"] = ref  # attribute on the next register/oauth signup
     return (STATIC_DIR / "login.html").read_text()
+
+
+def _attribute_referral(request: Request, new_user_id: int):
+    ref = request.session.pop("pending_ref", "")
+    if ref:
+        r = db.get_user_by_ref(ref)
+        if r:
+            db.set_referred_by(new_user_id, r["id"])
+
+
+@app.get("/referral")
+def referral(request: Request):
+    u = current_user(request)
+    if not u:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    base = str(request.base_url).rstrip("/")
+    return {"invite_link": f"{base}/login?ref={u.get('ref_code') or ''}",
+            "count": db.referral_count(u["id"]), "ref_code": u.get("ref_code")}
 
 
 @app.post("/login")
@@ -285,6 +306,7 @@ async def auth_google_callback(request: Request):
         if not email:
             return RedirectResponse("/login?error=1")
         u = db.upsert_oauth_user(email, info.get("name"))
+        _attribute_referral(request, u["id"])
         request.session["uid"] = u["id"]
         return RedirectResponse("/jobs", status_code=302)
     except Exception as e:

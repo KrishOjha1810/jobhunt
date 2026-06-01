@@ -65,6 +65,13 @@
     .subnote { display:none; align-items:center; gap:8px; font-size:.88rem; color:var(--fresh); font-weight:600; margin-bottom:16px; }
     .subnote svg { width:16px; height:16px; }
     .subnote a { color:var(--accent); text-decoration:none; }
+    .invite { display:none; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between;
+      background:var(--card); border:1px solid var(--card-border); border-radius:14px; padding:14px 18px; margin-bottom:20px; backdrop-filter:blur(14px); }
+    .invite-text b { font-size:.95rem; } .invite-text p { margin:2px 0 0; color:var(--muted); font-size:.82rem; }
+    .invite-row { display:flex; gap:8px; flex:1; min-width:240px; max-width:480px; }
+    .invite-row input { flex:1; padding:9px 12px; border:1px solid var(--field-border); border-radius:10px; background:var(--field); color:var(--ink); font-size:.82rem; }
+    .invite-row button { padding:9px 16px; border:0; border-radius:10px; background:var(--grad); color:#fff; font-weight:700; font-size:.82rem; cursor:pointer; white-space:nowrap; }
+    .sal { color:var(--fresh); font-weight:600; }
 
     h1 { font-size:1.5rem; margin:0 0 4px; font-weight:800; letter-spacing:-.02em; }
     .sub { color:var(--muted); margin:0 0 18px; font-size:.92rem; }
@@ -163,6 +170,14 @@
     <div class="subnote" id="subnote">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
       You are subscribed, see <a href="/dashboard">My matches</a>.
+    </div>
+
+    <div class="invite" id="invite" style="display:none;">
+      <div class="invite-text"><b>Invite friends to JobHunt</b><p id="inviteCount"></p></div>
+      <div class="invite-row">
+        <input id="inviteLink" readonly />
+        <button id="copyInvite" type="button">Copy link</button>
+      </div>
     </div>
 
     <h1>Latest jobs we found</h1>
@@ -317,8 +332,26 @@
       } catch (e) { /* ignore */ }
     }
 
+    async function loadReferral(){
+      try {
+        const r = await fetch('/referral'); if (!r.ok) return;
+        const d = await r.json();
+        document.getElementById('inviteLink').value = d.invite_link;
+        document.getElementById('inviteCount').textContent =
+          d.count ? `${d.count} friend${d.count===1?'':'s'} joined from your link` : 'Share your link and see who joins.';
+        document.getElementById('invite').style.display = 'flex';
+      } catch (e) { /* ignore */ }
+    }
+    document.getElementById('copyInvite').addEventListener('click', () => {
+      const i = document.getElementById('inviteLink'); i.select();
+      if (navigator.clipboard) navigator.clipboard.writeText(i.value);
+      const b = document.getElementById('copyInvite'), t = b.textContent;
+      b.textContent = 'Copied!'; setTimeout(() => { b.textContent = t; }, 1500);
+    });
+
     load();
     checkMe();
+    loadReferral();
   </script>
 </body>
 </html>
