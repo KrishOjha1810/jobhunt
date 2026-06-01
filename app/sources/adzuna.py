@@ -34,6 +34,7 @@ def fetch(query: str, country: str = "in", limit: int = 50) -> list:
                 "location": (j.get("location") or {}).get("display_name", ""),
                 "url": j.get("redirect_url", ""),
                 "description": j.get("description", "")[:4000],
+                "posted_at": j.get("created", "") or "",
                 "source": f"adzuna:{country}",
             }
         )

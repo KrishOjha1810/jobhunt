@@ -15,6 +15,13 @@ def run_once(verbose: bool = True):
             print("[runner] no active users")
         return
     pool = sources.fetch_pool(users)
+    # Store every found job in the shared catalog so new users can browse them right away.
+    for j in pool:
+        j["category"] = matcher.categorize(j)
+        try:
+            db.upsert_job(j)
+        except Exception as e:
+            print(f"[runner] catalog upsert failed: {e}")
     if verbose:
         print(f"[runner] {len(users)} user(s), shared pool of {len(pool)} jobs")
     for user in users:

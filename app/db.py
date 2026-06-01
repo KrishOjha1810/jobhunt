@@ -45,11 +45,27 @@ job_log = Table(
     Column("applied", Integer, default=0),
     Column("responded", Integer, default=0),
     Column("notes", Text, default=""),
+    Column("posted_at", Text),
     Column("sent_at", DateTime, default=datetime.utcnow),
 )
 
 # Speeds up the per-job dedup lookups (is_seen / log_job) as the log grows.
 Index("ix_joblog_user_url", job_log.c.user_id, job_log.c.url)
+
+# Shared catalog of every job we have found (so new users can browse immediately).
+jobs_catalog = Table(
+    "jobs_catalog", metadata,
+    Column("url", Text, primary_key=True),
+    Column("title", Text),
+    Column("company", Text),
+    Column("category", Text),
+    Column("location", Text),
+    Column("source", Text),
+    Column("posted_at", Text),
+    Column("description", Text),
+    Column("first_seen_at", DateTime, default=datetime.utcnow),
+)
+Index("ix_catalog_seen", jobs_catalog.c.first_seen_at)
 
 
 def init_db():
@@ -61,6 +77,10 @@ def init_db():
         for col in ("email", "dash_token", "password_hash"):
             if col not in existing:
                 conn.execute(text(f"ALTER TABLE users ADD COLUMN {col} TEXT"))
+        # job_log.posted_at for older DBs
+        jl_cols = {c["name"] for c in insp.get_columns("job_log")}
+        if "posted_at" not in jl_cols:
+            conn.execute(text("ALTER TABLE job_log ADD COLUMN posted_at TEXT"))
     # backfill dashboard tokens for any user missing one
     with engine.begin() as conn:
         rows = conn.execute(select(users.c.id).where(users.c.dash_token.is_(None))).all()
@@ -127,7 +147,48 @@ def log_job(user_id, job):
         conn.execute(insert(job_log).values(
             user_id=user_id, title=job.get("title"), company=job.get("company"),
             category=job.get("category"), url=job.get("url"), score=job.get("score"),
+            posted_at=job.get("posted_at"),
         ))
+
+
+def upsert_job(job):
+    """Add a job to the shared catalog if its URL is new."""
+    url = (job.get("url") or "").strip()
+    if not url:
+        return
+    with engine.begin() as conn:
+        if conn.execute(select(jobs_catalog.c.url).where(jobs_catalog.c.url == url)).first():
+            return
+        conn.execute(insert(jobs_catalog).values(
+            url=url, title=job.get("title"), company=job.get("company"),
+            category=job.get("category"), location=job.get("location"),
+            source=job.get("source"), posted_at=job.get("posted_at"),
+            description=(job.get("description") or "")[:2000],
+        ))
+
+
+def list_catalog(category=None, q=None, limit=200):
+    sel = select(jobs_catalog)
+    if category:
+        sel = sel.where(func.lower(jobs_catalog.c.category) == category.lower())
+    if q:
+        like = f"%{q.lower()}%"
+        sel = sel.where(
+            func.lower(jobs_catalog.c.title).like(like) | func.lower(jobs_catalog.c.company).like(like)
+        )
+    sel = sel.order_by(jobs_catalog.c.first_seen_at.desc()).limit(limit)
+    with engine.connect() as conn:
+        rows = [dict(r) for r in conn.execute(sel).mappings().all()]
+    for r in rows:
+        if r.get("first_seen_at"):
+            r["first_seen_at"] = str(r["first_seen_at"])[:16]
+    return rows
+
+
+def catalog_categories():
+    with engine.connect() as conn:
+        rows = conn.execute(select(jobs_catalog.c.category).distinct()).all()
+    return sorted({r[0] for r in rows if r[0]})
 
 
 def list_jobs(user_id, week=False, company=None, category=None):

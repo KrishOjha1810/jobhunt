@@ -21,6 +21,7 @@ def fetch(query: str, limit: int = 50) -> list:
                 "location": j.get("candidate_required_location", "Remote"),
                 "url": j.get("url", ""),
                 "description": j.get("description", "")[:4000],
+                "posted_at": j.get("publication_date", "") or "",
                 "source": "remotive",
             }
         )

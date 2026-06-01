@@ -139,6 +139,21 @@ def dashboard(request: Request, token: str = ""):
     return RedirectResponse("/login", status_code=302)
 
 
+@app.get("/jobs", response_class=HTMLResponse)
+def jobs_page():
+    return (STATIC_DIR / "jobs.html").read_text()
+
+
+@app.get("/api/catalog")
+def api_catalog(category: str = "", q: str = ""):
+    """Public browse of every job we have found (so new visitors see value before signing up)."""
+    return {
+        "ok": True,
+        "categories": db.catalog_categories(),
+        "jobs": db.list_catalog(category=category or None, q=q or None),
+    }
+
+
 @app.get("/login", response_class=HTMLResponse)
 def login_get():
     return (STATIC_DIR / "login.html").read_text()

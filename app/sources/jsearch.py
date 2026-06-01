@@ -34,6 +34,7 @@ def fetch(query: str, limit: int = 30) -> list:
                 "location": loc,
                 "url": j.get("job_apply_link", ""),
                 "description": (j.get("job_description", "") or "")[:4000],
+                "posted_at": j.get("job_posted_at_datetime_utc", "") or "",
                 "source": "jsearch",
             }
         )

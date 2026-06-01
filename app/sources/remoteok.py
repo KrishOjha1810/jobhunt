@@ -24,6 +24,7 @@ def fetch(query: str, limit: int = 100) -> list:
                 "location": j.get("location") or "Remote",
                 "url": j.get("url", ""),
                 "description": (j.get("description", "") or "") + " " + " ".join(j.get("tags", [])),
+                "posted_at": j.get("date", "") or "",
                 "source": "remoteok",
             }
         )

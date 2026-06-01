@@ -1,4 +1,5 @@
 """Arbeitnow: free job-board API, no key. Broad inventory incl. remote roles."""
+from datetime import datetime, timezone
 import requests
 
 URL = "https://www.arbeitnow.com/api/job-board-api"
@@ -17,6 +18,12 @@ def fetch(query: str = "", limit: int = 100) -> list:
         loc = j.get("location") or ""
         if j.get("remote"):
             loc = (loc + " remote").strip()
+        posted = ""
+        if j.get("created_at"):
+            try:
+                posted = datetime.fromtimestamp(int(j["created_at"]), timezone.utc).isoformat()
+            except Exception:
+                posted = ""
         jobs.append(
             {
                 "title": j.get("title", ""),
@@ -24,6 +31,7 @@ def fetch(query: str = "", limit: int = 100) -> list:
                 "location": loc or "Remote",
                 "url": j.get("url", ""),
                 "description": (j.get("description", "") or "") + " " + " ".join(j.get("tags", [])),
+                "posted_at": posted,
                 "source": "arbeitnow",
             }
         )
