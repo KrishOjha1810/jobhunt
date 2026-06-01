@@ -8,7 +8,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import db, resume, runner
+from . import db, resume, runner, notifier
 from .config import (
     RESUME_DIR, BASE_DIR, ENABLE_SCHEDULER, SCHEDULER_HOURS, RUN_TOKEN,
     SECRET_KEY, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
@@ -238,3 +238,13 @@ def trigger_run(background_tasks: BackgroundTasks, token: str = ""):
 @app.get("/healthz")
 def healthz():
     return {"ok": True}
+
+
+@app.get("/testmail")
+def testmail(to: str = "", token: str = ""):
+    """Token-guarded SMTP check: sends one test email and reports whether it was accepted."""
+    if RUN_TOKEN and token != RUN_TOKEN:
+        return JSONResponse({"error": "invalid token"}, status_code=403)
+    ok = notifier.send_email(to, "JobHunt SMTP test. If you got this, email alerts work.",
+                             subject="JobHunt test")
+    return {"sent": ok}
