@@ -31,6 +31,7 @@ users = Table(
     Column("password_hash", Text),
     Column("ref_code", Text),
     Column("referred_by", Integer),
+    Column("embedding", Text),
     Column("active", Integer, default=1),
 )
 
@@ -66,6 +67,7 @@ jobs_catalog = Table(
     Column("posted_at", Text),
     Column("salary", Text),
     Column("description", Text),
+    Column("embedding", Text),
     Column("first_seen_at", DateTime, default=datetime.utcnow),
 )
 Index("ix_catalog_seen", jobs_catalog.c.first_seen_at)
@@ -77,7 +79,7 @@ def init_db():
     insp = inspect(engine)
     existing = {c["name"] for c in insp.get_columns("users")}
     with engine.begin() as conn:
-        for col in ("email", "dash_token", "password_hash", "ref_code"):
+        for col in ("email", "dash_token", "password_hash", "ref_code", "embedding"):
             if col not in existing:
                 conn.execute(text(f"ALTER TABLE users ADD COLUMN {col} TEXT"))
         if "referred_by" not in existing:
@@ -91,6 +93,8 @@ def init_db():
             cat_cols = {c["name"] for c in insp.get_columns("jobs_catalog")}
             if "salary" not in cat_cols:
                 conn.execute(text("ALTER TABLE jobs_catalog ADD COLUMN salary TEXT"))
+            if "embedding" not in cat_cols:
+                conn.execute(text("ALTER TABLE jobs_catalog ADD COLUMN embedding TEXT"))
     # backfill dashboard tokens + referral codes for any user missing them
     with engine.begin() as conn:
         for (uid,) in conn.execute(select(users.c.id).where(users.c.dash_token.is_(None))).all():
@@ -151,7 +155,7 @@ def list_active_users():
             "locations": json.loads(r["locations"]), "resume_path": r["resume_path"],
             "resume_text": r["resume_text"], "channel": r["channel"] or "telegram",
             "whatsapp_phone": r["whatsapp_phone"], "whatsapp_apikey": r["whatsapp_apikey"],
-            "dash_token": r["dash_token"],
+            "dash_token": r["dash_token"], "embedding": r["embedding"],
         })
     return out
 
@@ -242,6 +246,35 @@ def catalog_description(url):
             select(jobs_catalog.c.description).where(jobs_catalog.c.url == url)
         ).first()
     return (r[0] if r else "") or ""
+
+
+def _load_vec(s):
+    if not s:
+        return None
+    try:
+        return json.loads(s)
+    except Exception:
+        return None
+
+
+def get_job_embedding(url):
+    with engine.connect() as c:
+        r = c.execute(select(jobs_catalog.c.embedding).where(jobs_catalog.c.url == url)).first()
+    return _load_vec(r[0]) if r else None
+
+
+def set_job_embedding(url, vec):
+    with engine.begin() as c:
+        c.execute(update(jobs_catalog).where(jobs_catalog.c.url == url).values(embedding=json.dumps(vec)))
+
+
+def get_user_embedding(user):
+    return _load_vec(user.get("embedding"))
+
+
+def set_user_embedding(user_id, vec):
+    with engine.begin() as c:
+        c.execute(update(users).where(users.c.id == user_id).values(embedding=json.dumps(vec)))
 
 
 def list_jobs(user_id, week=False, company=None, category=None):
@@ -368,6 +401,8 @@ def update_subscription(user_id, keywords, locations, channel, resume_path=None,
         vals["resume_path"] = resume_path
     if resume_text is not None:
         vals["resume_text"] = resume_text
+        # Resume changed -> drop the cached embedding so it re-embeds on the next run.
+        vals["embedding"] = None
     if email:
         vals["email"] = email
     with engine.begin() as c:
