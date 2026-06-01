@@ -285,6 +285,42 @@ def verify_login(email, pw):
     return None
 
 
+def email_exists(email):
+    return get_user_by_email(email) is not None
+
+
+def create_account(email, password, name=None):
+    """Account-only signup (no resume yet); the user subscribes afterward."""
+    uid, _token = add_user(name or email.split("@")[0], "", [], ["remote"],
+                           channel="email", email=email)
+    if password:
+        set_password(uid, password)
+    return uid
+
+
+def is_subscribed(user):
+    """A user has 'subscribed' once they've given us a resume (keywords present)."""
+    return bool(user and user.get("keywords"))
+
+
+def update_subscription(user_id, keywords, locations, channel, resume_path=None,
+                        resume_text=None, telegram_chat_id=None, whatsapp_phone=None,
+                        whatsapp_apikey=None, email=None):
+    vals = {
+        "keywords": json.dumps(keywords), "locations": json.dumps(locations), "channel": channel,
+        "telegram_chat_id": telegram_chat_id or "", "whatsapp_phone": whatsapp_phone,
+        "whatsapp_apikey": whatsapp_apikey,
+    }
+    if resume_path is not None:
+        vals["resume_path"] = resume_path
+    if resume_text is not None:
+        vals["resume_text"] = resume_text
+    if email:
+        vals["email"] = email
+    with engine.begin() as c:
+        c.execute(update(users).where(users.c.id == user_id).values(**vals))
+
+
 def upsert_oauth_user(email, name):
     """Find a user by email, or create a minimal account for Google sign-in."""
     u = get_user_by_email(email)

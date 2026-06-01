@@ -5,54 +5,154 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>JobHunt, browse jobs</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <style>
     :root { --accent:#6366f1; --accent2:#8b5cf6; --accent-soft:rgba(99,102,241,.14); --grad:linear-gradient(135deg,#6366f1,#8b5cf6); }
+    html[data-theme="light"] {
+      --bg:#f4f5fb; --bg-glow:rgba(99,102,241,.12);
+      --card:#ffffff; --card-border:rgba(15,23,42,.07); --card-shadow:0 1px 3px rgba(15,23,42,.06);
+      --ink:#0f172a; --muted:#64748b; --field:#f8fafc; --field-border:#e2e6ef;
+      --seg-bg:#f1f2f9; --seg-ink:#475569; --fresh:#059669;
+      --nav-bg:rgba(255,255,255,.8); --nav-border:rgba(15,23,42,.07);
+      --banner-bg:#eef0fb; --banner-border:rgba(99,102,241,.2);
+      --toggle-bg:#ffffff; --toggle-border:rgba(15,23,42,.1);
+      --overlay:rgba(15,23,42,.45);
+    }
     html[data-theme="dark"] {
-      --bg:#0a0a14; --bg-glow:rgba(99,102,241,.18); --card:rgba(22,23,38,.72); --card-border:rgba(255,255,255,.08);
+      --bg:#0a0a14; --bg-glow:rgba(99,102,241,.18);
+      --card:rgba(22,23,38,.72); --card-border:rgba(255,255,255,.08); --card-shadow:0 20px 50px rgba(0,0,0,.4);
       --ink:#f1f3f9; --muted:#9499b0; --field:rgba(255,255,255,.05); --field-border:rgba(255,255,255,.12);
       --seg-bg:rgba(255,255,255,.04); --seg-ink:#c2c6da; --fresh:#34d399;
+      --nav-bg:rgba(14,15,26,.72); --nav-border:rgba(255,255,255,.07);
+      --banner-bg:rgba(99,102,241,.12); --banner-border:rgba(99,102,241,.3);
+      --toggle-bg:rgba(255,255,255,.06); --toggle-border:rgba(255,255,255,.12);
+      --overlay:rgba(0,0,0,.6);
     }
     * { box-sizing:border-box; }
-    body { margin:0; font-family:Inter,-apple-system,system-ui,sans-serif; color:var(--ink); background:var(--bg);
-      padding:0 0 60px; min-height:100vh; position:relative; }
+    body { margin:0; font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif; color:var(--ink); background:var(--bg);
+      padding:0 0 60px; min-height:100vh; position:relative; transition:background .35s ease, color .35s ease; }
     body::before { content:""; position:fixed; top:-200px; left:50%; transform:translateX(-50%); width:900px; height:500px;
       background:var(--bg-glow); filter:blur(110px); border-radius:50%; z-index:0; pointer-events:none; }
+
+    /* Top nav */
+    .nav { position:sticky; top:0; z-index:20; background:var(--nav-bg); border-bottom:1px solid var(--nav-border); backdrop-filter:blur(16px); }
+    .nav-inner { max-width:1040px; margin:0 auto; padding:12px 18px; display:flex; align-items:center; gap:14px; }
+    .nav-brand { display:flex; align-items:center; gap:10px; font-weight:800; font-size:1.05rem; letter-spacing:-.02em; text-decoration:none; color:var(--ink); margin-right:auto; }
+    .nav-logo { width:32px; height:32px; border-radius:10px; background:var(--grad); display:flex; align-items:center; justify-content:center; box-shadow:0 6px 18px var(--accent-soft); }
+    .nav-logo svg { width:17px; height:17px; color:#fff; }
+    .nav-links { display:flex; align-items:center; gap:4px; }
+    .nav-link { padding:8px 13px; border-radius:10px; font-size:.86rem; font-weight:600; text-decoration:none; color:var(--seg-ink); white-space:nowrap; transition:background .15s, color .15s; }
+    .nav-link:hover { color:var(--ink); background:var(--seg-bg); }
+    .nav-link.active { color:#fff; background:var(--grad); }
+    .theme-toggle { flex:0 0 auto; width:38px; height:38px; border-radius:11px; border:1px solid var(--toggle-border);
+      background:var(--toggle-bg); color:var(--ink); cursor:pointer; display:flex; align-items:center; justify-content:center; transition:transform .15s, border-color .2s; }
+    .theme-toggle:hover { transform:translateY(-1px); border-color:var(--accent); }
+    .theme-toggle svg { width:18px; height:18px; }
+    .menu-btn { display:none; flex:0 0 auto; width:38px; height:38px; border-radius:11px; border:1px solid var(--toggle-border);
+      background:var(--toggle-bg); color:var(--ink); cursor:pointer; align-items:center; justify-content:center; }
+    .menu-btn svg { width:20px; height:20px; }
+
     .wrap { max-width:1040px; margin:0 auto; padding:28px 18px; position:relative; z-index:1; }
-    .cta { background:var(--grad); border-radius:18px; padding:22px 24px; margin-bottom:26px; display:flex;
-      align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; box-shadow:0 16px 40px var(--accent-soft); }
-    .cta h2 { margin:0 0 4px; font-size:1.15rem; color:#fff; }
-    .cta p { margin:0; color:rgba(255,255,255,.85); font-size:.9rem; }
-    .cta a { background:#fff; color:#4f46e5; font-weight:700; text-decoration:none; padding:11px 18px; border-radius:11px; white-space:nowrap; }
+
+    /* Subscribe banner (slim, persistent after dismiss) */
+    .sbanner { display:none; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap;
+      background:var(--banner-bg); border:1px solid var(--banner-border); border-radius:14px; padding:13px 18px; margin-bottom:22px; }
+    .sbanner p { margin:0; font-size:.9rem; color:var(--ink); }
+    .sbanner a { background:var(--grad); color:#fff; font-weight:700; text-decoration:none; padding:8px 16px; border-radius:10px; font-size:.85rem; white-space:nowrap; }
+
+    /* Subscribed note */
+    .subnote { display:none; align-items:center; gap:8px; font-size:.88rem; color:var(--fresh); font-weight:600; margin-bottom:16px; }
+    .subnote svg { width:16px; height:16px; }
+    .subnote a { color:var(--accent); text-decoration:none; }
+
     h1 { font-size:1.5rem; margin:0 0 4px; font-weight:800; letter-spacing:-.02em; }
     .sub { color:var(--muted); margin:0 0 18px; font-size:.92rem; }
-    .filters { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:18px; align-items:center; }
+    .filters { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; align-items:center; }
     .chipbtn { padding:7px 13px; border:1px solid var(--field-border); border-radius:999px; background:var(--seg-bg);
-      color:var(--seg-ink); font-size:.82rem; font-weight:600; cursor:pointer; }
+      color:var(--seg-ink); font-size:.82rem; font-weight:600; cursor:pointer; transition:.15s; }
+    .chipbtn:hover { border-color:var(--accent); }
     .chipbtn.active { background:var(--grad); color:#fff; border-color:transparent; }
-    input.search { flex:1; min-width:160px; padding:10px 14px; border:1px solid var(--field-border); border-radius:11px;
-      background:var(--field); color:var(--ink); font-size:.9rem; font-family:inherit; }
-    input.search:focus { outline:none; border-color:var(--accent); }
+    input.search { width:100%; padding:11px 14px; border:1px solid var(--field-border); border-radius:12px; margin-bottom:18px;
+      background:var(--field); color:var(--ink); font-size:.92rem; font-family:inherit; transition:border .15s, box-shadow .15s; }
+    input.search::placeholder { color:var(--muted); opacity:.7; }
+    input.search:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 4px var(--accent-soft); }
+    .count { color:var(--muted); font-size:.8rem; margin:0 0 12px; }
     .job { background:var(--card); border:1px solid var(--card-border); border-radius:16px; padding:16px 18px; margin-bottom:12px;
-      backdrop-filter:blur(14px); display:flex; justify-content:space-between; gap:16px; align-items:flex-start; }
-    .job h3 { margin:0 0 4px; font-size:1rem; font-weight:700; }
+      backdrop-filter:blur(14px); box-shadow:var(--card-shadow); display:flex; justify-content:space-between; gap:16px; align-items:flex-start; transition:transform .12s, border-color .2s; }
+    .job:hover { transform:translateY(-2px); border-color:var(--accent); }
+    .job h3 { margin:0 0 6px; font-size:1rem; font-weight:700; }
     .meta { color:var(--muted); font-size:.84rem; display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
     .tag { padding:2px 9px; border-radius:999px; font-size:.7rem; font-weight:600; background:var(--accent-soft); color:var(--accent2); }
     .ago { color:var(--fresh); font-weight:600; }
     .apply { background:var(--grad); color:#fff; text-decoration:none; font-weight:700; font-size:.85rem; padding:9px 16px;
-      border-radius:11px; white-space:nowrap; }
+      border-radius:11px; white-space:nowrap; transition:transform .1s, box-shadow .2s; }
+    .apply:hover { transform:translateY(-1px); box-shadow:0 10px 24px var(--accent-soft); }
     .empty { text-align:center; color:var(--muted); padding:50px; }
+
+    /* Onboarding modal */
+    .overlay { display:none; position:fixed; inset:0; z-index:50; background:var(--overlay); backdrop-filter:blur(4px);
+      align-items:center; justify-content:center; padding:20px; animation:fade .2s ease; }
+    .overlay.show { display:flex; }
+    @keyframes fade { from{opacity:0} to{opacity:1} }
+    .modal { width:100%; max-width:460px; background:var(--card); border:1px solid var(--card-border); border-radius:22px;
+      box-shadow:0 30px 80px rgba(0,0,0,.5); padding:32px 30px; backdrop-filter:blur(20px); animation:rise .35s cubic-bezier(.2,.7,.3,1); }
+    @keyframes rise { from{opacity:0; transform:translateY(18px)} to{opacity:1; transform:none} }
+    .modal .mlogo { width:46px; height:46px; border-radius:14px; background:var(--grad); display:flex; align-items:center; justify-content:center; box-shadow:0 8px 24px var(--accent-soft); margin-bottom:16px; }
+    .modal .mlogo svg { width:24px; height:24px; color:#fff; }
+    .modal h2 { margin:0 0 8px; font-size:1.35rem; font-weight:800; letter-spacing:-.02em; }
+    .modal .mlead { color:var(--muted); margin:0 0 18px; font-size:.92rem; line-height:1.5; }
+    .points { list-style:none; padding:0; margin:0 0 24px; display:flex; flex-direction:column; gap:14px; }
+    .points li { display:flex; gap:12px; align-items:flex-start; font-size:.9rem; line-height:1.45; }
+    .points .dot { flex:0 0 auto; width:28px; height:28px; border-radius:9px; background:var(--accent-soft); color:var(--accent2);
+      display:flex; align-items:center; justify-content:center; font-weight:700; font-size:.85rem; }
+    .points b { display:block; font-weight:700; margin-bottom:1px; }
+    .points span { color:var(--muted); }
+    .modal-actions { display:flex; flex-direction:column; gap:10px; }
+    .btn-primary { width:100%; padding:13px; border:0; border-radius:13px; cursor:pointer; font-size:.97rem; font-weight:700;
+      font-family:inherit; color:#fff; background:var(--grad); box-shadow:0 12px 30px var(--accent-soft); text-decoration:none; text-align:center;
+      transition:transform .1s, box-shadow .2s; }
+    .btn-primary:hover { transform:translateY(-2px); box-shadow:0 16px 38px var(--accent-soft); }
+    .btn-ghost { width:100%; padding:11px; border:0; border-radius:13px; cursor:pointer; font-size:.9rem; font-weight:600;
+      font-family:inherit; color:var(--muted); background:transparent; }
+    .btn-ghost:hover { color:var(--ink); }
+
+    @media (max-width:600px) {
+      .nav-links { display:none; position:absolute; top:62px; right:14px; left:14px; flex-direction:column; align-items:stretch; gap:6px;
+        background:var(--nav-bg); border:1px solid var(--nav-border); border-radius:14px; padding:10px; backdrop-filter:blur(16px); box-shadow:0 20px 50px rgba(0,0,0,.3); }
+      .nav-links.open { display:flex; }
+      .menu-btn { display:flex; }
+    }
     @media (max-width:560px){ .job{flex-direction:column} .apply{align-self:flex-start} }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="cta">
-      <div>
-        <h2>Get these matched to YOUR resume, on Telegram</h2>
-        <p>Subscribe with your resume and we send you only the jobs that fit, twice a day.</p>
+  <nav class="nav">
+    <div class="nav-inner">
+      <a class="nav-brand" href="/jobs">
+        <span class="nav-logo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/><circle cx="11" cy="11" r="2.5"/></svg></span>
+        JobHunt
+      </a>
+      <div class="nav-links" id="navLinks">
+        <a class="nav-link active" href="/jobs">Browse</a>
+        <a class="nav-link" href="/dashboard">My matches</a>
+        <a class="nav-link" href="/subscribe">Subscribe</a>
+        <a class="nav-link" href="/logout">Log out</a>
       </div>
-      <a href="/">Subscribe free</a>
+      <button class="theme-toggle" id="themeToggle" aria-label="Toggle theme" title="Toggle theme"></button>
+      <button class="menu-btn" id="menuBtn" aria-label="Menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+    </div>
+  </nav>
+
+  <div class="wrap">
+    <div class="sbanner" id="sbanner">
+      <p><b>Get matched.</b> Subscribe with your resume to get only the jobs that fit you on Telegram, WhatsApp, or email.</p>
+      <a href="/subscribe">Subscribe</a>
+    </div>
+
+    <div class="subnote" id="subnote">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+      You are subscribed, see <a href="/dashboard">My matches</a>.
     </div>
 
     <h1>Latest jobs we found</h1>
@@ -60,17 +160,50 @@
 
     <div class="filters" id="filters"></div>
     <input class="search" id="search" placeholder="Search title or company..." />
+    <p class="count" id="count"></p>
 
     <div id="list"></div>
     <div class="empty" id="empty" style="display:none;">No jobs yet, check back soon.</div>
   </div>
 
+  <!-- Onboarding walkthrough -->
+  <div class="overlay" id="overlay">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="welcomeTitle">
+      <div class="mlogo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/><circle cx="11" cy="11" r="2.5"/></svg></div>
+      <h2 id="welcomeTitle">Welcome to JobHunt</h2>
+      <p class="mlead">Here is how it works in three quick steps.</p>
+      <ul class="points">
+        <li><span class="dot">1</span><div><b>We scan the job boards</b><span>New roles get pulled in daily so you never miss a fresh posting.</span></div></li>
+        <li><span class="dot">2</span><div><b>You browse here</b><span>Filter by category, search, and apply to anything that catches your eye.</span></div></li>
+        <li><span class="dot">3</span><div><b>Subscribe for your matches</b><span>Upload your resume once and get only the jobs that fit you, on Telegram, WhatsApp, or email.</span></div></li>
+      </ul>
+      <div class="modal-actions">
+        <a class="btn-primary" href="/subscribe">Subscribe for personalized alerts</a>
+        <button class="btn-ghost" id="laterBtn" type="button">Maybe later</button>
+      </div>
+    </div>
+  </div>
+
   <script>
-    let all = [], cat = '';
-    function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+    // ----- Theme toggle -----
+    const sunIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>';
+    const moonIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>';
+    const toggle = document.getElementById('themeToggle');
+    function applyTheme(t) { document.documentElement.setAttribute('data-theme', t); toggle.innerHTML = t === 'dark' ? sunIcon : moonIcon; }
+    applyTheme(localStorage.getItem('theme') || 'dark');
+    toggle.addEventListener('click', () => {
+      const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+      localStorage.setItem('theme', next); applyTheme(next);
+    });
+
+    // ----- Mobile menu -----
+    document.getElementById('menuBtn').addEventListener('click', () => document.getElementById('navLinks').classList.toggle('open'));
+
+    // ----- Helpers -----
+    function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
     function safeUrl(u){ u=String(u||''); return /^https?:\/\//i.test(u)?u:''; }
     function ago(iso, seen){
-      const d = Date.parse(iso) || Date.parse((seen||'').replace(' ','T'));
+      const d = Date.parse(iso) || Date.parse(String(seen||'').replace(' ','T'));
       if(!d) return '';
       const h = Math.floor((Date.now()-d)/3.6e6);
       if(h < 1) return 'just now';
@@ -78,18 +211,26 @@
       const days = Math.floor(h/24);
       return days+'d ago';
     }
+
+    // ----- Catalog -----
+    let all = [], cat = '';
     async function load(){
-      const r = await fetch('/api/catalog'); const data = await r.json();
-      all = data.jobs || [];
-      const cats = data.categories || [];
-      document.getElementById('filters').innerHTML =
-        `<button class="chipbtn active" data-c="">All</button>` +
-        cats.map(c=>`<button class="chipbtn" data-c="${esc(c)}">${esc(c)}</button>`).join('');
-      document.querySelectorAll('.chipbtn').forEach(b=>b.onclick=()=>{
-        cat=b.dataset.c; document.querySelectorAll('.chipbtn').forEach(x=>x.classList.remove('active'));
-        b.classList.add('active'); render();
-      });
-      render();
+      try {
+        const r = await fetch('/api/catalog');
+        const data = await r.json();
+        all = data.jobs || [];
+        const cats = data.categories || [];
+        document.getElementById('filters').innerHTML =
+          '<button class="chipbtn active" data-c="">All</button>' +
+          cats.map(c=>`<button class="chipbtn" data-c="${esc(c)}">${esc(c)}</button>`).join('');
+        document.querySelectorAll('.chipbtn').forEach(b=>b.onclick=()=>{
+          cat=b.dataset.c; document.querySelectorAll('.chipbtn').forEach(x=>x.classList.remove('active'));
+          b.classList.add('active'); render();
+        });
+        render();
+      } catch (e) {
+        document.getElementById('empty').style.display = 'block';
+      }
     }
     function render(){
       const q = document.getElementById('search').value.toLowerCase();
@@ -97,6 +238,7 @@
         (!cat || j.category===cat) &&
         (!q || (j.title||'').toLowerCase().includes(q) || (j.company||'').toLowerCase().includes(q)));
       document.getElementById('empty').style.display = rows.length?'none':'block';
+      document.getElementById('count').textContent = rows.length ? `${rows.length} job${rows.length===1?'':'s'}` : '';
       document.getElementById('list').innerHTML = rows.map(j=>{
         const a = ago(j.posted_at, j.first_seen_at);
         const u = safeUrl(j.url);
@@ -113,7 +255,37 @@
       }).join('');
     }
     document.getElementById('search').addEventListener('input', render);
+
+    // ----- First-run walkthrough / onboarding -----
+    const overlay = document.getElementById('overlay');
+    const DISMISS_KEY = 'jh_onboard_dismissed';
+    function dismissModal() {
+      overlay.classList.remove('show');
+      localStorage.setItem(DISMISS_KEY, '1');
+      document.getElementById('sbanner').style.display = 'flex';
+    }
+    document.getElementById('laterBtn').addEventListener('click', dismissModal);
+    overlay.addEventListener('click', e => { if (e.target === overlay) dismissModal(); });
+
+    async function checkMe(){
+      try {
+        const r = await fetch('/me');
+        if (!r.ok) return; // 401 -> not logged in; leave page as-is
+        const me = await r.json();
+        if (me.subscribed) {
+          document.getElementById('subnote').style.display = 'flex';
+        } else {
+          if (localStorage.getItem(DISMISS_KEY)) {
+            document.getElementById('sbanner').style.display = 'flex';
+          } else {
+            overlay.classList.add('show');
+          }
+        }
+      } catch (e) { /* ignore */ }
+    }
+
     load();
+    checkMe();
   </script>
 </body>
 </html>

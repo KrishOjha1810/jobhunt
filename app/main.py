@@ -58,9 +58,26 @@ STATIC_DIR = BASE_DIR / "static"
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
-@app.get("/", response_class=HTMLResponse)
-def home():
-    return (STATIC_DIR / "index.html").read_text()
+def _page(name):
+    return HTMLResponse((STATIC_DIR / name).read_text())
+
+
+@app.get("/")
+def home(request: Request):
+    # Land everyone on login first; logged-in users go straight to the home (jobs) page.
+    return RedirectResponse("/jobs" if current_user(request) else "/login")
+
+
+@app.post("/register")
+def register(request: Request, email: str = Form(...), password: str = Form(...), name: str = Form("")):
+    email = email.strip()
+    if not EMAIL_RE.match(email):
+        return RedirectResponse("/login?error=email", status_code=302)
+    if db.email_exists(email):
+        return RedirectResponse("/login?error=exists", status_code=302)
+    uid = db.create_account(email, password, name)
+    request.session["uid"] = uid
+    return RedirectResponse("/jobs", status_code=302)
 
 
 @app.post("/signup")
@@ -140,8 +157,79 @@ def dashboard(request: Request, token: str = ""):
 
 
 @app.get("/jobs", response_class=HTMLResponse)
-def jobs_page():
-    return (STATIC_DIR / "jobs.html").read_text()
+def jobs_page(request: Request):
+    if not current_user(request):
+        return RedirectResponse("/login")
+    return _page("jobs.html")
+
+
+@app.get("/subscribe", response_class=HTMLResponse)
+def subscribe_page(request: Request):
+    if not current_user(request):
+        return RedirectResponse("/login")
+    return _page("subscribe.html")
+
+
+@app.get("/me")
+def me(request: Request):
+    """Lightweight profile for the frontend (is the user subscribed yet, name, etc.)."""
+    u = current_user(request)
+    if not u:
+        return JSONResponse({"authenticated": False}, status_code=401)
+    return {"authenticated": True, "name": u["name"], "email": u.get("email"),
+            "subscribed": db.is_subscribed(u), "channel": u.get("channel"),
+            "dash_token": u.get("dash_token")}
+
+
+@app.post("/subscribe")
+async def subscribe_post(
+    request: Request,
+    channel: str = Form("email"),
+    telegram_chat_id: str = Form(""),
+    whatsapp_phone: str = Form(""),
+    whatsapp_apikey: str = Form(""),
+    email: str = Form(""),
+    locations: str = Form("remote,india"),
+    extra_keywords: str = Form(""),
+    resume_file: UploadFile = File(...),
+):
+    user = current_user(request)
+    if not user:
+        return JSONResponse({"error": "please log in first"}, status_code=401)
+    channel = (channel or "email").lower()
+    if channel not in ("email", "telegram", "whatsapp"):
+        return JSONResponse({"error": "Invalid channel."}, status_code=400)
+    if channel == "telegram" and not telegram_chat_id.strip():
+        return JSONResponse({"error": "Telegram chat ID is required."}, status_code=400)
+    if channel == "whatsapp" and not (whatsapp_phone.strip() and whatsapp_apikey.strip()):
+        return JSONResponse({"error": "WhatsApp needs phone and CallMeBot key."}, status_code=400)
+    eff_email = (email.strip() or user.get("email") or "")
+    if channel == "email" and not EMAIL_RE.match(eff_email):
+        return JSONResponse({"error": "A valid email is required for the Email channel."}, status_code=400)
+    safe = "".join(c for c in user["name"] if c.isalnum() or c in "-_") or "user"
+    raw = os.path.basename(resume_file.filename or "resume")
+    safe_file = "".join(c for c in raw if c.isalnum() or c in "-_.") or "resume"
+    dest = RESUME_DIR / f"{safe}_{safe_file}"
+    try:
+        with open(dest, "wb") as f:
+            shutil.copyfileobj(resume_file.file, f)
+        profile = resume.profile_from_resume(str(dest))
+        keywords = profile["keywords"]
+    except Exception as e:
+        return JSONResponse({"error": f"could not read resume: {e}"}, status_code=400)
+    for kw in extra_keywords.split(","):
+        kw = kw.strip().lower()
+        if kw and kw not in keywords:
+            keywords.append(kw)
+    loc_list = [l.strip().lower() for l in locations.split(",") if l.strip()]
+    db.update_subscription(
+        user["id"], keywords, loc_list, channel, resume_path=str(dest),
+        resume_text=profile.get("text", ""), telegram_chat_id=telegram_chat_id.strip(),
+        whatsapp_phone=whatsapp_phone.strip() or None, whatsapp_apikey=whatsapp_apikey.strip() or None,
+        email=eff_email or None,
+    )
+    return {"ok": True, "detected_keywords": keywords, "channel": channel,
+            "message": f"Subscribed. You'll get matched jobs on {channel.title()}."}
 
 
 @app.get("/api/catalog")
@@ -165,7 +253,7 @@ def login_post(request: Request, email: str = Form(...), password: str = Form(..
     if not u:
         return RedirectResponse("/login?error=1", status_code=302)
     request.session["uid"] = u["id"]
-    return RedirectResponse("/dashboard", status_code=302)
+    return RedirectResponse("/jobs", status_code=302)
 
 
 @app.get("/logout")
@@ -198,7 +286,7 @@ async def auth_google_callback(request: Request):
             return RedirectResponse("/login?error=1")
         u = db.upsert_oauth_user(email, info.get("name"))
         request.session["uid"] = u["id"]
-        return RedirectResponse("/dashboard", status_code=302)
+        return RedirectResponse("/jobs", status_code=302)
     except Exception as e:
         print(f"[oauth] callback error: {e}")
         return RedirectResponse("/login?error=1")

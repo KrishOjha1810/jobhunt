@@ -5,67 +5,182 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>JobHunt, sign in</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <style>
-    :root { --accent:#6366f1; --accent2:#8b5cf6; --accent-soft:rgba(99,102,241,.14); --grad:linear-gradient(135deg,#6366f1,#8b5cf6); }
+    :root { --accent:#6366f1; --accent2:#8b5cf6; --accent-soft:rgba(99,102,241,.12); --grad:linear-gradient(135deg,#6366f1,#8b5cf6); }
+    html[data-theme="light"] {
+      --bg:#f4f5fb; --bg-glow1:rgba(99,102,241,.18); --bg-glow2:rgba(139,92,246,.16);
+      --card:#ffffff; --card-border:rgba(15,23,42,.08); --card-shadow:0 24px 60px rgba(15,23,42,.12);
+      --ink:#0f172a; --muted:#64748b; --field:#f8fafc; --field-border:#e2e6ef;
+      --seg-bg:#f1f2f9; --seg-ink:#475569;
+      --err-bg:#fef2f2; --err-border:#fecaca; --err-ink:#991b1b;
+      --gbtn-bg:#ffffff; --gbtn-border:#e2e6ef; --gbtn-ink:#1f2937;
+      --toggle-bg:#ffffff; --toggle-border:rgba(15,23,42,.1);
+    }
     html[data-theme="dark"] {
       --bg:#0a0a14; --bg-glow1:rgba(99,102,241,.28); --bg-glow2:rgba(139,92,246,.22);
       --card:rgba(22,23,38,.72); --card-border:rgba(255,255,255,.08); --card-shadow:0 30px 80px rgba(0,0,0,.55);
       --ink:#f1f3f9; --muted:#9499b0; --field:rgba(255,255,255,.04); --field-border:rgba(255,255,255,.1);
+      --seg-bg:rgba(255,255,255,.04); --seg-ink:#c2c6da;
       --err-bg:rgba(220,38,38,.12); --err-border:rgba(248,113,113,.35); --err-ink:#fca5a5;
+      --gbtn-bg:#ffffff; --gbtn-border:rgba(255,255,255,.1); --gbtn-ink:#1f2937;
+      --toggle-bg:rgba(255,255,255,.06); --toggle-border:rgba(255,255,255,.12);
     }
     * { box-sizing:border-box; }
-    body { margin:0; font-family:Inter,-apple-system,system-ui,sans-serif; color:var(--ink); min-height:100vh;
-      background:var(--bg); position:relative; overflow-x:hidden; display:flex; align-items:center; justify-content:center; padding:40px 16px; }
-    body::before,body::after { content:""; position:fixed; border-radius:50%; filter:blur(90px); z-index:0; pointer-events:none; }
+    body { margin:0; font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif; color:var(--ink);
+      min-height:100vh; background:var(--bg); position:relative; overflow-x:hidden;
+      display:flex; align-items:center; justify-content:center; padding:40px 16px;
+      transition:background .35s ease, color .35s ease; }
+    body::before, body::after { content:""; position:fixed; border-radius:50%; filter:blur(90px); z-index:0; pointer-events:none; transition:background .35s ease; }
     body::before { width:520px; height:520px; top:-160px; left:-120px; background:var(--bg-glow1); }
     body::after { width:480px; height:480px; bottom:-180px; right:-120px; background:var(--bg-glow2); }
-    .card { position:relative; z-index:1; width:100%; max-width:420px; background:var(--card); border:1px solid var(--card-border);
-      border-radius:24px; box-shadow:var(--card-shadow); padding:40px 36px; backdrop-filter:blur(20px); }
+    .topbar { position:fixed; top:18px; right:18px; z-index:5; }
+    .theme-toggle { width:42px; height:42px; border-radius:12px; border:1px solid var(--toggle-border);
+      background:var(--toggle-bg); color:var(--ink); cursor:pointer; backdrop-filter:blur(12px);
+      display:flex; align-items:center; justify-content:center; transition:transform .15s, border-color .2s; }
+    .theme-toggle:hover { transform:translateY(-1px); border-color:var(--accent); }
+    .theme-toggle svg { width:20px; height:20px; }
+    .card { position:relative; z-index:1; width:100%; max-width:430px; background:var(--card); border:1px solid var(--card-border);
+      border-radius:24px; box-shadow:var(--card-shadow); padding:38px 36px; backdrop-filter:blur(20px);
+      animation:rise .5s cubic-bezier(.2,.7,.3,1); transition:background .35s ease, border-color .35s ease; }
+    @keyframes rise { from{opacity:0; transform:translateY(16px)} to{opacity:1; transform:none} }
     .brand { display:flex; align-items:center; gap:12px; margin-bottom:6px; }
-    .logo { width:40px; height:40px; border-radius:12px; background:var(--grad); display:flex; align-items:center; justify-content:center; font-size:20px; }
-    h1 { font-size:1.5rem; margin:0; font-weight:800; letter-spacing:-.02em; }
-    .sub { color:var(--muted); margin:8px 0 24px; font-size:.92rem; }
+    .logo { width:42px; height:42px; border-radius:13px; background:var(--grad); display:flex; align-items:center; justify-content:center;
+      box-shadow:0 8px 24px var(--accent-soft); }
+    .logo svg { width:22px; height:22px; color:#fff; }
+    h1 { font-size:1.55rem; margin:0; font-weight:800; letter-spacing:-.02em; }
+    .sub { color:var(--muted); margin:10px 0 22px; font-size:.92rem; line-height:1.5; }
+    .tabs { display:flex; gap:6px; background:var(--seg-bg); padding:5px; border-radius:14px; border:1px solid var(--field-border); margin-bottom:6px; }
+    .tab { flex:1; padding:10px; border:0; border-radius:10px; background:transparent; color:var(--seg-ink);
+      font-weight:600; font-size:.9rem; font-family:inherit; cursor:pointer; transition:.2s; }
+    .tab.active { background:var(--grad); color:#fff; box-shadow:0 6px 18px var(--accent-soft); }
     label { display:block; margin:16px 0 6px; font-weight:600; font-size:.82rem; }
     input { width:100%; padding:12px 14px; border:1px solid var(--field-border); border-radius:12px; font-size:.97rem;
-      font-family:inherit; background:var(--field); color:var(--ink); }
+      font-family:inherit; background:var(--field); color:var(--ink); transition:border .15s, box-shadow .15s, background .35s; }
+    input::placeholder { color:var(--muted); opacity:.7; }
     input:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 4px var(--accent-soft); }
     button.submit { margin-top:24px; width:100%; padding:13px; border:0; border-radius:13px; cursor:pointer; font-size:1rem;
-      font-weight:700; font-family:inherit; color:#fff; background:var(--grad); box-shadow:0 12px 30px var(--accent-soft); }
-    button.submit:hover { opacity:.93; }
-    .err { display:none; margin-top:16px; padding:12px 14px; border-radius:12px; font-size:.88rem;
+      font-weight:700; font-family:inherit; color:#fff; background:var(--grad); box-shadow:0 12px 30px var(--accent-soft);
+      transition:transform .1s, box-shadow .2s, opacity .15s; }
+    button.submit:hover { transform:translateY(-2px); box-shadow:0 16px 38px var(--accent-soft); }
+    button.submit:active { transform:translateY(0); }
+    .err { display:none; margin-top:18px; padding:12px 14px; border-radius:12px; font-size:.88rem;
       background:var(--err-bg); border:1px solid var(--err-border); color:var(--err-ink); }
-    .gbtn { display:none; margin-top:14px; width:100%; padding:12px; border:1px solid var(--field-border); border-radius:13px;
-      background:#fff; color:#1f2937; font-weight:600; font-size:.95rem; text-decoration:none; text-align:center; }
-    .divider { text-align:center; color:var(--muted); font-size:.78rem; margin:18px 0 0; }
-    .foot { text-align:center; color:var(--muted); font-size:.85rem; margin-top:22px; }
-    .foot a { color:var(--accent); text-decoration:none; font-weight:600; }
+    .gbtn { display:none; margin-top:14px; width:100%; padding:12px; border:1px solid var(--gbtn-border); border-radius:13px;
+      background:var(--gbtn-bg); color:var(--gbtn-ink); font-weight:600; font-size:.95rem; text-decoration:none;
+      align-items:center; justify-content:center; gap:10px; transition:transform .1s, border-color .2s; }
+    .gbtn:hover { transform:translateY(-1px); }
+    .gbtn svg { width:18px; height:18px; }
+    .divider { display:flex; align-items:center; gap:12px; color:var(--muted); font-size:.76rem; margin:20px 0 4px; }
+    .divider::before, .divider::after { content:""; flex:1; height:1px; background:var(--field-border); }
+    form { display:none; }
+    form.active { display:block; animation:fade .25s ease; }
+    @keyframes fade { from{opacity:0; transform:translateY(-4px)} to{opacity:1; transform:none} }
+    @media (max-width:480px) { .card { padding:30px 22px; } }
   </style>
 </head>
 <body>
+  <div class="topbar">
+    <button class="theme-toggle" id="themeToggle" aria-label="Toggle theme" title="Toggle theme"></button>
+  </div>
+
   <div class="card">
-    <div class="brand"><div class="logo">🎯</div><h1>Welcome back</h1></div>
-    <p class="sub">Sign in to your JobHunt tracker.</p>
+    <div class="brand">
+      <div class="logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/><circle cx="11" cy="11" r="2.5"/></svg>
+      </div>
+      <h1 id="title">Welcome back</h1>
+    </div>
+    <p class="sub" id="subtitle">Sign in to your JobHunt account.</p>
+
+    <div class="tabs">
+      <button class="tab active" id="tabLogin" type="button">Log in</button>
+      <button class="tab" id="tabSignup" type="button">Sign up</button>
+    </div>
 
     <div class="err" id="err">Invalid email or password.</div>
 
-    <form method="POST" action="/login">
+    <form class="active" id="loginForm" method="POST" action="/login">
       <label>Email</label>
       <input type="email" name="email" required placeholder="you@example.com" />
       <label>Password</label>
       <input type="password" name="password" required placeholder="Your password" />
-      <button class="submit" type="submit">Sign in</button>
+      <button class="submit" type="submit">Log in</button>
     </form>
 
-    <a class="gbtn" id="gbtn" href="/auth/google">Continue with Google</a>
+    <form id="signupForm" method="POST" action="/register">
+      <label>Name <span style="font-weight:400;color:var(--muted)">(optional)</span></label>
+      <input type="text" name="name" placeholder="Krish Ojha" />
+      <label>Email</label>
+      <input type="email" name="email" required placeholder="you@example.com" />
+      <label>Password</label>
+      <input type="password" name="password" required placeholder="Choose a password" />
+      <button class="submit" type="submit">Create account</button>
+    </form>
 
-    <p class="foot">New here? <a href="/">Create an account</a></p>
+    <div class="divider" id="divider" style="display:none;">or</div>
+    <a class="gbtn" id="gbtn" href="/auth/google">
+      <svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.27-4.74 3.27-8.1Z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.65l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84A11 11 0 0 0 12 23Z"/><path fill="#FBBC05" d="M5.84 14.11a6.6 6.6 0 0 1 0-4.22V7.05H2.18a11 11 0 0 0 0 9.9l3.66-2.84Z"/><path fill="#EA4335" d="M12 4.75c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 1.46 14.97.5 12 .5A11 11 0 0 0 2.18 7.05l3.66 2.84C6.71 7.28 9.14 4.75 12 4.75Z"/></svg>
+      Continue with Google
+    </a>
   </div>
 
   <script>
-    if (new URLSearchParams(location.search).get('error')) document.getElementById('err').style.display = 'block';
+    // Theme toggle (default dark, remembered in localStorage)
+    const sunIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>';
+    const moonIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>';
+    const toggle = document.getElementById('themeToggle');
+    function applyTheme(t) {
+      document.documentElement.setAttribute('data-theme', t);
+      toggle.innerHTML = t === 'dark' ? sunIcon : moonIcon;
+    }
+    applyTheme(localStorage.getItem('theme') || 'dark');
+    toggle.addEventListener('click', () => {
+      const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+      localStorage.setItem('theme', next); applyTheme(next);
+    });
+
+    // Tab switching
+    const tabLogin = document.getElementById('tabLogin');
+    const tabSignup = document.getElementById('tabSignup');
+    const loginForm = document.getElementById('loginForm');
+    const signupForm = document.getElementById('signupForm');
+    const title = document.getElementById('title');
+    const subtitle = document.getElementById('subtitle');
+    function showMode(mode) {
+      const login = mode === 'login';
+      tabLogin.classList.toggle('active', login);
+      tabSignup.classList.toggle('active', !login);
+      loginForm.classList.toggle('active', login);
+      signupForm.classList.toggle('active', !login);
+      title.textContent = login ? 'Welcome back' : 'Create your account';
+      subtitle.textContent = login ? 'Sign in to your JobHunt account.' : 'Sign up to browse jobs and get matched alerts.';
+    }
+    tabLogin.addEventListener('click', () => showMode('login'));
+    tabSignup.addEventListener('click', () => showMode('signup'));
+
+    // Error banner from ?error=
+    const errEl = document.getElementById('err');
+    const errCode = new URLSearchParams(location.search).get('error');
+    if (errCode) {
+      const msgs = {
+        '1': 'Invalid email or password. Please try again.',
+        'email': 'That email address does not look valid.',
+        'exists': 'An account with that email already exists. Try logging in.',
+      };
+      errEl.textContent = msgs[errCode] || 'Something went wrong. Please try again.';
+      errEl.style.display = 'block';
+      // exists/email errors came from a sign-up attempt, so open that tab
+      if (errCode === 'exists' || errCode === 'email') showMode('signup');
+    }
+
+    // Google button only if configured
     fetch('/authconfig').then(r => r.json()).then(d => {
-      if (d.google) document.getElementById('gbtn').style.display = 'block';
+      if (d.google) {
+        document.getElementById('gbtn').style.display = 'flex';
+        document.getElementById('divider').style.display = 'flex';
+      }
     }).catch(() => {});
   </script>
 </body>
