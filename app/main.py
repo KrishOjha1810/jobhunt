@@ -360,6 +360,28 @@ def trigger_run(background_tasks: BackgroundTasks, token: str = ""):
     return {"ok": True, "message": "Matching started; alerts will arrive shortly."}
 
 
+@app.get("/tailor")
+def tailor_endpoint(request: Request, job_id: int = 0, token: str = ""):
+    """LLM-tailor the user's resume to a specific matched job. Off until an LLM key is set."""
+    from . import enrich
+    user = _resolve_user(request, token)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    job = db.get_job_log(job_id, user["id"])
+    if not job:
+        return JSONResponse({"error": "job not found"}, status_code=404)
+    if not enrich.available():
+        return {"ok": False, "reason": "Resume tailoring is not enabled yet (needs a free Gemini or Groq key)."}
+    block = enrich.tailor(
+        {"title": job.get("title"), "company": job.get("company"),
+         "description": db.catalog_description(job.get("url"))},
+        user.get("resume_text") or "",
+    )
+    if not block:
+        return {"ok": False, "reason": "Could not generate tailoring right now."}
+    return {"ok": True, "tailoring": block}
+
+
 @app.get("/healthz")
 def healthz():
     return {"ok": True}

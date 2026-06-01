@@ -226,6 +226,24 @@ def catalog_categories():
     return sorted({r[0] for r in rows if r[0]})
 
 
+def get_job_log(job_id, user_id):
+    with engine.connect() as conn:
+        r = conn.execute(
+            select(job_log).where(job_log.c.id == job_id, job_log.c.user_id == user_id)
+        ).mappings().first()
+    return dict(r) if r else None
+
+
+def catalog_description(url):
+    if not url:
+        return ""
+    with engine.connect() as conn:
+        r = conn.execute(
+            select(jobs_catalog.c.description).where(jobs_catalog.c.url == url)
+        ).first()
+    return (r[0] if r else "") or ""
+
+
 def list_jobs(user_id, week=False, company=None, category=None):
     q = select(job_log).where(job_log.c.user_id == user_id)
     if week:
