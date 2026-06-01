@@ -66,6 +66,9 @@ SMTP_USER = os.environ.get("SMTP_USER", "")
 SMTP_PASS = os.environ.get("SMTP_PASS", "")
 EMAIL_FROM = os.environ.get("EMAIL_FROM", "") or SMTP_USER
 
+# Brevo HTTP email API (works on hosts that block SMTP, like Render free). Preferred when set.
+BREVO_API_KEY = os.environ.get("BREVO_API_KEY", "")
+
 # Public base URL (for building dashboard links in messages). e.g. https://jobhunt-8i1m.onrender.com
 BASE_URL = os.environ.get("BASE_URL", "").rstrip("/")
 

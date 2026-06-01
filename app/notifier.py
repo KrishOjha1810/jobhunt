@@ -4,7 +4,7 @@ import urllib.parse
 from email.mime.text import MIMEText
 import requests
 from .config import (
-    TELEGRAM_BOT_TOKEN, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, EMAIL_FROM,
+    TELEGRAM_BOT_TOKEN, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, EMAIL_FROM, BREVO_API_KEY,
 )
 
 
@@ -41,9 +41,33 @@ def send_whatsapp(phone: str, apikey: str, text: str) -> bool:
         return False
 
 
+def send_email_brevo(to_addr: str, text: str, subject: str) -> bool:
+    """Send via Brevo's HTTP API (works on hosts that block SMTP)."""
+    try:
+        r = requests.post(
+            "https://api.brevo.com/v3/smtp/email",
+            headers={"api-key": BREVO_API_KEY, "content-type": "application/json",
+                     "accept": "application/json"},
+            json={"sender": {"email": EMAIL_FROM or SMTP_USER, "name": "JobHunt"},
+                  "to": [{"email": to_addr}], "subject": subject, "textContent": text},
+            timeout=20,
+        )
+        if not r.ok:
+            print(f"[notifier] brevo error {r.status_code}: {r.text[:200]}")
+        return r.ok
+    except Exception as e:
+        print(f"[notifier] brevo error: {e}")
+        return False
+
+
 def send_email(to_addr: str, text: str, subject: str = "JobHunt: new job matches") -> bool:
-    if not (SMTP_HOST and SMTP_USER and SMTP_PASS and to_addr):
-        print("[notifier] email not configured / no address")
+    if not to_addr:
+        return False
+    # Prefer Brevo HTTP (works on Render free); fall back to SMTP off-Render.
+    if BREVO_API_KEY:
+        return send_email_brevo(to_addr, text, subject)
+    if not (SMTP_HOST and SMTP_USER and SMTP_PASS):
+        print("[notifier] email not configured")
         return False
     try:
         msg = MIMEText(text)

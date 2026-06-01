@@ -245,24 +245,11 @@ def testmail(to: str = "", token: str = ""):
     """Token-guarded SMTP diagnostic: reports which SMTP vars are present and the exact error."""
     if RUN_TOKEN and token != RUN_TOKEN:
         return JSONResponse({"error": "invalid token"}, status_code=403)
-    from .config import SMTP_HOST, SMTP_USER, SMTP_PASS, EMAIL_FROM, SMTP_PORT
+    from .config import SMTP_HOST, SMTP_USER, SMTP_PASS, EMAIL_FROM, BREVO_API_KEY
     present = {
-        "SMTP_HOST": bool(SMTP_HOST), "SMTP_USER": bool(SMTP_USER),
-        "SMTP_PASS": bool(SMTP_PASS), "EMAIL_FROM": bool(EMAIL_FROM), "SMTP_PORT": SMTP_PORT,
+        "BREVO_API_KEY": bool(BREVO_API_KEY), "SMTP_HOST": bool(SMTP_HOST),
+        "SMTP_USER": bool(SMTP_USER), "SMTP_PASS": bool(SMTP_PASS), "EMAIL_FROM": bool(EMAIL_FROM),
     }
-    sent, err = False, None
-    try:
-        import smtplib
-        from email.mime.text import MIMEText
-        msg = MIMEText("JobHunt SMTP test. If you got this, email alerts work.")
-        msg["Subject"] = "JobHunt test"
-        msg["From"] = EMAIL_FROM or SMTP_USER
-        msg["To"] = to
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=25) as s:
-            s.starttls()
-            s.login(SMTP_USER, SMTP_PASS)
-            s.sendmail(EMAIL_FROM or SMTP_USER, [to], msg.as_string())
-        sent = True
-    except Exception as e:
-        err = str(e)[:300]
-    return {"sent": sent, "config_present": present, "error": err}
+    sent = notifier.send_email(to, "JobHunt email test. If you got this, email alerts work.",
+                               subject="JobHunt test")
+    return {"sent": sent, "method": "brevo" if BREVO_API_KEY else "smtp", "config_present": present}
