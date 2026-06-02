@@ -49,10 +49,17 @@ def _maybe_start_scheduler():
     if not ENABLE_SCHEDULER:
         return
     from apscheduler.schedulers.background import BackgroundScheduler
+    from datetime import datetime, timedelta
     sched = BackgroundScheduler(daemon=True)
-    sched.add_job(lambda: runner.run_once(verbose=False), "interval", hours=SCHEDULER_HOURS)
+    # Fire ~90s after each boot so a fresh deploy/wake produces matches promptly, then every
+    # SCHEDULER_HOURS. (Render free freezes the process when idle, so this only advances while
+    # the service is kept awake by an external ping.)
+    sched.add_job(
+        lambda: runner.run_once(verbose=False), "interval", hours=SCHEDULER_HOURS,
+        next_run_time=datetime.now() + timedelta(seconds=90),
+    )
     sched.start()
-    print(f"[scheduler] in-process matcher every {SCHEDULER_HOURS}h")
+    print(f"[scheduler] in-process matcher: first run in ~90s, then every {SCHEDULER_HOURS}h")
 
 STATIC_DIR = BASE_DIR / "static"
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
