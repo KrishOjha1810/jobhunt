@@ -107,6 +107,16 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
                 d["matched"] = len(ranked)
             if SEMANTIC_INLINE:
                 ranked = _semantic_rerank(user, ranked, verbose)
+            # Coverage fallback: a subscribed user whose (often thin) resume matched nothing still
+            # gets the most recent jobs in their roles/locations, so everyone hears from us.
+            if not ranked:
+                fb = [j for j in pool if matcher.location_ok(j.get("location", ""), user["locations"])]
+                if cats:
+                    fb = [j for j in fb if (j.get("category") or matcher.categorize(j)) in cats]
+                fb.sort(key=lambda j: (j.get("posted_at") or ""), reverse=True)
+                ranked = fb[:5]
+                if ranked:
+                    d["why"] = "fallback (recent in roles)"
             # Normally only send unseen jobs; a forced run resends current top matches as a test.
             fresh = ranked if force else [j for j in ranked if not db.is_seen(user["id"], j["url"])]
             to_send = fresh[:MAX_MATCHES_PER_RUN]
@@ -121,8 +131,10 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
             d["why"] = "ok" if ok else (err or "send failed")
             if ok:
                 sent += 1
-            for job in to_send:
-                db.log_job(user["id"], job)
+                # Only mark jobs as seen once delivery actually succeeded, so a failed send
+                # (e.g. email misconfigured) gets retried on the next run instead of vanishing.
+                for job in to_send:
+                    db.log_job(user["id"], job)
         except Exception as e:
             d["why"] = f"error: {e}"
             print(f"[runner] user {user.get('id')} failed: {e}")
