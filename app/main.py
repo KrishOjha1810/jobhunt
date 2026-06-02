@@ -379,13 +379,13 @@ def tailor_endpoint(request: Request, job_id: int = 0, token: str = ""):
         return JSONResponse({"error": "job not found"}, status_code=404)
     if not enrich.available():
         return {"ok": False, "reason": "Resume tailoring is not enabled yet (needs a free Gemini or Groq key)."}
-    block = enrich.tailor(
+    block, err = enrich.tailor(
         {"title": job.get("title"), "company": job.get("company"),
          "description": db.catalog_description(job.get("url"))},
         user.get("resume_text") or "",
     )
     if not block:
-        return {"ok": False, "reason": "Could not generate tailoring right now."}
+        return {"ok": False, "reason": err or "Could not generate tailoring right now."}
     return {"ok": True, "tailoring": block}
 
 

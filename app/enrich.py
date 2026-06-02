@@ -70,10 +70,13 @@ def _chat_anthropic(system: str, user: str) -> str:
     return r.json()["content"][0]["text"].strip()
 
 
-def tailor(job: dict, resume_text: str) -> str:
-    """Return a tailored block for this job, or '' if disabled / on error."""
-    if not available() or not resume_text:
-        return ""
+def tailor(job: dict, resume_text: str):
+    """Return (tailored_block, error). On success error is ''. On failure block is '' and error
+    holds a human-readable reason so the UI can show what actually went wrong."""
+    if not available():
+        return "", "No LLM key set (add a free Gemini or Groq key)."
+    if not resume_text:
+        return "", "No resume on file. Subscribe with a resume first, then tailor."
     user_msg = (
         f"RESUME:\n{resume_text[:6000]}\n\n"
         f"JOB: {job.get('title','')} at {job.get('company','')}\n"
@@ -81,10 +84,16 @@ def tailor(job: dict, resume_text: str) -> str:
     )
     try:
         if LLM_PROVIDER == "anthropic":
-            return _chat_anthropic(PROMPT, user_msg)
+            return _chat_anthropic(PROMPT, user_msg), ""
         return _chat_openai_compat(
             [{"role": "system", "content": PROMPT}, {"role": "user", "content": user_msg}]
-        )
+        ), ""
+    except requests.HTTPError as e:
+        resp = e.response
+        body = (resp.text[:300] if resp is not None else "")
+        code = (resp.status_code if resp is not None else "?")
+        print(f"[enrich] HTTP {code}: {body}")
+        return "", f"{LLM_PROVIDER} API error {code}: {body[:200]}"
     except Exception as e:
         print(f"[enrich] error: {e}")
-        return ""
+        return "", f"{LLM_PROVIDER} request failed: {e}"

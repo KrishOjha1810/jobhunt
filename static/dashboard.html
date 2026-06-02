@@ -74,10 +74,13 @@
     .title { color:var(--ink); }
     .date { color:var(--muted); font-size:.8rem; white-space:nowrap; }
     .tag { display:inline-block; padding:3px 10px; border-radius:999px; font-size:.7rem; font-weight:600; border:1px solid transparent; }
-    .applylink { display:inline-flex; align-items:center; gap:4px; color:var(--accent); text-decoration:none; font-weight:600; font-size:.82rem;
-      padding:5px 10px; border-radius:8px; border:1px solid var(--field-border); background:var(--field); transition:.15s; white-space:nowrap; }
-    .applylink:hover { border-color:var(--accent); background:var(--accent-soft); }
-    .applylink svg { width:12px; height:12px; }
+    .actions { display:flex; align-items:center; gap:7px; flex-wrap:wrap; }
+    .applylink, .tailorbtn { display:inline-flex; align-items:center; justify-content:center; gap:5px; height:32px;
+      padding:0 13px; border-radius:9px; font-weight:600; font-size:.82rem; cursor:pointer; white-space:nowrap;
+      box-sizing:border-box; transition:.15s; line-height:1; font-family:inherit; }
+    .applylink { color:#fff; text-decoration:none; border:0; background:var(--grad); box-shadow:0 4px 12px var(--accent-soft); }
+    .applylink:hover { filter:brightness(1.07); transform:translateY(-1px); }
+    .applylink svg { width:13px; height:13px; }
     input[type=checkbox] { -webkit-appearance:none; appearance:none; width:20px; height:20px; border:1.5px solid var(--field-border);
       border-radius:6px; background:var(--field); cursor:pointer; position:relative; transition:.15s; vertical-align:middle; }
     input[type=checkbox]:checked { background:var(--grad); border-color:transparent; }
@@ -88,9 +91,8 @@
       font-family:inherit; background:var(--field); color:var(--ink); transition:border .15s, box-shadow .15s; }
     .notes:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
     .res { font-size:.8rem; padding:6px 9px; }
-    .tailorbtn { margin-left:6px; padding:6px 11px; border:1px solid var(--field-border); border-radius:8px; background:var(--seg-bg);
-      color:var(--accent); font-weight:700; font-size:.78rem; cursor:pointer; white-space:nowrap; }
-    .tailorbtn:hover { border-color:var(--accent); }
+    .tailorbtn { border:1px solid var(--field-border); background:var(--field); color:var(--accent); }
+    .tailorbtn:hover { border-color:var(--accent); background:var(--accent-soft); }
     .tov { display:none; position:fixed; inset:0; z-index:60; background:rgba(0,0,0,.6); backdrop-filter:blur(4px); align-items:center; justify-content:center; padding:20px; }
     .tov.show { display:flex; }
     .tmodal { position:relative; width:100%; max-width:560px; max-height:80vh; overflow:auto; background:var(--card); border:1px solid var(--card-border);
@@ -244,7 +246,7 @@
           <td class="title">${esc(j.title)}</td>
           <td class="date">${esc((j.sent_at||'').slice(0,10))}</td>
           <td>${j.score ? `<span class="score">${esc(j.score)}</span>` : ''}</td>
-          <td>${safeUrl(j.url)?`<a class="applylink" href="${esc(safeUrl(j.url))}" target="_blank" rel="noopener">Apply <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8"/></svg></a>`:''}<button class="tailorbtn" onclick="tailor(${j.id})">Tailor</button></td>
+          <td><div class="actions">${safeUrl(j.url)?`<a class="applylink" href="${esc(safeUrl(j.url))}" target="_blank" rel="noopener">Apply <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8"/></svg></a>`:''}<button class="tailorbtn" onclick="tailor(${j.id})">Tailor</button></div></td>
           <td><input type="checkbox" ${j.applied?'checked':''} onchange="upd(${j.id},'applied',this.checked?1:0)"></td>
           <td><input type="checkbox" ${j.responded?'checked':''} onchange="upd(${j.id},'responded',this.checked?1:0)"></td>
           <td><select class="res" onchange="upd(${j.id},'resume_used',this.value)">
