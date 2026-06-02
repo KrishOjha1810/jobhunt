@@ -87,6 +87,12 @@
     .seg input:checked + span { background:var(--grad); color:#fff; box-shadow:0 6px 18px var(--accent-soft); }
     .field-group { animation:fade .25s ease; }
     @keyframes fade { from{opacity:0; transform:translateY(-4px)} to{opacity:1; transform:none} }
+    .roles { display:flex; flex-wrap:wrap; gap:9px; margin:4px 0 6px; }
+    .rolechip { position:relative; cursor:pointer; }
+    .rolechip input { position:absolute; opacity:0; width:0; height:0; }
+    .rolechip span { display:inline-block; padding:8px 15px; border-radius:999px; font-size:.86rem; font-weight:600;
+      border:1px solid var(--field-border); background:var(--field); color:var(--ink); transition:.15s; }
+    .rolechip input:checked + span { background:var(--grad); color:#fff; border-color:transparent; box-shadow:0 6px 16px var(--accent-soft); }
     button.submit { margin-top:30px; width:100%; padding:14px; border:0; border-radius:14px; cursor:pointer; font-size:1rem; font-weight:700;
       font-family:inherit; color:#fff; letter-spacing:.01em; background:var(--grad); box-shadow:0 12px 30px var(--accent-soft);
       transition:transform .1s, box-shadow .2s, opacity .15s; }
@@ -185,6 +191,17 @@
           <small>One-time: save +34 644 94 58 67 as a contact, WhatsApp it "I allow callmebot to send me messages", it replies with your key.</small>
         </div>
 
+        <label>Which roles do you want? <span style="font-weight:400;color:var(--muted)">(pick any, or none for all)</span></label>
+        <div class="roles" id="roles">
+          <label class="rolechip"><input type="checkbox" name="categories" value="Blockchain" /><span>Blockchain</span></label>
+          <label class="rolechip"><input type="checkbox" name="categories" value="Backend" /><span>Backend</span></label>
+          <label class="rolechip"><input type="checkbox" name="categories" value="Full-Stack" /><span>Full-Stack</span></label>
+          <label class="rolechip"><input type="checkbox" name="categories" value="Frontend" /><span>Frontend</span></label>
+          <label class="rolechip"><input type="checkbox" name="categories" value="Data" /><span>Data</span></label>
+          <label class="rolechip"><input type="checkbox" name="categories" value="DevOps" /><span>DevOps</span></label>
+        </div>
+        <small>You get ONE daily digest of the best matches across the roles you pick, not a separate batch per role. Everything else stays browsable in <a href="/jobs">Browse jobs</a>.</small>
+
         <label>Locations</label>
         <input type="text" name="locations" value="remote,india" />
         <small>Comma separated, e.g. remote, india, bangalore</small>
@@ -220,9 +237,14 @@
 
     // ----- Prefill email from /me -----
     fetch('/me').then(r => r.ok ? r.json() : null).then(me => {
-      if (me && me.email && !document.getElementById('emailInput').value) {
+      if (!me) return;
+      if (me.email && !document.getElementById('emailInput').value) {
         document.getElementById('emailInput').value = me.email;
       }
+      (me.categories || []).forEach(c => {
+        const box = document.querySelector('#roles input[value="' + c + '"]');
+        if (box) box.checked = true;
+      });
     }).catch(() => {});
 
     // ----- Channel show/hide (email default) -----

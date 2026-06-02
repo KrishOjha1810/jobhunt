@@ -91,6 +91,7 @@
     .job h3 { margin:0 0 6px; font-size:1rem; font-weight:700; }
     .meta { color:var(--muted); font-size:.84rem; display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
     .tag { padding:2px 9px; border-radius:999px; font-size:.7rem; font-weight:600; background:var(--accent-soft); color:var(--accent2); }
+    .tag.matched { background:linear-gradient(135deg,#22c55e22,#16a34a22); color:#22c55e; border:1px solid #22c55e55; }
     .ago { color:var(--fresh); font-weight:600; }
     .apply { background:var(--grad); color:#fff; text-decoration:none; font-weight:700; font-size:.85rem; padding:9px 16px;
       border-radius:11px; white-space:nowrap; transition:transform .1s, box-shadow .2s; }
@@ -242,8 +243,10 @@
         const data = await r.json();
         all = data.jobs || [];
         const cats = data.categories || [];
+        const hasMatches = all.some(j => j.matched);
         document.getElementById('filters').innerHTML =
           '<button class="chipbtn active" data-c="">All</button>' +
+          (hasMatches ? '<button class="chipbtn" data-c="__matched__">★ My matches</button>' : '') +
           cats.map(c=>`<button class="chipbtn" data-c="${esc(c)}">${esc(c)}</button>`).join('');
         document.querySelectorAll('.chipbtn').forEach(b=>b.onclick=()=>{
           cat=b.dataset.c; document.querySelectorAll('.chipbtn').forEach(x=>x.classList.remove('active'));
@@ -257,7 +260,7 @@
     function render(){
       const q = document.getElementById('search').value.toLowerCase();
       const rows = all.filter(j =>
-        (!cat || j.category===cat) &&
+        (!cat || (cat==='__matched__' ? j.matched : j.category===cat)) &&
         (!q || (j.title||'').toLowerCase().includes(q) || (j.company||'').toLowerCase().includes(q)));
       document.getElementById('empty').style.display = rows.length?'none':'block';
       document.getElementById('count').textContent = rows.length ? `${rows.length} job${rows.length===1?'':'s'}` : '';
@@ -268,6 +271,7 @@
           <h3>${esc(j.title)}</h3>
           <div class="meta">
             <span>${esc(j.company||'')}</span>
+            ${j.matched?`<span class="tag matched">★ Matched</span>`:''}
             ${j.category?`<span class="tag">${esc(j.category)}</span>`:''}
             ${j.location?`<span>${esc(j.location)}</span>`:''}
             ${j.salary?`<span class="sal">${esc(j.salary)}</span>`:''}

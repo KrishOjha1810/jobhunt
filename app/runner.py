@@ -75,6 +75,11 @@ def run_once(verbose: bool = True):
     for user in users:
         try:
             ranked = matcher.rank_matches(pool, user["keywords"], user["locations"], MIN_SCORE)
+            # Role filter: if the user picked specific role categories, keep only those, then take
+            # the merged best-of across all of them (one top-N list, not N per role).
+            cats = user.get("categories") or []
+            if cats:
+                ranked = [j for j in ranked if (j.get("category") or matcher.categorize(j)) in cats]
             ranked = _semantic_rerank(user, ranked, verbose)
             fresh = [j for j in ranked if not db.is_seen(user["id"], j["url"])]
             to_send = fresh[:MAX_MATCHES_PER_RUN]

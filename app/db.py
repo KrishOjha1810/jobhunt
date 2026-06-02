@@ -32,6 +32,7 @@ users = Table(
     Column("ref_code", Text),
     Column("referred_by", Integer),
     Column("embedding", Text),
+    Column("categories", Text),  # JSON list of subscribed role categories; empty/null = all
     Column("active", Integer, default=1),
 )
 
@@ -86,7 +87,7 @@ def init_db():
     insp = inspect(engine)
     existing = {c["name"] for c in insp.get_columns("users")}
     with engine.begin() as conn:
-        for col in ("email", "dash_token", "password_hash", "ref_code", "embedding"):
+        for col in ("email", "dash_token", "password_hash", "ref_code", "embedding", "categories"):
             if col not in existing:
                 conn.execute(text(f"ALTER TABLE users ADD COLUMN {col} TEXT"))
         if "referred_by" not in existing:
@@ -163,6 +164,7 @@ def list_active_users():
             "resume_text": r["resume_text"], "channel": r["channel"] or "telegram",
             "whatsapp_phone": r["whatsapp_phone"], "whatsapp_apikey": r["whatsapp_apikey"],
             "dash_token": r["dash_token"], "embedding": r["embedding"],
+            "categories": json.loads(r["categories"]) if r["categories"] else [],
         })
     return out
 
@@ -341,6 +343,13 @@ def get_meta(key, default=None):
     return r[0] if r else default
 
 
+def matched_urls(user_id):
+    """Set of job URLs already matched/sent to this user (for syncing the /jobs catalog view)."""
+    with engine.connect() as c:
+        rows = c.execute(select(job_log.c.url).where(job_log.c.user_id == user_id)).all()
+    return {r[0] for r in rows if r[0]}
+
+
 def global_stats():
     with engine.connect() as c:
         jobs = c.execute(select(func.count()).select_from(jobs_catalog)).scalar() or 0
@@ -384,6 +393,7 @@ def _row_to_user(r):
     d = dict(r)
     d["keywords"] = json.loads(d["keywords"]) if d.get("keywords") else []
     d["locations"] = json.loads(d["locations"]) if d.get("locations") else []
+    d["categories"] = json.loads(d["categories"]) if d.get("categories") else []
     d["channel"] = d.get("channel") or "telegram"
     return d
 
@@ -434,12 +444,14 @@ def is_subscribed(user):
 
 def update_subscription(user_id, keywords, locations, channel, resume_path=None,
                         resume_text=None, telegram_chat_id=None, whatsapp_phone=None,
-                        whatsapp_apikey=None, email=None):
+                        whatsapp_apikey=None, email=None, categories=None):
     vals = {
         "keywords": json.dumps(keywords), "locations": json.dumps(locations), "channel": channel,
         "telegram_chat_id": telegram_chat_id or "", "whatsapp_phone": whatsapp_phone,
         "whatsapp_apikey": whatsapp_apikey,
     }
+    if categories is not None:
+        vals["categories"] = json.dumps(categories)
     if resume_path is not None:
         vals["resume_path"] = resume_path
     if resume_text is not None:

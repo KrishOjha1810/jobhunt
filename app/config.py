@@ -56,7 +56,7 @@ SEMANTIC_MATCHING = os.environ.get("SEMANTIC_MATCHING", "") == "1"
 EMBED_MODEL = os.environ.get("EMBED_MODEL", "") or "text-embedding-004"
 
 # App version. Bump this on a deploy to re-show the walkthrough to every user once.
-APP_VERSION = os.environ.get("APP_VERSION", "") or "2026-06-01.3"
+APP_VERSION = os.environ.get("APP_VERSION", "") or "2026-06-02.1"
 
 # In-process scheduler (for cloud, where launchd/cron don't exist). Set ENABLE_SCHEDULER=1.
 ENABLE_SCHEDULER = os.environ.get("ENABLE_SCHEDULER", "") == "1"

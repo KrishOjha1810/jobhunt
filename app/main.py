@@ -2,13 +2,14 @@
 import os
 import re
 import shutil
+from typing import List
 from pathlib import Path
 from fastapi import FastAPI, Request, Form, UploadFile, File, BackgroundTasks
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import db, resume, runner, notifier
+from . import db, resume, runner, notifier, matcher
 from .config import (
     RESUME_DIR, BASE_DIR, ENABLE_SCHEDULER, SCHEDULER_HOURS, RUN_TOKEN,
     SECRET_KEY, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, APP_VERSION,
@@ -186,6 +187,7 @@ def me(request: Request):
         return JSONResponse({"authenticated": False}, status_code=401)
     return {"authenticated": True, "name": u["name"], "email": u.get("email"),
             "subscribed": db.is_subscribed(u), "channel": u.get("channel"),
+            "categories": u.get("categories") or [],
             "dash_token": u.get("dash_token"), "version": APP_VERSION}
 
 
@@ -199,6 +201,7 @@ async def subscribe_post(
     email: str = Form(""),
     locations: str = Form("remote,india"),
     extra_keywords: str = Form(""),
+    categories: List[str] = Form([]),
     resume_file: UploadFile = File(...),
 ):
     user = current_user(request)
@@ -230,23 +233,33 @@ async def subscribe_post(
         if kw and kw not in keywords:
             keywords.append(kw)
     loc_list = [l.strip().lower() for l in locations.split(",") if l.strip()]
+    allowed = {c[0] for c in matcher.CATEGORY_RULES}
+    cat_list = [c for c in categories if c in allowed]
     db.update_subscription(
         user["id"], keywords, loc_list, channel, resume_path=str(dest),
         resume_text=profile.get("text", ""), telegram_chat_id=telegram_chat_id.strip(),
         whatsapp_phone=whatsapp_phone.strip() or None, whatsapp_apikey=whatsapp_apikey.strip() or None,
-        email=eff_email or None,
+        email=eff_email or None, categories=cat_list,
     )
+    roles = ", ".join(cat_list) if cat_list else "all roles"
     return {"ok": True, "detected_keywords": keywords, "channel": channel,
-            "message": f"Subscribed. You'll get matched jobs on {channel.title()}."}
+            "message": f"Subscribed for {roles}. You'll get the best matches on {channel.title()}."}
 
 
 @app.get("/api/catalog")
-def api_catalog(category: str = "", q: str = ""):
-    """Public browse of every job we have found (so new visitors see value before signing up)."""
+def api_catalog(request: Request, category: str = "", q: str = ""):
+    """Public browse of every job we have found (so new visitors see value before signing up).
+    For a logged-in user, tag jobs already sent to them so /jobs stays in sync with My Matches."""
+    jobs = db.list_catalog(category=category or None, q=q or None)
+    u = current_user(request)
+    if u:
+        mine = db.matched_urls(u["id"])
+        for j in jobs:
+            j["matched"] = j.get("url") in mine
     return {
         "ok": True,
         "categories": db.catalog_categories(),
-        "jobs": db.list_catalog(category=category or None, q=q or None),
+        "jobs": jobs,
     }
 
 
