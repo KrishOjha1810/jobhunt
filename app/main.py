@@ -508,6 +508,20 @@ def status():
     return s
 
 
+@app.get("/diag")
+def diag():
+    """Non-sensitive per-user breakdown of the last run (ids + counts only) for debugging coverage:
+    why each user did or didn't get a digest. No emails/chat-ids/names."""
+    import json
+    raw = db.get_meta("last_run_detail")
+    try:
+        detail = json.loads(raw) if raw else []
+    except Exception:
+        detail = []
+    return {"last_run": db.get_meta("last_run"), "sent": db.get_meta("last_run_sent"),
+            "users": db.get_meta("last_run_users"), "detail": detail}
+
+
 @app.get("/telegram/info")
 def telegram_info():
     """Return the bot @username so the UI can build a one-tap t.me deep link."""

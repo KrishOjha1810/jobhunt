@@ -89,18 +89,22 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
     if verbose:
         print(f"[runner] {len(users)} user(s), shared pool of {len(pool)} jobs")
     sent = 0
+    detail = []  # non-sensitive per-user breakdown for diagnosing coverage (ids + counts only)
     for user in users:
+        d = {"id": user["id"], "ch": user.get("channel"), "kw": len(user.get("keywords") or []),
+             "cats": len(user.get("categories") or []), "matched": 0, "sent": False, "why": ""}
         try:
+            if not user.get("keywords"):
+                d["why"] = "no resume/keywords"
+                detail.append(d); continue
             ranked = matcher.rank_matches(pool, user["keywords"], user["locations"], MIN_SCORE)
+            d["matched"] = len(ranked)
             # Role filter: if the user picked specific role categories, keep only those, then take
             # the merged best-of across all of them (one top-N list, not N per role).
             cats = user.get("categories") or []
             if cats:
                 ranked = [j for j in ranked if (j.get("category") or matcher.categorize(j)) in cats]
-            # NOTE: inline semantic re-rank is disabled, it made hundreds of blocking embed calls
-            # per run and stalled alert delivery. Keyword ranking stays the source of truth. (To
-            # bring semantic back safely it should precompute embeddings in the background, not on
-            # the send path.) Toggle with SEMANTIC_INLINE=1 if you ever want the old behavior.
+                d["matched"] = len(ranked)
             if SEMANTIC_INLINE:
                 ranked = _semantic_rerank(user, ranked, verbose)
             # Normally only send unseen jobs; a forced run resends current top matches as a test.
@@ -110,24 +114,30 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
                 print(f"[runner] {user['name']}: {len(ranked)} matched, {len(fresh)} candidate, "
                       f"sending {len(to_send)}")
             if not to_send:
-                continue
+                d["why"] = "0 matches" if not ranked else "nothing new"
+                detail.append(d); continue
             ok = notifier.send_to_user(user, notifier.format_digest(user, to_send))
+            d["sent"] = bool(ok)
+            d["why"] = "ok" if ok else "send failed"
             if ok:
                 sent += 1
             for job in to_send:
                 db.log_job(user["id"], job)
         except Exception as e:
+            d["why"] = f"error: {e}"
             print(f"[runner] user {user.get('id')} failed: {e}")
-            continue
+        detail.append(d)
     if verbose:
         print(f"[runner] done: sent digests to {sent}/{len(users)} user(s)")
     if only_user_id is not None:
         return  # partial (single-user) run, don't record it as the global last_run
     try:
+        import json
         from datetime import datetime
         db.set_meta("last_run", datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"))
         db.set_meta("last_run_sent", str(sent))
         db.set_meta("last_run_users", str(len(users)))
+        db.set_meta("last_run_detail", json.dumps(detail))
         db.set_meta("run_started", "")  # clear the in-flight marker
     except Exception as e:
         print(f"[runner] could not record last_run: {e}")
