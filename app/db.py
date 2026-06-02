@@ -366,6 +366,8 @@ def global_stats():
         "active_users": active,
         "subscribed_users": subscribed,
         "last_run": get_meta("last_run"),
+        "last_run_sent": get_meta("last_run_sent"),
+        "last_run_users": get_meta("last_run_users"),
     }
 
 

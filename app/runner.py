@@ -55,9 +55,10 @@ def _semantic_rerank(user, ranked, verbose=False):
         return ranked
 
 
-def run_once(verbose: bool = True, only_user_id=None):
+def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
     """Fetch the shared pool and notify users. If only_user_id is set, match just that one user
-    (used to give a brand-new subscriber their first matches immediately on subscribe)."""
+    (used to give a brand-new subscriber their first matches immediately on subscribe).
+    If force is True, resend each user's current top matches even if already seen (one-time test)."""
     db.init_db()
     users = db.list_active_users()
     if only_user_id is not None:
@@ -76,6 +77,7 @@ def run_once(verbose: bool = True, only_user_id=None):
             print(f"[runner] catalog upsert failed: {e}")
     if verbose:
         print(f"[runner] {len(users)} user(s), shared pool of {len(pool)} jobs")
+    sent = 0
     for user in users:
         try:
             ranked = matcher.rank_matches(pool, user["keywords"], user["locations"], MIN_SCORE)
@@ -85,24 +87,31 @@ def run_once(verbose: bool = True, only_user_id=None):
             if cats:
                 ranked = [j for j in ranked if (j.get("category") or matcher.categorize(j)) in cats]
             ranked = _semantic_rerank(user, ranked, verbose)
-            fresh = [j for j in ranked if not db.is_seen(user["id"], j["url"])]
+            # Normally only send unseen jobs; a forced run resends current top matches as a test.
+            fresh = ranked if force else [j for j in ranked if not db.is_seen(user["id"], j["url"])]
             to_send = fresh[:MAX_MATCHES_PER_RUN]
             if verbose:
-                print(f"[runner] {user['name']}: {len(ranked)} matched, {len(fresh)} new, "
+                print(f"[runner] {user['name']}: {len(ranked)} matched, {len(fresh)} candidate, "
                       f"sending {len(to_send)}")
             if not to_send:
                 continue
-            notifier.send_to_user(user, notifier.format_digest(user, to_send))
+            ok = notifier.send_to_user(user, notifier.format_digest(user, to_send))
+            if ok:
+                sent += 1
             for job in to_send:
                 db.log_job(user["id"], job)
         except Exception as e:
             print(f"[runner] user {user.get('id')} failed: {e}")
             continue
+    if verbose:
+        print(f"[runner] done: sent digests to {sent}/{len(users)} user(s)")
     if only_user_id is not None:
         return  # partial (single-user) run, don't record it as the global last_run
     try:
         from datetime import datetime
         db.set_meta("last_run", datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"))
+        db.set_meta("last_run_sent", str(sent))
+        db.set_meta("last_run_users", str(len(users)))
     except Exception as e:
         print(f"[runner] could not record last_run: {e}")
 

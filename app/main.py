@@ -44,25 +44,75 @@ def current_user(request: Request):
     return db.get_user_by_id(uid) if uid else None
 
 
+import threading
+from datetime import datetime as _dt
+from .config import CATCHUP_HOURS
+
+_run_lock = threading.Lock()
+_run_state = {"running": False}
+
+
+def _last_run_age_hours():
+    """Hours since the last full run, or a huge number if never run / unparseable."""
+    last = db.get_meta("last_run")
+    if not last:
+        return 1e9
+    try:
+        return (_dt.utcnow() - _dt.strptime(last, "%Y-%m-%d %H:%M UTC")).total_seconds() / 3600.0
+    except Exception:
+        return 1e9
+
+
+def _trigger_run(force=False):
+    """Start a matcher run in a daemon thread if it's due (or forced). Idempotent and safe to call
+    on every request: it no-ops unless CATCHUP_HOURS have passed or force=True, and never lets two
+    runs overlap. This is the reliable trigger on hosts whose background schedulers freeze on idle."""
+    if not (force or _last_run_age_hours() >= CATCHUP_HOURS):
+        return False
+    with _run_lock:
+        if _run_state["running"]:
+            return False
+        _run_state["running"] = True
+
+    def _go():
+        try:
+            runner.run_once(verbose=False, force=force)
+        except Exception as e:
+            print(f"[trigger] run failed: {e}")
+        finally:
+            _run_state["running"] = False
+
+    threading.Thread(target=_go, daemon=True).start()
+    return True
+
+
 @app.on_event("startup")
-def _maybe_start_scheduler():
-    """In the cloud there's no launchd/cron, so optionally run the matcher in-process."""
+def _on_startup():
+    """Fire a catch-up run on boot if one is due, then (optionally) arm the fixed-time scheduler.
+    The catch-up + per-request trigger are the reliable path; the scheduler is a best-effort bonus."""
+    db.init_db()
+    # If overdue (e.g. runs had stopped because the instance slept), do a one-time forced broadcast
+    # so everyone gets their current top matches right now as recovery; once it runs, last_run is
+    # fresh and routine restarts won't re-broadcast. When not overdue, this is a no-op.
+    overdue = _last_run_age_hours() >= CATCHUP_HOURS
+    _trigger_run(force=overdue)
     if not ENABLE_SCHEDULER:
         return
-    from apscheduler.schedulers.background import BackgroundScheduler
-    from apscheduler.triggers.cron import CronTrigger
-    from .config import RUN_TZ, RUN_HOURS
     try:
-        sched = BackgroundScheduler(daemon=True, timezone=RUN_TZ)
-    except Exception:
-        sched = BackgroundScheduler(daemon=True)
-    # Fixed daily run times (default 9 AM & 9 PM IST) so users get matches at predictable hours.
-    # Needs the service kept awake by an external ping (Render free freezes idle processes).
-    for h in sorted(set(RUN_HOURS)):
-        sched.add_job(lambda: runner.run_once(verbose=False), CronTrigger(hour=h, minute=0))
-    sched.start()
-    from . import schedule as sched_info
-    print(f"[scheduler] in-process matcher at fixed times: {sched_info.describe()}")
+        from apscheduler.schedulers.background import BackgroundScheduler
+        from apscheduler.triggers.cron import CronTrigger
+        from .config import RUN_TZ, RUN_HOURS
+        try:
+            sched = BackgroundScheduler(daemon=True, timezone=RUN_TZ)
+        except Exception:
+            sched = BackgroundScheduler(daemon=True)
+        for h in sorted(set(RUN_HOURS)):
+            sched.add_job(lambda: _trigger_run(), CronTrigger(hour=h, minute=0))
+        sched.start()
+        from . import schedule as sched_info
+        print(f"[scheduler] fixed-time matcher armed: {sched_info.describe()}")
+    except Exception as e:
+        print(f"[scheduler] could not arm fixed-time scheduler (catch-up still active): {e}")
 
 STATIC_DIR = BASE_DIR / "static"
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -381,13 +431,20 @@ def api_update_job(request: Request, job_id: int, token: str = "", applied: int 
 
 
 @app.api_route("/run", methods=["GET", "POST"])
-def trigger_run(background_tasks: BackgroundTasks, token: str = ""):
-    """Trigger a matching run in the background (used by the external cron on Render free).
-    Returns immediately so the caller doesn't time out. Optionally guarded by RUN_TOKEN."""
-    if RUN_TOKEN and token != RUN_TOKEN:
-        return JSONResponse({"error": "invalid token"}, status_code=403)
-    background_tasks.add_task(runner.run_once, False)
-    return {"ok": True, "message": "Matching started; alerts will arrive shortly."}
+def trigger_run(token: str = "", force: str = ""):
+    """Trigger a matching run. Safe to call openly: by default it only runs when one is *due*
+    (CATCHUP_HOURS since the last), so it can't be abused into hammering the job APIs. A run that
+    ignores 'already due' / resends to everyone (force=1) additionally requires the RUN_TOKEN.
+    Runs in a daemon thread, so it completes even if the caller (or Render cold-start) drops the
+    connection."""
+    want_force = bool(force)
+    if want_force and RUN_TOKEN and token != RUN_TOKEN:
+        return JSONResponse({"error": "force requires a valid token"}, status_code=403)
+    started = _trigger_run(force=want_force)
+    return {"ok": True, "started": started, "forced": want_force,
+            "last_run_age_h": round(_last_run_age_hours(), 1),
+            "message": ("Run started; alerts are being sent." if started
+                        else "No run needed yet (not due). Use force=1 with the token to override.")}
 
 
 @app.get("/tailor")
@@ -414,7 +471,9 @@ def tailor_endpoint(request: Request, job_id: int = 0, token: str = ""):
 
 @app.get("/healthz")
 def healthz():
-    return {"ok": True}
+    # The keep-awake ping doubles as the daily run trigger: this no-ops unless a run is overdue.
+    started = _trigger_run()
+    return {"ok": True, "run_started": started, "last_run_age_h": round(_last_run_age_hours(), 1)}
 
 
 @app.get("/status")
