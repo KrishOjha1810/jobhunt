@@ -89,6 +89,11 @@ def run_once(verbose: bool = True):
         except Exception as e:
             print(f"[runner] user {user.get('id')} failed: {e}")
             continue
+    try:
+        from datetime import datetime
+        db.set_meta("last_run", datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"))
+    except Exception as e:
+        print(f"[runner] could not record last_run: {e}")
 
 
 if __name__ == "__main__":

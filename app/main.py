@@ -394,6 +394,30 @@ def healthz():
     return {"ok": True}
 
 
+@app.get("/status")
+def status():
+    """Public health/observability snapshot: last run time, catalog size, user counts."""
+    from .config import APP_VERSION
+    s = db.global_stats()
+    s["version"] = APP_VERSION
+    return s
+
+
+@app.get("/telegram/info")
+def telegram_info():
+    """Return the bot @username so the UI can build a one-tap t.me deep link."""
+    return {"username": notifier.telegram_bot_username()}
+
+
+@app.get("/telegram/detect")
+def telegram_detect(code: str = ""):
+    """After the user taps Start on the bot (deep link carries `code`), find their chat id."""
+    found = notifier.telegram_find_chat_by_code(code)
+    if found:
+        return {"found": True, **found}
+    return {"found": False}
+
+
 @app.get("/testmail")
 def testmail(to: str = "", token: str = ""):
     """Token-guarded SMTP diagnostic: reports which SMTP vars are present and the exact error."""

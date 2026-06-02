@@ -158,9 +158,23 @@
         </div>
 
         <div class="field-group" id="telegram_fields" style="display:none;">
-          <label>Telegram chat ID</label>
-          <input type="text" name="telegram_chat_id" placeholder="1460934377" />
-          <small>Message your bot, then open api.telegram.org/bot&lt;token&gt;/getUpdates to find your chat id.</small>
+          <label>Connect Telegram</label>
+          <div id="tgConnect">
+            <ol style="margin:0 0 10px 18px;padding:0;color:var(--muted);font-size:14px;line-height:1.7">
+              <li>Tap <b>Open our Telegram bot</b> below.</li>
+              <li>In Telegram, press the blue <b>START</b> button.</li>
+              <li>Come back here and tap <b>I pressed Start</b>.</li>
+            </ol>
+            <a id="tgOpenBtn" href="#" target="_blank" rel="noopener" class="submit" style="display:inline-block;text-decoration:none;margin:0 0 8px;padding:10px 16px;width:auto">Open our Telegram bot</a>
+            <button type="button" id="tgConnectBtn" class="submit" style="margin:0 0 6px;padding:10px 16px;width:auto;background:transparent;border:1px solid var(--border)">I pressed Start, connect me</button>
+            <div id="tgStatus" style="font-size:14px;margin-top:6px"></div>
+          </div>
+          <input type="hidden" name="telegram_chat_id" id="tgChatId" value="" />
+          <details style="margin-top:10px">
+            <summary style="cursor:pointer;color:var(--muted);font-size:13px">Enter chat ID manually instead</summary>
+            <input type="text" id="tgManual" placeholder="e.g. 1460934377" style="margin-top:8px" />
+            <small>Advanced: paste your numeric Telegram chat ID directly.</small>
+          </details>
         </div>
 
         <div class="field-group" id="whatsapp_fields" style="display:none;">
@@ -225,6 +239,48 @@
     });
 
     function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+
+    // ----- One-tap Telegram connect -----
+    // Generate a unique code, deep-link it via t.me/<bot>?start=<code> so pressing START sends
+    // "/start <code>" to the bot, then poll /telegram/detect to read back the chat id. No tokens,
+    // no getUpdates URL, no copy-paste.
+    const tgCode = 'jh' + Math.random().toString(36).slice(2, 10);
+    const tgStatus = document.getElementById('tgStatus');
+    const tgChatId = document.getElementById('tgChatId');
+    const tgManual = document.getElementById('tgManual');
+    let tgBotUser = '';
+    fetch('/telegram/info').then(r => r.json()).then(d => {
+      tgBotUser = d.username || '';
+      const btn = document.getElementById('tgOpenBtn');
+      if (tgBotUser) {
+        btn.href = 'https://t.me/' + tgBotUser + '?start=' + tgCode;
+      } else {
+        btn.style.display = 'none';
+        tgStatus.innerHTML = '<span style="color:var(--muted)">Bot link unavailable, use the manual option below.</span>';
+      }
+    }).catch(() => {});
+    if (tgManual) tgManual.addEventListener('input', () => {
+      tgChatId.value = tgManual.value.trim();
+      if (tgChatId.value) tgStatus.innerHTML = '<span style="color:#22c55e">Using chat ID ' + esc(tgChatId.value) + '</span>';
+    });
+    document.getElementById('tgConnectBtn').addEventListener('click', async () => {
+      tgStatus.innerHTML = '<span style="color:var(--muted)">Checking, give it a sec...</span>';
+      let found = null;
+      for (let i = 0; i < 4 && !found; i++) {
+        try {
+          const r = await fetch('/telegram/detect?code=' + encodeURIComponent(tgCode));
+          const d = await r.json();
+          if (d.found) { found = d; break; }
+        } catch (e) {}
+        await new Promise(res => setTimeout(res, 1500));
+      }
+      if (found) {
+        tgChatId.value = found.chat_id;
+        tgStatus.innerHTML = '<span style="color:#22c55e">Connected' + (found.name ? ' as ' + esc(found.name) : '') + '. You can finish below.</span>';
+      } else {
+        tgStatus.innerHTML = '<span style="color:#f59e0b">Did not see you yet. Make sure you pressed START in the bot, then tap again.</span>';
+      }
+    });
 
     // ----- Submit -----
     const form = document.getElementById('form');

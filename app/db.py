@@ -72,6 +72,13 @@ jobs_catalog = Table(
 )
 Index("ix_catalog_seen", jobs_catalog.c.first_seen_at)
 
+# Small key-value store for app metadata (e.g. last scheduled-run timestamp).
+meta = Table(
+    "meta", metadata,
+    Column("key", Text, primary_key=True),
+    Column("value", Text),
+)
+
 
 def init_db():
     metadata.create_all(engine)
@@ -315,6 +322,42 @@ def stats(user_id):
             "applied_month": count(job_log.c.applied == 1, job_log.c.sent_at >= mo),
             "responses": count(job_log.c.responded == 1),
         }
+
+
+# ---- meta key-value ----
+
+def set_meta(key, value):
+    with engine.begin() as c:
+        exists = c.execute(select(meta.c.key).where(meta.c.key == key)).first()
+        if exists:
+            c.execute(update(meta).where(meta.c.key == key).values(value=str(value)))
+        else:
+            c.execute(meta.insert().values(key=key, value=str(value)))
+
+
+def get_meta(key, default=None):
+    with engine.connect() as c:
+        r = c.execute(select(meta.c.value).where(meta.c.key == key)).first()
+    return r[0] if r else default
+
+
+def global_stats():
+    with engine.connect() as c:
+        jobs = c.execute(select(func.count()).select_from(jobs_catalog)).scalar() or 0
+        active = c.execute(
+            select(func.count()).select_from(users).where(users.c.active == 1)
+        ).scalar() or 0
+        subscribed = c.execute(
+            select(func.count()).select_from(users).where(
+                users.c.active == 1, users.c.resume_text.isnot(None)
+            )
+        ).scalar() or 0
+    return {
+        "jobs_in_catalog": jobs,
+        "active_users": active,
+        "subscribed_users": subscribed,
+        "last_run": get_meta("last_run"),
+    }
 
 
 # ---- auth ----

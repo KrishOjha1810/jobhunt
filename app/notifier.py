@@ -8,6 +8,44 @@ from .config import (
 )
 
 
+def telegram_bot_username():
+    """Return the bot's @username (without @) for building t.me deep links, or '' on failure."""
+    if not TELEGRAM_BOT_TOKEN:
+        return ""
+    try:
+        r = requests.get(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getMe", timeout=15)
+        if r.ok:
+            return r.json().get("result", {}).get("username", "") or ""
+    except Exception as e:
+        print(f"[notifier] getMe error: {e}")
+    return ""
+
+
+def telegram_find_chat_by_code(code: str):
+    """Scan recent bot updates for a '/start <code>' (or message containing code) and return
+    {'chat_id', 'name'} for the matching chat, or None. Powers one-tap Telegram connect."""
+    if not TELEGRAM_BOT_TOKEN or not code:
+        return None
+    try:
+        r = requests.get(
+            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates",
+            params={"timeout": 0, "allowed_updates": '["message"]'}, timeout=15,
+        )
+        if not r.ok:
+            return None
+        for upd in reversed(r.json().get("result", [])):
+            msg = upd.get("message") or upd.get("edited_message") or {}
+            text = (msg.get("text") or "")
+            if code in text:
+                chat = msg.get("chat", {})
+                name = (chat.get("first_name") or "") + (
+                    " " + chat.get("last_name") if chat.get("last_name") else "")
+                return {"chat_id": str(chat.get("id")), "name": name.strip() or chat.get("username", "")}
+    except Exception as e:
+        print(f"[notifier] getUpdates error: {e}")
+    return None
+
+
 def send_telegram(chat_id: str, text: str) -> bool:
     if not TELEGRAM_BOT_TOKEN:
         print("[notifier] no TELEGRAM_BOT_TOKEN set")
