@@ -50,10 +50,13 @@ LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "groq").lower()
 LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
 LLM_MODEL = os.environ.get("LLM_MODEL", "")
 
-# Semantic (embedding) matching. OFF by default; needs a Gemini key (LLM_PROVIDER=gemini) AND
-# SEMANTIC_MATCHING=1. When off or on error, the system falls back to keyword matching.
+# Semantic (embedding) matching. OFF by default; needs SEMANTIC_MATCHING=1 plus a Gemini key.
+# The embedding key is decoupled from the tailoring key: use GEMINI_API_KEY for embeddings, so you
+# can run tailoring on a different provider (e.g. Groq) without turning semantic matching off.
+# Falls back to LLM_API_KEY when LLM_PROVIDER=gemini, for backwards compatibility.
 SEMANTIC_MATCHING = os.environ.get("SEMANTIC_MATCHING", "") == "1"
 EMBED_MODEL = os.environ.get("EMBED_MODEL", "") or "text-embedding-004"
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "") or (LLM_API_KEY if LLM_PROVIDER == "gemini" else "")
 
 # App version. Bump this on a deploy to re-show the walkthrough to every user once.
 APP_VERSION = os.environ.get("APP_VERSION", "") or "2026-06-02.2"

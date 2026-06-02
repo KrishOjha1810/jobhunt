@@ -6,11 +6,11 @@ the core matcher.
 """
 import math
 import requests
-from .config import SEMANTIC_MATCHING, LLM_API_KEY, LLM_PROVIDER, EMBED_MODEL
+from .config import SEMANTIC_MATCHING, GEMINI_API_KEY, EMBED_MODEL
 
 
 def enabled() -> bool:
-    return SEMANTIC_MATCHING and bool(LLM_API_KEY) and LLM_PROVIDER == "gemini"
+    return SEMANTIC_MATCHING and bool(GEMINI_API_KEY)
 
 
 def embed(text: str):
@@ -19,7 +19,7 @@ def embed(text: str):
         return None
     try:
         url = (f"https://generativelanguage.googleapis.com/v1beta/models/{EMBED_MODEL}"
-               f":embedContent?key={LLM_API_KEY}")
+               f":embedContent?key={GEMINI_API_KEY}")
         r = requests.post(
             url,
             json={"model": f"models/{EMBED_MODEL}", "content": {"parts": [{"text": text[:8000]}]}},
