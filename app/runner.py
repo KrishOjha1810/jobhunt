@@ -116,9 +116,9 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
             if not to_send:
                 d["why"] = "0 matches" if not ranked else "nothing new"
                 detail.append(d); continue
-            ok = notifier.send_to_user(user, notifier.format_digest(user, to_send))
+            ok, err = notifier.send_to_user_detail(user, notifier.format_digest(user, to_send))
             d["sent"] = bool(ok)
-            d["why"] = "ok" if ok else "send failed"
+            d["why"] = "ok" if ok else (err or "send failed")
             if ok:
                 sent += 1
             for job in to_send:

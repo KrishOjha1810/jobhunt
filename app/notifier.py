@@ -79,34 +79,33 @@ def send_whatsapp(phone: str, apikey: str, text: str) -> bool:
         return False
 
 
-def send_email_brevo(to_addr: str, text: str, subject: str) -> bool:
-    """Send via Brevo's HTTP API (works on hosts that block SMTP)."""
-    try:
-        r = requests.post(
-            "https://api.brevo.com/v3/smtp/email",
-            headers={"api-key": BREVO_API_KEY, "content-type": "application/json",
-                     "accept": "application/json"},
-            json={"sender": {"email": EMAIL_FROM or SMTP_USER, "name": "JobHunt"},
-                  "to": [{"email": to_addr}], "subject": subject, "textContent": text},
-            timeout=20,
-        )
-        if not r.ok:
-            print(f"[notifier] brevo error {r.status_code}: {r.text[:200]}")
-        return r.ok
-    except Exception as e:
-        print(f"[notifier] brevo error: {e}")
-        return False
-
-
-def send_email(to_addr: str, text: str, subject: str = "JobHunt: new job matches") -> bool:
+def send_email_detail(to_addr: str, text: str, subject: str = "JobHunt: new job matches"):
+    """Return (ok, error). error is '' on success, else a human-readable reason."""
     if not to_addr:
-        return False
+        return False, "no email address on file"
     # Prefer Brevo HTTP (works on Render free); fall back to SMTP off-Render.
     if BREVO_API_KEY:
-        return send_email_brevo(to_addr, text, subject)
+        sender = EMAIL_FROM or SMTP_USER
+        if not sender:
+            return False, "EMAIL_FROM is not set (Brevo needs a verified sender address)"
+        try:
+            r = requests.post(
+                "https://api.brevo.com/v3/smtp/email",
+                headers={"api-key": BREVO_API_KEY, "content-type": "application/json",
+                         "accept": "application/json"},
+                json={"sender": {"email": sender, "name": "JobHunt"},
+                      "to": [{"email": to_addr}], "subject": subject, "textContent": text},
+                timeout=20,
+            )
+            if r.ok:
+                return True, ""
+            print(f"[notifier] brevo error {r.status_code}: {r.text[:200]}")
+            return False, f"Brevo {r.status_code}: {r.text[:160]}"
+        except Exception as e:
+            print(f"[notifier] brevo error: {e}")
+            return False, f"Brevo request failed: {e}"
     if not (SMTP_HOST and SMTP_USER and SMTP_PASS):
-        print("[notifier] email not configured")
-        return False
+        return False, "email not configured (no BREVO_API_KEY and no SMTP creds)"
     try:
         msg = MIMEText(text)
         msg["Subject"] = subject
@@ -116,20 +115,31 @@ def send_email(to_addr: str, text: str, subject: str = "JobHunt: new job matches
             s.starttls()
             s.login(SMTP_USER, SMTP_PASS)
             s.sendmail(EMAIL_FROM, [to_addr], msg.as_string())
-        return True
+        return True, ""
     except Exception as e:
         print(f"[notifier] email error: {e}")
-        return False
+        return False, f"SMTP failed: {e}"
+
+
+def send_email(to_addr: str, text: str, subject: str = "JobHunt: new job matches") -> bool:
+    return send_email_detail(to_addr, text, subject)[0]
+
+
+def send_to_user_detail(user: dict, text: str):
+    """Dispatch to the user's chosen channel; return (ok, error) for diagnostics."""
+    ch = user.get("channel")
+    if ch == "whatsapp":
+        ok = send_whatsapp(user.get("whatsapp_phone"), user.get("whatsapp_apikey"), text)
+        return ok, ("" if ok else "WhatsApp send failed (check phone/apikey)")
+    if ch == "email":
+        return send_email_detail(user.get("email"), text)
+    ok = send_telegram(user.get("telegram_chat_id"), text)
+    return ok, ("" if ok else "Telegram send failed (check chat id / bot token)")
 
 
 def send_to_user(user: dict, text: str) -> bool:
     """Dispatch to the user's chosen channel."""
-    ch = user.get("channel")
-    if ch == "whatsapp":
-        return send_whatsapp(user.get("whatsapp_phone"), user.get("whatsapp_apikey"), text)
-    if ch == "email":
-        return send_email(user.get("email"), text)
-    return send_telegram(user.get("telegram_chat_id"), text)
+    return send_to_user_detail(user, text)[0]
 
 
 # Backwards-compatible alias.
