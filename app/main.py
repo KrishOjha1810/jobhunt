@@ -105,11 +105,17 @@ def _on_startup():
     """Fire a catch-up run on boot if one is due, then (optionally) arm the fixed-time scheduler.
     The catch-up + per-request trigger are the reliable path; the scheduler is a best-effort bonus."""
     db.init_db()
-    # If overdue (e.g. runs had stopped because the instance slept), do a one-time forced broadcast
-    # so everyone gets their current top matches right now as recovery; once it runs, last_run is
-    # fresh and routine restarts won't re-broadcast. When not overdue, this is a no-op.
-    overdue = _last_run_age_hours() >= CATCHUP_HOURS
-    _trigger_run(force=overdue)
+    # One forced broadcast per deployed version: on a fresh deploy, send everyone their current top
+    # matches once (recovery / "it's working" ping), then never again for that version. Routine
+    # restarts of the same version skip it. This is also our delivery self-test.
+    try:
+        if db.get_meta("force_done_version") != APP_VERSION:
+            db.set_meta("force_done_version", APP_VERSION)
+            _trigger_run(force=True)
+    except Exception as e:
+        print(f"[startup] forced broadcast skipped: {e}")
+    # Plus a normal due-check (no-op unless overdue), so daily alerts keep flowing.
+    _trigger_run()
     if not ENABLE_SCHEDULER:
         return
     try:
