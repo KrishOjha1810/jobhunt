@@ -55,9 +55,13 @@ def _semantic_rerank(user, ranked, verbose=False):
         return ranked
 
 
-def run_once(verbose: bool = True):
+def run_once(verbose: bool = True, only_user_id=None):
+    """Fetch the shared pool and notify users. If only_user_id is set, match just that one user
+    (used to give a brand-new subscriber their first matches immediately on subscribe)."""
     db.init_db()
     users = db.list_active_users()
+    if only_user_id is not None:
+        users = [u for u in users if u["id"] == only_user_id]
     if not users:
         if verbose:
             print("[runner] no active users")
@@ -94,6 +98,8 @@ def run_once(verbose: bool = True):
         except Exception as e:
             print(f"[runner] user {user.get('id')} failed: {e}")
             continue
+    if only_user_id is not None:
+        return  # partial (single-user) run, don't record it as the global last_run
     try:
         from datetime import datetime
         db.set_meta("last_run", datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"))

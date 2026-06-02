@@ -120,6 +120,7 @@
       <div>
         <h1 id="hello">My JobHunt tracker</h1>
         <p class="sub">Every job we sent you. Tick what you applied to, mark replies, note which resume you used.</p>
+        <p class="sub" id="schedNote" style="display:none;margin-top:-6px"></p>
       </div>
       <button class="theme-toggle" id="themeToggle" aria-label="Toggle theme" title="Toggle theme"></button>
     </div>
@@ -211,6 +212,15 @@
       buildFilterOptions();
       render();
     }
+
+    // Show the run schedule so users know when the next batch arrives (public /status).
+    fetch('/status').then(r => r.ok ? r.json() : null).then(s => {
+      if (s && (s.next_run || s.schedule)) {
+        const el = document.getElementById('schedNote');
+        el.innerHTML = `Next matches: <b>${esc(s.next_run || s.schedule)}</b> &nbsp;·&nbsp; runs ${esc(s.schedule || '')}`;
+        el.style.display = 'block';
+      }
+    }).catch(() => {});
 
     function renderStats(s) {
       document.getElementById('stats').innerHTML = `

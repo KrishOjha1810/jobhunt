@@ -56,11 +56,15 @@ SEMANTIC_MATCHING = os.environ.get("SEMANTIC_MATCHING", "") == "1"
 EMBED_MODEL = os.environ.get("EMBED_MODEL", "") or "text-embedding-004"
 
 # App version. Bump this on a deploy to re-show the walkthrough to every user once.
-APP_VERSION = os.environ.get("APP_VERSION", "") or "2026-06-02.1"
+APP_VERSION = os.environ.get("APP_VERSION", "") or "2026-06-02.2"
 
 # In-process scheduler (for cloud, where launchd/cron don't exist). Set ENABLE_SCHEDULER=1.
 ENABLE_SCHEDULER = os.environ.get("ENABLE_SCHEDULER", "") == "1"
 SCHEDULER_HOURS = int(os.environ.get("SCHEDULER_HOURS", "8"))
+# Fixed daily run times so users know exactly when to expect matches. Comma-separated local hours
+# in RUN_TZ. Default: 9 AM and 9 PM India time. These drive the schedule shown in the UI too.
+RUN_TZ = os.environ.get("RUN_TZ", "") or "Asia/Kolkata"
+RUN_HOURS = [int(h) for h in (os.environ.get("RUN_HOURS", "") or "9,21").split(",") if h.strip()]
 
 # Optional shared secret to protect the /run trigger endpoint (used by the external cron).
 RUN_TOKEN = os.environ.get("RUN_TOKEN", "")

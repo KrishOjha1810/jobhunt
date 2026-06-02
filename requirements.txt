@@ -10,3 +10,4 @@ psycopg2-binary
 itsdangerous
 authlib
 httpx
+tzdata

@@ -93,7 +93,12 @@ def tailor(job: dict, resume_text: str):
         body = (resp.text[:300] if resp is not None else "")
         code = (resp.status_code if resp is not None else "?")
         print(f"[enrich] HTTP {code}: {body}")
-        return "", f"{LLM_PROVIDER} API error {code}: {body[:200]}"
+        if code == 429:
+            return "", ("Daily free AI quota is used up for now. It resets every day. "
+                        "Tip: a free Groq key (groq.com) has much higher limits for this feature.")
+        if code in (401, 403):
+            return "", "The AI key looks invalid or lacks access. Double-check LLM_API_KEY/LLM_PROVIDER."
+        return "", f"{LLM_PROVIDER} API error {code}: {body[:160]}"
     except Exception as e:
         print(f"[enrich] error: {e}")
         return "", f"{LLM_PROVIDER} request failed: {e}"

@@ -50,17 +50,19 @@ def _maybe_start_scheduler():
     if not ENABLE_SCHEDULER:
         return
     from apscheduler.schedulers.background import BackgroundScheduler
-    from datetime import datetime, timedelta
-    sched = BackgroundScheduler(daemon=True)
-    # Fire ~90s after each boot so a fresh deploy/wake produces matches promptly, then every
-    # SCHEDULER_HOURS. (Render free freezes the process when idle, so this only advances while
-    # the service is kept awake by an external ping.)
-    sched.add_job(
-        lambda: runner.run_once(verbose=False), "interval", hours=SCHEDULER_HOURS,
-        next_run_time=datetime.now() + timedelta(seconds=90),
-    )
+    from apscheduler.triggers.cron import CronTrigger
+    from .config import RUN_TZ, RUN_HOURS
+    try:
+        sched = BackgroundScheduler(daemon=True, timezone=RUN_TZ)
+    except Exception:
+        sched = BackgroundScheduler(daemon=True)
+    # Fixed daily run times (default 9 AM & 9 PM IST) so users get matches at predictable hours.
+    # Needs the service kept awake by an external ping (Render free freezes idle processes).
+    for h in sorted(set(RUN_HOURS)):
+        sched.add_job(lambda: runner.run_once(verbose=False), CronTrigger(hour=h, minute=0))
     sched.start()
-    print(f"[scheduler] in-process matcher: first run in ~90s, then every {SCHEDULER_HOURS}h")
+    from . import schedule as sched_info
+    print(f"[scheduler] in-process matcher at fixed times: {sched_info.describe()}")
 
 STATIC_DIR = BASE_DIR / "static"
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -185,15 +187,18 @@ def me(request: Request):
     u = current_user(request)
     if not u:
         return JSONResponse({"authenticated": False}, status_code=401)
+    from . import schedule as sched_info
     return {"authenticated": True, "name": u["name"], "email": u.get("email"),
             "subscribed": db.is_subscribed(u), "channel": u.get("channel"),
             "categories": u.get("categories") or [],
+            "schedule": sched_info.describe(), "next_run": sched_info.next_run_label(),
             "dash_token": u.get("dash_token"), "version": APP_VERSION}
 
 
 @app.post("/subscribe")
 async def subscribe_post(
     request: Request,
+    background_tasks: BackgroundTasks,
     channel: str = Form("email"),
     telegram_chat_id: str = Form(""),
     whatsapp_phone: str = Form(""),
@@ -241,9 +246,14 @@ async def subscribe_post(
         whatsapp_phone=whatsapp_phone.strip() or None, whatsapp_apikey=whatsapp_apikey.strip() or None,
         email=eff_email or None, categories=cat_list,
     )
+    # Give the new subscriber their first matches right now, in the background.
+    background_tasks.add_task(runner.run_once, False, user["id"])
+    from . import schedule as sched_info
     roles = ", ".join(cat_list) if cat_list else "all roles"
     return {"ok": True, "detected_keywords": keywords, "channel": channel,
-            "message": f"Subscribed for {roles}. You'll get the best matches on {channel.title()}."}
+            "schedule": sched_info.describe(), "next_run": sched_info.next_run_label(),
+            "message": (f"Subscribed for {roles}. Your first matches are on the way to your "
+                        f"{channel.title()} now, then automatically at {sched_info.describe()}.")}
 
 
 @app.get("/api/catalog")
@@ -411,8 +421,11 @@ def healthz():
 def status():
     """Public health/observability snapshot: last run time, catalog size, user counts."""
     from .config import APP_VERSION
+    from . import schedule as sched_info
     s = db.global_stats()
     s["version"] = APP_VERSION
+    s["schedule"] = sched_info.describe()
+    s["next_run"] = sched_info.next_run_label()
     return s
 
 
