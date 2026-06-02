@@ -63,11 +63,25 @@ def _last_run_age_hours():
         return 1e9
 
 
+def _run_in_flight():
+    """True if a run started recently (persisted), so restarts don't pile up overlapping runs."""
+    started = db.get_meta("run_started")
+    if not started:
+        return False
+    try:
+        return (_dt.utcnow() - _dt.strptime(started, "%Y-%m-%d %H:%M UTC")).total_seconds() < 600
+    except Exception:
+        return False
+
+
 def _trigger_run(force=False):
     """Start a matcher run in a daemon thread if it's due (or forced). Idempotent and safe to call
     on every request: it no-ops unless CATCHUP_HOURS have passed or force=True, and never lets two
-    runs overlap. This is the reliable trigger on hosts whose background schedulers freeze on idle."""
+    runs overlap (in-process lock + a persisted 10-min in-flight marker across restarts). This is
+    the reliable trigger on hosts whose background schedulers freeze on idle."""
     if not (force or _last_run_age_hours() >= CATCHUP_HOURS):
+        return False
+    if _run_in_flight():
         return False
     with _run_lock:
         if _run_state["running"]:

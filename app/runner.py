@@ -3,8 +3,12 @@ dedupe, and send each a single digest. Fetch-once-match-many keeps API usage fla
 
 Run directly (python -m app.runner) or via cron / the external /run trigger.
 """
+import os
 from . import db, sources, matcher, notifier, embeddings
 from .config import MIN_SCORE, MAX_MATCHES_PER_RUN
+
+# Inline semantic re-rank is OFF by default (it blocked the alert path with slow embed calls).
+SEMANTIC_INLINE = os.environ.get("SEMANTIC_INLINE", "") == "1"
 
 
 def _semantic_rerank(user, ranked, verbose=False):
@@ -60,6 +64,13 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
     (used to give a brand-new subscriber their first matches immediately on subscribe).
     If force is True, resend each user's current top matches even if already seen (one-time test)."""
     db.init_db()
+    # Cross-restart in-flight marker so a slow/killed run can't be re-triggered into a pile-up.
+    if only_user_id is None:
+        from datetime import datetime
+        try:
+            db.set_meta("run_started", datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"))
+        except Exception:
+            pass
     users = db.list_active_users()
     if only_user_id is not None:
         users = [u for u in users if u["id"] == only_user_id]
@@ -86,7 +97,12 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
             cats = user.get("categories") or []
             if cats:
                 ranked = [j for j in ranked if (j.get("category") or matcher.categorize(j)) in cats]
-            ranked = _semantic_rerank(user, ranked, verbose)
+            # NOTE: inline semantic re-rank is disabled, it made hundreds of blocking embed calls
+            # per run and stalled alert delivery. Keyword ranking stays the source of truth. (To
+            # bring semantic back safely it should precompute embeddings in the background, not on
+            # the send path.) Toggle with SEMANTIC_INLINE=1 if you ever want the old behavior.
+            if SEMANTIC_INLINE:
+                ranked = _semantic_rerank(user, ranked, verbose)
             # Normally only send unseen jobs; a forced run resends current top matches as a test.
             fresh = ranked if force else [j for j in ranked if not db.is_seen(user["id"], j["url"])]
             to_send = fresh[:MAX_MATCHES_PER_RUN]
@@ -112,6 +128,7 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
         db.set_meta("last_run", datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"))
         db.set_meta("last_run_sent", str(sent))
         db.set_meta("last_run_users", str(len(users)))
+        db.set_meta("run_started", "")  # clear the in-flight marker
     except Exception as e:
         print(f"[runner] could not record last_run: {e}")
 
