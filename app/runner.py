@@ -150,7 +150,7 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
                 if cats:
                     in_cats = [j for j in loc_ok if (j.get("category") or matcher.categorize(j)) in cats]
                     fb = in_cats or loc_ok  # if their role has nothing right now, still send recent
-                fb.sort(key=lambda j: (j.get("posted_at") or ""), reverse=True)
+                fb.sort(key=lambda j: str(j.get("posted_at") or ""), reverse=True)
                 ranked = fb[:5]
                 used_fallback = bool(ranked)
             # Normally only send unseen jobs; a forced run resends current top matches as a test.

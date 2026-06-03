@@ -64,8 +64,8 @@ def _fetch(terms: list, india_wanted: bool, max_adzuna_terms: int = 3) -> list:
         # JSearch aggregates Google-for-Jobs (LinkedIn/Indeed/etc.). One India + one remote query.
         jobs += jsearch.fetch((base + " jobs in India") if india_wanted else (base + " remote"))
     jobs = _dedup(jobs)
-    # keep the freshest, capped, so the run stays quick
-    jobs.sort(key=lambda j: (j.get("posted_at") or ""), reverse=True)
+    # keep the freshest, capped, so the run stays quick (str() guards mixed int/str posted_at)
+    jobs.sort(key=lambda j: str(j.get("posted_at") or ""), reverse=True)
     return jobs[:POOL_CAP]
 
 

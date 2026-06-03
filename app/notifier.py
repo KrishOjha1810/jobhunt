@@ -46,20 +46,42 @@ def telegram_find_chat_by_code(code: str):
     return None
 
 
-def send_telegram(chat_id: str, text: str) -> bool:
+def send_telegram_detail(chat_id: str, text: str):
+    """Return (ok, error). Retries once on rate-limit (429); reports the real Telegram reason."""
     if not TELEGRAM_BOT_TOKEN:
-        print("[notifier] no TELEGRAM_BOT_TOKEN set")
-        return False
-    try:
-        r = requests.post(
-            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
-            data={"chat_id": chat_id, "text": text[:4000], "disable_web_page_preview": True},
-            timeout=20,
-        )
-        return r.ok
-    except Exception as e:
-        print(f"[notifier] telegram error: {e}")
-        return False
+        return False, "no TELEGRAM_BOT_TOKEN set"
+    if not chat_id:
+        return False, "no telegram chat id on file"
+    import time
+    for attempt in (1, 2):
+        try:
+            r = requests.post(
+                f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+                data={"chat_id": chat_id, "text": text[:4000], "disable_web_page_preview": True},
+                timeout=20,
+            )
+            if r.ok:
+                return True, ""
+            if r.status_code == 429 and attempt == 1:
+                try:
+                    wait = r.json().get("parameters", {}).get("retry_after", 2)
+                except Exception:
+                    wait = 2
+                time.sleep(min(wait, 5) + 0.5)
+                continue
+            desc = ""
+            try:
+                desc = r.json().get("description", "")
+            except Exception:
+                desc = r.text[:120]
+            return False, f"Telegram {r.status_code}: {desc}"
+        except Exception as e:
+            return False, f"Telegram request failed: {e}"
+    return False, "Telegram rate-limited"
+
+
+def send_telegram(chat_id: str, text: str) -> bool:
+    return send_telegram_detail(chat_id, text)[0]
 
 
 def send_whatsapp(phone: str, apikey: str, text: str) -> bool:
@@ -133,8 +155,7 @@ def send_to_user_detail(user: dict, text: str):
         return ok, ("" if ok else "WhatsApp send failed (check phone/apikey)")
     if ch == "email":
         return send_email_detail(user.get("email"), text)
-    ok = send_telegram(user.get("telegram_chat_id"), text)
-    return ok, ("" if ok else "Telegram send failed (check chat id / bot token)")
+    return send_telegram_detail(user.get("telegram_chat_id"), text)
 
 
 def send_to_user(user: dict, text: str) -> bool:
