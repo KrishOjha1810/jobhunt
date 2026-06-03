@@ -109,14 +109,16 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
                 ranked = _semantic_rerank(user, ranked, verbose)
             # Coverage fallback: a subscribed user whose (often thin) resume matched nothing still
             # gets the most recent jobs in their roles/locations, so everyone hears from us.
+            used_fallback = False
             if not ranked:
-                fb = [j for j in pool if matcher.location_ok(j.get("location", ""), user["locations"])]
+                loc_ok = [j for j in pool if matcher.location_ok(j.get("location", ""), user["locations"])]
+                fb = loc_ok
                 if cats:
-                    fb = [j for j in fb if (j.get("category") or matcher.categorize(j)) in cats]
+                    in_cats = [j for j in loc_ok if (j.get("category") or matcher.categorize(j)) in cats]
+                    fb = in_cats or loc_ok  # if their role has nothing right now, still send recent
                 fb.sort(key=lambda j: (j.get("posted_at") or ""), reverse=True)
                 ranked = fb[:5]
-                if ranked:
-                    d["why"] = "fallback (recent in roles)"
+                used_fallback = bool(ranked)
             # Normally only send unseen jobs; a forced run resends current top matches as a test.
             fresh = ranked if force else [j for j in ranked if not db.is_seen(user["id"], j["url"])]
             to_send = fresh[:MAX_MATCHES_PER_RUN]
@@ -128,7 +130,7 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
                 detail.append(d); continue
             ok, err = notifier.send_to_user_detail(user, notifier.format_digest(user, to_send))
             d["sent"] = bool(ok)
-            d["why"] = "ok" if ok else (err or "send failed")
+            d["why"] = ("ok (fallback)" if used_fallback else "ok") if ok else (err or "send failed")
             if ok:
                 sent += 1
                 # Only mark jobs as seen once delivery actually succeeded, so a failed send

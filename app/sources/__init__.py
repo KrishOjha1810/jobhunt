@@ -5,7 +5,7 @@ the same as 1; each user is then matched against that shared pool. fetch_all() i
 path kept for tests/compatibility.
 """
 import re as _re
-from . import remotive, remoteok, arbeitnow, adzuna, jsearch
+from . import remotive, remoteok, arbeitnow, adzuna, jsearch, jobicy, himalayas
 
 PRIORITY_TERMS = [
     "rust", "solidity", "typescript", "python", "java", "golang", "go",
@@ -46,14 +46,22 @@ def _fetch(terms: list, india_wanted: bool, max_adzuna_terms: int = 4) -> list:
     for term in terms:
         jobs += remotive.fetch(term)
     # whole-feed sources (query ignored); fetched once regardless of term count
-    jobs += remoteok.fetch("")
+    jobs += remoteok.fetch("")   # note: often blocked from datacenter IPs (e.g. Render)
     jobs += arbeitnow.fetch("")
+    jobs += jobicy.fetch("")
+    jobs += himalayas.fetch("")
     if adzuna.available():
-        country = "in" if india_wanted else "gb"
-        for term in terms[:max_adzuna_terms]:
-            jobs += adzuna.fetch(term, country=country)
+        # Adzuna has real per-country feeds; pull India when any user wants India, plus global.
+        countries = ["in", "gb"] if india_wanted else ["gb", "us"]
+        for country in countries:
+            for term in terms[:max_adzuna_terms]:
+                jobs += adzuna.fetch(term, country=country)
     if jsearch.available():
-        jobs += jsearch.fetch(" ".join(terms[:3]) + " remote")
+        base = " ".join(terms[:3]) or "software engineer"
+        # JSearch aggregates Google-for-Jobs (LinkedIn/Indeed/etc.). Query India + remote.
+        if india_wanted:
+            jobs += jsearch.fetch(base + " jobs in India")
+        jobs += jsearch.fetch(base + " remote")
     return _dedup(jobs)
 
 
