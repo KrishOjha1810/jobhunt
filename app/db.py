@@ -373,6 +373,8 @@ def global_stats():
         "last_run": get_meta("last_run"),
         "last_run_sent": get_meta("last_run_sent"),
         "last_run_users": get_meta("last_run_users"),
+        "run_phase": get_meta("run_phase"),
+        "run_started": get_meta("run_started"),
     }
 
 

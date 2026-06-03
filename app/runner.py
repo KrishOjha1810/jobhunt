@@ -91,12 +91,19 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
     If force is True, resend each user's current top matches even if already seen (one-time test)."""
     db.init_db()
     # Cross-restart in-flight marker so a slow/killed run can't be re-triggered into a pile-up.
+    def _phase(p):
+        if only_user_id is None:
+            try:
+                db.set_meta("run_phase", p)
+            except Exception:
+                pass
     if only_user_id is None:
         from datetime import datetime
         try:
             db.set_meta("run_started", datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"))
         except Exception:
             pass
+    _phase("start")
     users = db.list_active_users()
     if only_user_id is not None:
         users = [u for u in users if u["id"] == only_user_id]
@@ -105,6 +112,7 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
             print("[runner] no active users")
         return
     pool = sources.fetch_pool(users)
+    _phase(f"fetched:{len(pool)}")
     # Store every found job in the shared catalog so new users can browse them right away.
     for j in pool:
         j["category"] = matcher.categorize(j)
@@ -112,6 +120,7 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
             db.upsert_job(j)
         except Exception as e:
             print(f"[runner] catalog upsert failed: {e}")
+    _phase("upserted")
     if verbose:
         print(f"[runner] {len(users)} user(s), shared pool of {len(pool)} jobs")
     sent = 0
@@ -168,6 +177,7 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
         detail.append(d)
     if verbose:
         print(f"[runner] done: sent digests to {sent}/{len(users)} user(s)")
+    _phase(f"sent:{sent}")
     if only_user_id is not None:
         return  # partial (single-user) run, don't record it as the global last_run
     # Record completion FIRST (delivery is done), so /status & /diag reflect the run immediately.

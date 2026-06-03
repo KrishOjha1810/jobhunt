@@ -490,20 +490,36 @@ def api_update_job(request: Request, job_id: int, token: str = "", applied: int 
 
 
 @app.api_route("/run", methods=["GET", "POST"])
-def trigger_run(token: str = "", force: str = ""):
-    """Trigger a matching run. Safe to call openly: by default it only runs when one is *due*
-    (CATCHUP_HOURS since the last), so it can't be abused into hammering the job APIs. A run that
-    ignores 'already due' / resends to everyone (force=1) additionally requires the RUN_TOKEN.
-    Runs in a daemon thread, so it completes even if the caller (or Render cold-start) drops the
-    connection."""
+def trigger_run(token: str = "", force: str = "", sync: str = "1"):
+    """Trigger a matching run. Safe to call openly: by default it only runs when *due*
+    (CATCHUP_HOURS since the last). force=1 (resend to everyone, ignore due) needs the RUN_TOKEN.
+
+    sync=1 (default) runs INLINE and returns only after it finishes, so the work completes within the
+    HTTP request, this is what keeps a Render-free instance awake for the whole run (a backgrounded
+    run can be killed when the instance suspends). Point an external cron at this URL to get reliable
+    fixed-time runs. sync=0 returns immediately (fire-and-forget)."""
     want_force = bool(force)
     if want_force and RUN_TOKEN and token != RUN_TOKEN:
         return JSONResponse({"error": "force requires a valid token"}, status_code=403)
-    started = _trigger_run(force=want_force)
-    return {"ok": True, "started": started, "forced": want_force,
-            "last_run_age_h": round(_last_run_age_hours(), 1),
-            "message": ("Run started; alerts are being sent." if started
-                        else "No run needed yet (not due). Use force=1 with the token to override.")}
+    due = want_force or _last_run_age_hours() >= CATCHUP_HOURS
+    if not due:
+        return {"ok": True, "started": False, "last_run_age_h": round(_last_run_age_hours(), 1),
+                "message": "No run needed yet (not due). Use force=1 with the token to override."}
+    if str(sync) in ("0", "false", "no"):
+        started = _trigger_run(force=want_force)
+        return {"ok": True, "started": started, "async": True}
+    # Synchronous: run inline so the instance stays awake until completion.
+    if _run_in_flight():
+        return {"ok": True, "started": False, "message": "A run is already in progress."}
+    try:
+        db.set_meta("run_started", _dt.utcnow().strftime("%Y-%m-%d %H:%M UTC"))
+    except Exception:
+        pass
+    runner.run_once(verbose=False, force=want_force)
+    s = db.global_stats()
+    return {"ok": True, "started": True, "forced": want_force,
+            "last_run": s.get("last_run"), "sent": s.get("last_run_sent"),
+            "users": s.get("last_run_users"), "phase": s.get("run_phase")}
 
 
 @app.get("/tailor")

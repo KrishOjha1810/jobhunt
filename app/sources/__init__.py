@@ -41,9 +41,14 @@ def _dedup(jobs: list) -> list:
     return unique
 
 
-def _fetch(terms: list, india_wanted: bool, max_adzuna_terms: int = 4) -> list:
+# Hard cap on the pool per run so a run stays fast (fits in one Render wake window): too many jobs
+# means a long upsert loop and the instance can suspend mid-run before recording completion.
+POOL_CAP = 350
+
+
+def _fetch(terms: list, india_wanted: bool, max_adzuna_terms: int = 3) -> list:
     jobs = []
-    for term in terms:
+    for term in terms[:5]:
         jobs += remotive.fetch(term)
     # whole-feed sources (query ignored); fetched once regardless of term count
     jobs += remoteok.fetch("")   # note: often blocked from datacenter IPs (e.g. Render)
@@ -51,18 +56,17 @@ def _fetch(terms: list, india_wanted: bool, max_adzuna_terms: int = 4) -> list:
     jobs += jobicy.fetch("")
     jobs += himalayas.fetch("")
     if adzuna.available():
-        # Adzuna has real per-country feeds; pull India when any user wants India, plus global.
-        countries = ["in", "gb"] if india_wanted else ["gb", "us"]
-        for country in countries:
-            for term in terms[:max_adzuna_terms]:
-                jobs += adzuna.fetch(term, country=country)
+        # India-first (a couple terms) keeps this bounded; add one global term for remote roles.
+        for term in terms[:max_adzuna_terms]:
+            jobs += adzuna.fetch(term, country="in" if india_wanted else "gb")
     if jsearch.available():
         base = " ".join(terms[:3]) or "software engineer"
-        # JSearch aggregates Google-for-Jobs (LinkedIn/Indeed/etc.). Query India + remote.
-        if india_wanted:
-            jobs += jsearch.fetch(base + " jobs in India")
-        jobs += jsearch.fetch(base + " remote")
-    return _dedup(jobs)
+        # JSearch aggregates Google-for-Jobs (LinkedIn/Indeed/etc.). One India + one remote query.
+        jobs += jsearch.fetch((base + " jobs in India") if india_wanted else (base + " remote"))
+    jobs = _dedup(jobs)
+    # keep the freshest, capped, so the run stays quick
+    jobs.sort(key=lambda j: (j.get("posted_at") or ""), reverse=True)
+    return jobs[:POOL_CAP]
 
 
 def fetch_all(keywords: list, locations: list) -> list:
