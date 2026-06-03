@@ -105,16 +105,26 @@ def _on_startup():
     """Fire a catch-up run on boot if one is due, then (optionally) arm the fixed-time scheduler.
     The catch-up + per-request trigger are the reliable path; the scheduler is a best-effort bonus."""
     db.init_db()
-    # One forced broadcast per deployed version: on a fresh deploy, send everyone their current top
-    # matches once (recovery / "it's working" ping), then never again for that version. Routine
-    # restarts of the same version skip it. This is also our delivery self-test.
+    # One-time keyword re-parse with the improved resume parser, so users whose resume parsed thin
+    # get richer keywords (better matches) without having to re-upload. Runs once per version.
     try:
-        if db.get_meta("force_done_version") != APP_VERSION:
-            db.set_meta("force_done_version", APP_VERSION)
-            _trigger_run(force=True)
+        if db.get_meta("kw_backfill") != APP_VERSION:
+            db.set_meta("kw_backfill", APP_VERSION)
+            from . import resume as _resume
+            for u in db.list_active_users():
+                txt = u.get("resume_text") or ""
+                if not txt:
+                    continue
+                old = u.get("keywords") or []
+                merged = list(dict.fromkeys(old + _resume.extract_keywords(txt)))
+                if len(merged) != len(old):
+                    db.set_keywords(u["id"], merged)
+            print("[startup] keyword backfill done")
     except Exception as e:
-        print(f"[startup] forced broadcast skipped: {e}")
-    # Plus a normal due-check (no-op unless overdue), so daily alerts keep flowing.
+        print(f"[startup] keyword backfill skipped: {e}")
+    # Normal due-check only (no-op unless overdue). Deploys no longer auto-broadcast to everyone,
+    # that was for recovery and spammed users on each deploy. To push a fresh batch to everyone on
+    # demand, hit /run?force=1&token=RUN_TOKEN. Daily alerts flow via the due-gated trigger.
     _trigger_run()
     if not ENABLE_SCHEDULER:
         return
@@ -277,7 +287,7 @@ async def subscribe_post(
     locations: str = Form("remote,india"),
     extra_keywords: str = Form(""),
     categories: List[str] = Form([]),
-    resume_file: UploadFile = File(...),
+    resume_file: List[UploadFile] = File(...),
 ):
     user = current_user(request)
     if not user:
@@ -293,16 +303,28 @@ async def subscribe_post(
     if channel == "email" and not EMAIL_RE.match(eff_email):
         return JSONResponse({"error": "A valid email is required for the Email channel."}, status_code=400)
     safe = "".join(c for c in user["name"] if c.isalnum() or c in "-_") or "user"
-    raw = os.path.basename(resume_file.filename or "resume")
-    safe_file = "".join(c for c in raw if c.isalnum() or c in "-_.") or "resume"
-    dest = RESUME_DIR / f"{safe}_{safe_file}"
+    # Multiple resumes: parse each, UNION their keywords, and combine text, so the user gets the
+    # best matches across all their profiles (e.g. blockchain + backend + full-stack) in one digest.
+    files = [f for f in (resume_file or []) if f and f.filename][:3]
+    if not files:
+        return JSONResponse({"error": "Please attach at least one resume."}, status_code=400)
+    keywords, texts, first_path = [], [], None
     try:
-        with open(dest, "wb") as f:
-            shutil.copyfileobj(resume_file.file, f)
-        profile = resume.profile_from_resume(str(dest))
-        keywords = profile["keywords"]
+        for idx, rf in enumerate(files):
+            raw = os.path.basename(rf.filename or f"resume{idx}")
+            safe_file = "".join(c for c in raw if c.isalnum() or c in "-_.") or f"resume{idx}"
+            dest = RESUME_DIR / f"{safe}_{idx}_{safe_file}"
+            with open(dest, "wb") as f:
+                shutil.copyfileobj(rf.file, f)
+            first_path = first_path or str(dest)
+            prof = resume.profile_from_resume(str(dest))
+            for kw in prof["keywords"]:
+                if kw not in keywords:
+                    keywords.append(kw)
+            texts.append(prof.get("text", ""))
     except Exception as e:
         return JSONResponse({"error": f"could not read resume: {e}"}, status_code=400)
+    resume_text = "\n\n---\n\n".join(t for t in texts if t)[:20000]
     for kw in extra_keywords.split(","):
         kw = kw.strip().lower()
         if kw and kw not in keywords:
@@ -311,8 +333,8 @@ async def subscribe_post(
     allowed = {c[0] for c in matcher.CATEGORY_RULES}
     cat_list = [c for c in categories if c in allowed]
     db.update_subscription(
-        user["id"], keywords, loc_list, channel, resume_path=str(dest),
-        resume_text=profile.get("text", ""), telegram_chat_id=telegram_chat_id.strip(),
+        user["id"], keywords, loc_list, channel, resume_path=first_path,
+        resume_text=resume_text, telegram_chat_id=telegram_chat_id.strip(),
         whatsapp_phone=whatsapp_phone.strip() or None, whatsapp_apikey=whatsapp_apikey.strip() or None,
         email=eff_email or None, categories=cat_list,
     )
@@ -320,10 +342,12 @@ async def subscribe_post(
     background_tasks.add_task(runner.run_once, False, user["id"])
     from . import schedule as sched_info
     roles = ", ".join(cat_list) if cat_list else "all roles"
+    nres = f"{len(files)} resume{'s' if len(files) != 1 else ''}"
     return {"ok": True, "detected_keywords": keywords, "channel": channel,
             "schedule": sched_info.describe(), "next_run": sched_info.next_run_label(),
-            "message": (f"Subscribed for {roles}. Your first matches are on the way to your "
-                        f"{channel.title()} now, then automatically at {sched_info.describe()}.")}
+            "message": (f"Subscribed for {roles} ({nres}, {len(keywords)} skills). Your first "
+                        f"matches are on the way to your {channel.title()} now, then automatically "
+                        f"at {sched_info.describe()}.")}
 
 
 @app.get("/api/catalog")
@@ -487,6 +511,28 @@ def tailor_endpoint(request: Request, job_id: int = 0, token: str = ""):
     if not block:
         return {"ok": False, "reason": err or "Could not generate tailoring right now."}
     return {"ok": True, "tailoring": block}
+
+
+@app.get("/booster")
+def booster_endpoint(request: Request, job_id: int = 0, token: str = ""):
+    """Generate ready-to-send outreach drafts + a checklist to boost an application (manual send)."""
+    from . import enrich
+    user = _resolve_user(request, token)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    job = db.get_job_log(job_id, user["id"])
+    if not job:
+        return JSONResponse({"error": "job not found"}, status_code=404)
+    if not enrich.available():
+        return {"ok": False, "reason": "Needs a free Groq or Gemini key to draft outreach."}
+    block, err = enrich.booster(
+        {"title": job.get("title"), "company": job.get("company"),
+         "description": db.catalog_description(job.get("url"))},
+        user.get("resume_text") or "",
+    )
+    if not block:
+        return {"ok": False, "reason": err or "Could not generate right now."}
+    return {"ok": True, "booster": block}
 
 
 @app.get("/healthz")

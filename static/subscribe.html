@@ -209,8 +209,9 @@
         <label>Extra keywords <span style="font-weight:400;color:var(--muted)">(optional)</span></label>
         <input type="text" name="extra_keywords" placeholder="rust, solidity, defi" />
 
-        <label>Resume (PDF or DOCX)</label>
-        <input type="file" name="resume_file" accept=".pdf,.docx,.doc,.txt" required />
+        <label>Resume(s) <span style="font-weight:400;color:var(--muted)">(PDF or DOCX, up to 3)</span></label>
+        <input type="file" name="resume_file" accept=".pdf,.docx,.doc,.txt" multiple required />
+        <small>Attach more than one (e.g. blockchain, backend, full-stack) and we match the best jobs across all of them in a single digest.</small>
 
         <button type="submit" class="submit">Start getting matches</button>
       </form>

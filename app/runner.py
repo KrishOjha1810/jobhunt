@@ -7,56 +7,77 @@ import os
 from . import db, sources, matcher, notifier, embeddings
 from .config import MIN_SCORE, MAX_MATCHES_PER_RUN
 
-# Inline semantic re-rank is OFF by default (it blocked the alert path with slow embed calls).
-SEMANTIC_INLINE = os.environ.get("SEMANTIC_INLINE", "") == "1"
+# How many catalog jobs to embed per run, AFTER delivery (background precompute, never blocks sends).
+EMBED_BUDGET = int(os.environ.get("EMBED_BUDGET", "") or "40")
 
 
 def _semantic_rerank(user, ranked, verbose=False):
-    """Re-order keyword-matched jobs by resume<->job embedding similarity.
+    """Re-order keyword matches by resume<->job similarity using ONLY cached embeddings.
 
-    Strictly best-effort: any failure (no key, API error, missing vectors) leaves `ranked`
-    untouched, so the keyword matcher always stays the source of truth. Job vectors are cached
-    in the catalog so repeated runs cost no extra API calls.
+    Zero network calls on the alert path: it reads vectors precomputed by _precompute_embeddings
+    (which runs after delivery). Missing vectors just keep their keyword position, so this is always
+    fast and best-effort, the keyword matcher stays the source of truth.
     """
     if not embeddings.enabled() or not ranked:
         return ranked
     try:
-        resume = (user.get("resume_text") or "").strip()
-        if not resume:
-            return ranked
-        uvec = db.get_user_embedding(user)
-        if not uvec:
-            uvec = embeddings.embed(resume)
-            if uvec:
-                db.set_user_embedding(user["id"], uvec)
+        uvec = db.get_user_embedding(user)  # cached only; embedded post-delivery if missing
         if not uvec:
             return ranked
-        # Only embed the top candidates we might actually send, to bound API usage.
         scored = 0
         for j in ranked[: MAX_MATCHES_PER_RUN * 3]:
             jvec = db.get_job_embedding(j["url"]) if j.get("url") else None
-            if not jvec:
-                txt = f"{j.get('title','')} {j.get('company','')} {j.get('description','')}"
-                jvec = embeddings.embed(txt)
-                if jvec and j.get("url"):
-                    db.set_job_embedding(j["url"], jvec)
-            if not jvec:
+            if jvec:
+                j["_sem"] = embeddings.cosine(uvec, jvec)
+                scored += 1
+            else:
                 j["_sem"] = 0.0
-                continue
-            j["_sem"] = embeddings.cosine(uvec, jvec)
-            scored += 1
         if not scored:
             return ranked
-        # Blend: keep keyword fit as the backbone (0-100), add semantic similarity (0-1 -> 0-100).
+
         def blended(j):
             return j.get("fit", 0) * 0.6 + j.get("_sem", 0.0) * 100 * 0.4
+
         out = sorted(ranked, key=blended, reverse=True)
         if verbose:
-            print(f"[runner] semantic re-rank applied for {user['name']} ({scored} jobs scored)")
+            print(f"[runner] semantic re-rank (cached) for {user['name']}: {scored} jobs")
         return out
     except Exception as e:
         print(f"[runner] semantic re-rank failed for {user.get('id')}: {e}")
         return ranked
+
+
+def _precompute_embeddings(users, pool, verbose=False):
+    """Embed user resumes + a bounded batch of catalog jobs that lack vectors. Runs AFTER delivery
+    so it never delays alerts. Vectors are cached, so semantic ranking improves over successive runs
+    without ever embedding on the send path."""
+    if not embeddings.enabled():
+        return
+    try:
+        # 1) user resume vectors (one cheap call each, only if missing)
+        for u in users:
+            if not db.get_user_embedding(u):
+                txt = (u.get("resume_text") or "").strip()
+                if txt:
+                    v = embeddings.embed(txt)
+                    if v:
+                        db.set_user_embedding(u["id"], v)
+        # 2) up to EMBED_BUDGET catalog jobs from this pool that still lack a vector
+        budget = EMBED_BUDGET
+        for j in pool:
+            if budget <= 0:
+                break
+            url = j.get("url")
+            if not url or db.get_job_embedding(url):
+                continue
+            v = embeddings.embed(f"{j.get('title','')} {j.get('company','')} {j.get('description','')}")
+            if v:
+                db.set_job_embedding(url, v)
+                budget -= 1
+        if verbose:
+            print(f"[runner] embedding precompute done ({EMBED_BUDGET - budget} jobs embedded)")
+    except Exception as e:
+        print(f"[runner] embedding precompute failed: {e}")
 
 
 def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
@@ -105,8 +126,7 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
             if cats:
                 ranked = [j for j in ranked if (j.get("category") or matcher.categorize(j)) in cats]
                 d["matched"] = len(ranked)
-            if SEMANTIC_INLINE:
-                ranked = _semantic_rerank(user, ranked, verbose)
+            ranked = _semantic_rerank(user, ranked, verbose)  # cached-only, no network here
             # Coverage fallback: a subscribed user whose (often thin) resume matched nothing still
             # gets the most recent jobs in their roles/locations, so everyone hears from us.
             used_fallback = False
@@ -143,6 +163,9 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
         detail.append(d)
     if verbose:
         print(f"[runner] done: sent digests to {sent}/{len(users)} user(s)")
+    # Background embedding precompute AFTER delivery, so smart ranking improves over time without
+    # ever delaying alerts (this is what broke before, when embedding ran inline on the send path).
+    _precompute_embeddings(users, pool, verbose)
     if only_user_id is not None:
         return  # partial (single-user) run, don't record it as the global last_run
     try:

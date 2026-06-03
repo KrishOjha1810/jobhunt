@@ -32,8 +32,51 @@ PROMPT = (
 )
 
 
+BOOSTER_PROMPT = (
+    "You help a candidate boost their chances AFTER applying to a job. Using their resume and the "
+    "job, output exactly these four sections with these headers, no preamble:\n"
+    "LINKEDIN CONNECTION NOTE: one note under 300 characters to send a recruiter/hiring manager at "
+    "the company, referencing the role and one concrete reason they fit.\n"
+    "FOLLOW-UP MESSAGE: a 2-3 sentence message to send after the connection is accepted.\n"
+    "RECRUITER EMAIL: a short cold email (subject line + 4-5 sentence body) to a recruiter at the "
+    "company about this role.\n"
+    "CHECKLIST: 4-5 concrete bullet steps to maximize chances (e.g. find the right person on "
+    "LinkedIn, engage with company posts, referral ask). Practical and specific.\n"
+    "No em dashes. No fabrication, use only what the resume supports. Keep it tight and ready to send."
+)
+
+
 def available() -> bool:
     return bool(LLM_API_KEY)
+
+
+def booster(job: dict, resume_text: str):
+    """Return (text, error): ready-to-send outreach drafts + a checklist for a job. The user sends
+    everything manually, no automated LinkedIn/email actions."""
+    if not available():
+        return "", "No LLM key set (add a free Groq or Gemini key)."
+    if not resume_text:
+        return "", "No resume on file. Subscribe with a resume first."
+    user_msg = (
+        f"RESUME:\n{resume_text[:6000]}\n\n"
+        f"JOB: {job.get('title','')} at {job.get('company','')}\n"
+        f"{job.get('description','')[:2500]}"
+    )
+    try:
+        if LLM_PROVIDER == "anthropic":
+            return _chat_anthropic(BOOSTER_PROMPT, user_msg), ""
+        return _chat_openai_compat(
+            [{"role": "system", "content": BOOSTER_PROMPT}, {"role": "user", "content": user_msg}]
+        ), ""
+    except requests.HTTPError as e:
+        resp = e.response
+        code = (resp.status_code if resp is not None else "?")
+        if code == 429:
+            return "", ("Daily free AI quota is used up. It resets daily, or use a free Groq key "
+                        "(groq.com) for higher limits.")
+        return "", f"{LLM_PROVIDER} API error {code}"
+    except Exception as e:
+        return "", f"{LLM_PROVIDER} request failed: {e}"
 
 
 def _chat_openai_compat(messages: list) -> str:

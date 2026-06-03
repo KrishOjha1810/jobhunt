@@ -343,6 +343,11 @@ def get_meta(key, default=None):
     return r[0] if r else default
 
 
+def set_keywords(user_id, keywords):
+    with engine.begin() as c:
+        c.execute(update(users).where(users.c.id == user_id).values(keywords=json.dumps(keywords)))
+
+
 def matched_urls(user_id):
     """Set of job URLs already matched/sent to this user (for syncing the /jobs catalog view)."""
     with engine.connect() as c:

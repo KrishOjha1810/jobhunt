@@ -155,7 +155,7 @@
   <div class="tov" id="tov">
     <div class="tmodal">
       <button class="tclose" id="tclose" aria-label="Close">&times;</button>
-      <h3 style="margin:0 0 12px;">Tailored for this job</h3>
+      <h3 style="margin:0 0 12px;" id="ttitle">Tailored for this job</h3>
       <pre id="tbody"></pre>
     </div>
   </div>
@@ -256,7 +256,7 @@
           <td class="title">${esc(j.title)}</td>
           <td class="date">${esc((j.sent_at||'').slice(0,10))}</td>
           <td>${j.score ? `<span class="score">${esc(j.score)}</span>` : ''}</td>
-          <td><div class="actions">${safeUrl(j.url)?`<a class="applylink" href="${esc(safeUrl(j.url))}" target="_blank" rel="noopener">Apply <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8"/></svg></a>`:''}<button class="tailorbtn" onclick="tailor(${j.id})">Tailor</button></div></td>
+          <td><div class="actions">${safeUrl(j.url)?`<a class="applylink" href="${esc(safeUrl(j.url))}" target="_blank" rel="noopener">Apply <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8"/></svg></a>`:''}<button class="tailorbtn" onclick="tailor(${j.id})">Tailor</button><button class="tailorbtn" onclick="boost(${j.id})">Boost</button></div></td>
           <td><input type="checkbox" ${j.applied?'checked':''} onchange="upd(${j.id},'applied',this.checked?1:0)"></td>
           <td><input type="checkbox" ${j.responded?'checked':''} onchange="upd(${j.id},'responded',this.checked?1:0)"></td>
           <td><select class="res" onchange="upd(${j.id},'resume_used',this.value)">
@@ -277,12 +277,24 @@
     tov.addEventListener('click', e => { if (e.target === tov) tov.classList.remove('show'); });
     async function tailor(id) {
       tov.classList.add('show');
+      document.getElementById('ttitle').textContent = 'Tailored for this job';
       document.getElementById('tbody').textContent = 'Generating your tailored resume tips...';
       try {
         const p = new URLSearchParams({ token, job_id: id });
         const r = await fetch(`/tailor?${p.toString()}`);
         const d = await r.json();
         document.getElementById('tbody').textContent = d.ok ? d.tailoring : (d.reason || d.error || 'Could not tailor.');
+      } catch (e) { document.getElementById('tbody').textContent = 'Error: ' + e; }
+    }
+    async function boost(id) {
+      tov.classList.add('show');
+      document.getElementById('ttitle').textContent = 'Boost this application';
+      document.getElementById('tbody').textContent = 'Drafting your outreach (connection note, recruiter email, checklist)...';
+      try {
+        const p = new URLSearchParams({ token, job_id: id });
+        const r = await fetch(`/booster?${p.toString()}`);
+        const d = await r.json();
+        document.getElementById('tbody').textContent = d.ok ? d.booster : (d.reason || d.error || 'Could not generate.');
       } catch (e) { document.getElementById('tbody').textContent = 'Error: ' + e; }
     }
 
