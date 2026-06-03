@@ -59,7 +59,7 @@ EMBED_MODEL = os.environ.get("EMBED_MODEL", "") or "text-embedding-004"
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "") or (LLM_API_KEY if LLM_PROVIDER == "gemini" else "")
 
 # App version. Bump this on a deploy to re-show the walkthrough to every user once.
-APP_VERSION = os.environ.get("APP_VERSION", "") or "2026-06-04.2"
+APP_VERSION = os.environ.get("APP_VERSION", "") or "2026-06-04.3"
 
 # In-process scheduler (for cloud, where launchd/cron don't exist). Set ENABLE_SCHEDULER=1.
 ENABLE_SCHEDULER = os.environ.get("ENABLE_SCHEDULER", "") == "1"
@@ -71,7 +71,7 @@ RUN_HOURS = [int(h) for h in (os.environ.get("RUN_HOURS", "") or "9,21").split("
 # Self-healing safety net: any HTTP traffic (incl. the keep-awake ping) triggers a matcher run if
 # it's been at least this many hours since the last one. This makes daily alerts robust on hosts
 # whose background schedulers freeze when the instance sleeps (Render free). ~13h => ~2 runs/day.
-CATCHUP_HOURS = float(os.environ.get("CATCHUP_HOURS", "") or "13")
+CATCHUP_HOURS = float(os.environ.get("CATCHUP_HOURS", "") or "11")
 
 # Optional shared secret to protect the /run trigger endpoint (used by the external cron).
 RUN_TOKEN = os.environ.get("RUN_TOKEN", "")

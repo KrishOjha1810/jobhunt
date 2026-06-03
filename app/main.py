@@ -122,10 +122,19 @@ def _on_startup():
             print("[startup] keyword backfill done")
     except Exception as e:
         print(f"[startup] keyword backfill skipped: {e}")
-    # Normal due-check only (no-op unless overdue). Deploys no longer auto-broadcast to everyone,
-    # that was for recovery and spammed users on each deploy. To push a fresh batch to everyone on
-    # demand, hit /run?force=1&token=RUN_TOKEN. Daily alerts flow via the due-gated trigger.
-    _trigger_run()
+    # One forced broadcast per deployed version: a fresh deploy sends everyone their current top
+    # matches once (and acts as a delivery self-test). Deploys are infrequent now, so this isn't
+    # spammy; for an extra on-demand push use /run?force=1&token=RUN_TOKEN.
+    forced = False
+    try:
+        if db.get_meta("force_done_version") != APP_VERSION:
+            db.set_meta("force_done_version", APP_VERSION)
+            forced = _trigger_run(force=True)
+    except Exception as e:
+        print(f"[startup] forced broadcast skipped: {e}")
+    if not forced:
+        # Normal due-check (no-op unless overdue), so daily alerts keep flowing.
+        _trigger_run()
     if not ENABLE_SCHEDULER:
         return
     try:
