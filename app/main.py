@@ -105,6 +105,12 @@ def _on_startup():
     """Fire a catch-up run on boot if one is due, then (optionally) arm the fixed-time scheduler.
     The catch-up + per-request trigger are the reliable path; the scheduler is a best-effort bonus."""
     db.init_db()
+    # Fresh process => no run is actually in flight; clear any stale marker so a prior stuck run
+    # can't block this boot's broadcast (the old process is already stopped by the deploy).
+    try:
+        db.set_meta("run_started", "")
+    except Exception:
+        pass
     # One-time keyword re-parse with the improved resume parser, so users whose resume parsed thin
     # get richer keywords (better matches) without having to re-upload. Runs once per version.
     try:

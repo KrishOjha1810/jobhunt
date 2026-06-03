@@ -62,20 +62,25 @@ def _precompute_embeddings(users, pool, verbose=False):
                     v = embeddings.embed(txt)
                     if v:
                         db.set_user_embedding(u["id"], v)
-        # 2) up to EMBED_BUDGET catalog jobs from this pool that still lack a vector
-        budget = EMBED_BUDGET
+        # 2) up to EMBED_BUDGET catalog jobs from this pool that still lack a vector.
+        # Count ATTEMPTS, not successes, so an exhausted quota (every embed returns None) can't make
+        # us iterate the whole pool hammering the API, this was stalling runs before delivery record.
+        attempts, embedded = 0, 0
         for j in pool:
-            if budget <= 0:
+            if attempts >= EMBED_BUDGET:
                 break
             url = j.get("url")
             if not url or db.get_job_embedding(url):
                 continue
+            attempts += 1
             v = embeddings.embed(f"{j.get('title','')} {j.get('company','')} {j.get('description','')}")
             if v:
                 db.set_job_embedding(url, v)
-                budget -= 1
+                embedded += 1
+            elif embedded == 0 and attempts >= 3:
+                break  # 3 straight failures => quota/key issue, stop wasting calls this run
         if verbose:
-            print(f"[runner] embedding precompute done ({EMBED_BUDGET - budget} jobs embedded)")
+            print(f"[runner] embedding precompute: {embedded}/{attempts} embedded")
     except Exception as e:
         print(f"[runner] embedding precompute failed: {e}")
 
@@ -163,11 +168,9 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
         detail.append(d)
     if verbose:
         print(f"[runner] done: sent digests to {sent}/{len(users)} user(s)")
-    # Background embedding precompute AFTER delivery, so smart ranking improves over time without
-    # ever delaying alerts (this is what broke before, when embedding ran inline on the send path).
-    _precompute_embeddings(users, pool, verbose)
     if only_user_id is not None:
         return  # partial (single-user) run, don't record it as the global last_run
+    # Record completion FIRST (delivery is done), so /status & /diag reflect the run immediately.
     try:
         import json
         from datetime import datetime
@@ -178,6 +181,9 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
         db.set_meta("run_started", "")  # clear the in-flight marker
     except Exception as e:
         print(f"[runner] could not record last_run: {e}")
+    # Background embedding precompute LAST, purely best-effort, so smart ranking improves over time
+    # without ever delaying alerts or the completion record.
+    _precompute_embeddings(users, pool, verbose)
 
 
 if __name__ == "__main__":

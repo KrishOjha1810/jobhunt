@@ -59,7 +59,7 @@ EMBED_MODEL = os.environ.get("EMBED_MODEL", "") or "text-embedding-004"
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "") or (LLM_API_KEY if LLM_PROVIDER == "gemini" else "")
 
 # App version. Bump this on a deploy to re-show the walkthrough to every user once.
-APP_VERSION = os.environ.get("APP_VERSION", "") or "2026-06-04.3"
+APP_VERSION = os.environ.get("APP_VERSION", "") or "2026-06-04.4"
 
 # In-process scheduler (for cloud, where launchd/cron don't exist). Set ENABLE_SCHEDULER=1.
 ENABLE_SCHEDULER = os.environ.get("ENABLE_SCHEDULER", "") == "1"
