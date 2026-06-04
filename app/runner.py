@@ -5,8 +5,13 @@ Run directly (python -m app.runner) or via cron / the external /run trigger.
 """
 import os
 from datetime import datetime, timedelta
-from . import db, sources, matcher, notifier, embeddings
+from . import db, sources, matcher, notifier, embeddings, enrich
 from .config import MIN_SCORE, MAX_MATCHES_PER_RUN
+
+# LLM re-rank of each user's top candidates by true fit (strongest matching signal). On when an LLM
+# key is set; set LLM_RERANK=0 to disable. Bounded to the top N candidates to cap cost/latency.
+LLM_RERANK = os.environ.get("LLM_RERANK", "1") != "0"
+RERANK_N = int(os.environ.get("RERANK_N", "") or "12")
 
 
 def _cadence_due(user, force):
@@ -190,6 +195,20 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
                     ranked.sort(key=lambda j: j.get("score", 0), reverse=True)
             except Exception as e:
                 print(f"[runner] personalization skipped for {user.get('id')}: {e}")
+            # LLM re-rank of the top candidates by true fit (best matching signal). Blends 50/50 with
+            # the keyword/semantic fit so it sharpens order without throwing away the base score.
+            try:
+                if LLM_RERANK and len(ranked) >= 3:
+                    top = ranked[:RERANK_N]
+                    scores = enrich.rerank(user.get("resume_text") or "", top)
+                    if scores:
+                        for jb, s in zip(top, scores):
+                            if s is not None:
+                                jb["score"] = round(0.5 * (jb.get("score") or 0) + 0.5 * s)
+                        top.sort(key=lambda jb: jb.get("score", 0), reverse=True)
+                        ranked = top + ranked[RERANK_N:]
+            except Exception as e:
+                print(f"[runner] llm rerank skipped for {user.get('id')}: {e}")
             # Coverage fallback: a subscribed user whose (often thin) resume matched nothing still
             # gets the most recent jobs in their roles/locations, so everyone hears from us.
             used_fallback = False

@@ -117,6 +117,11 @@ def _on_startup():
         db.set_meta("run_started", "")
     except Exception:
         pass
+    # Bound + freshen the browse catalog right away on deploy (don't wait for the next run).
+    try:
+        db.prune_catalog()
+    except Exception as e:
+        print(f"[startup] catalog prune skipped: {e}")
     # One-time keyword re-parse with the improved resume parser, so users whose resume parsed thin
     # get richer keywords (better matches) without having to re-upload. Runs once per version.
     try:

@@ -59,13 +59,13 @@ def categorize(job: dict) -> str:
 
 
 def score_job(job: dict, keywords: list) -> tuple:
-    """Return (score, matched_keywords). Score = number of profile keywords the job mentions."""
+    """Return (score, matched_keywords). Skill overlap, with title hits weighted heavily, a role in
+    the title is a far stronger fit signal than a keyword buried in the description."""
     text = (job.get("title", "") + " " + job.get("description", "")).lower()
     matched = [k for k in keywords if _contains(text, k)]
-    # Title hits are worth more.
     title = job.get("title", "").lower()
     title_bonus = sum(1 for k in keywords if _contains(title, k))
-    return len(matched) + title_bonus, matched
+    return len(matched) + 2 * title_bonus, matched
 
 
 def rank_matches(jobs: list, keywords: list, locations: list, min_score: int,

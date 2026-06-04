@@ -93,6 +93,44 @@ def _run(prompt: str, job: dict, resume_text: str, jd_chars: int = 3000):
         return "", f"{LLM_PROVIDER} request failed: {e}"
 
 
+def rerank(resume_text: str, jobs: list):
+    """Score how well the candidate fits each job, 0-100, in ONE batched LLM call. Returns a list of
+    ints aligned to `jobs` (or [] on any failure). This is the strongest matching signal we have,
+    the LLM judges real fit far better than keyword overlap. Best-effort; caller falls back."""
+    if not available() or not resume_text or not jobs:
+        return []
+    listing = "\n".join(
+        f"{i+1}. {j.get('title','')} @ {j.get('company','')} :: {(j.get('description','') or '')[:500]}"
+        for i, j in enumerate(jobs)
+    )
+    sys = (
+        "You are a precise technical recruiter. Given a candidate's resume and a numbered list of "
+        "jobs, rate how strong a fit the candidate is for EACH job from 0 to 100 (consider skills "
+        "overlap, seniority match, and how core the candidate's experience is to the role). Output "
+        "ONLY a JSON array of integers, one per job, in the same order. No prose."
+    )
+    user_msg = f"RESUME:\n{resume_text[:5000]}\n\nJOBS:\n{listing}"
+    try:
+        if LLM_PROVIDER == "anthropic":
+            raw = _chat_anthropic(sys, user_msg)
+        else:
+            raw = _chat_openai_compat([{"role": "system", "content": sys}, {"role": "user", "content": user_msg}])
+        import json as _json
+        import re as _re
+        m = _re.search(r"\[.*\]", raw, _re.S)
+        arr = _json.loads(m.group(0)) if m else []
+        out = []
+        for v in arr[:len(jobs)]:
+            try:
+                out.append(max(0, min(100, int(round(float(v))))))
+            except Exception:
+                out.append(None)
+        return out
+    except Exception as e:
+        print(f"[enrich] rerank failed: {e}")
+        return []
+
+
 def interview_prep(job: dict, resume_text: str):
     return _run(INTERVIEW_PROMPT, job, resume_text)
 
