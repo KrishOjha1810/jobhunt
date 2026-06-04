@@ -34,6 +34,7 @@ users = Table(
     Column("embedding", Text),
     Column("categories", Text),  # JSON list of subscribed role categories; empty/null = all
     Column("cadence", Text),     # "twice" (default) | "daily" | "weekly" (Saturday digest)
+    Column("resume_json", Text), # structured resume for the Resume Studio (sections as JSON)
     Column("active", Integer, default=1),
 )
 
@@ -95,7 +96,7 @@ def init_db():
     insp = inspect(engine)
     existing = {c["name"] for c in insp.get_columns("users")}
     with engine.begin() as conn:
-        for col in ("email", "dash_token", "password_hash", "ref_code", "embedding", "categories", "cadence"):
+        for col in ("email", "dash_token", "password_hash", "ref_code", "embedding", "categories", "cadence", "resume_json"):
             if col not in existing:
                 conn.execute(text(f"ALTER TABLE users ADD COLUMN {col} TEXT"))
         if "referred_by" not in existing:
@@ -431,6 +432,22 @@ def get_meta(key, default=None):
     with engine.connect() as c:
         r = c.execute(select(meta.c.value).where(meta.c.key == key)).first()
     return r[0] if r else default
+
+
+def get_resume_json(user_id):
+    with engine.connect() as c:
+        r = c.execute(select(users.c.resume_json).where(users.c.id == user_id)).first()
+    if r and r[0]:
+        try:
+            return json.loads(r[0])
+        except Exception:
+            return None
+    return None
+
+
+def set_resume_json(user_id, data):
+    with engine.begin() as c:
+        c.execute(update(users).where(users.c.id == user_id).values(resume_json=json.dumps(data)))
 
 
 def set_keywords(user_id, keywords):

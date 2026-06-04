@@ -5,7 +5,7 @@ import shutil
 from typing import List
 from pathlib import Path
 from fastapi import FastAPI, Request, Form, UploadFile, File, BackgroundTasks
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -794,6 +794,92 @@ def track(t: str = "", u: str = "", s: str = "applied"):
         f"a.btn{{display:inline-block;padding:11px 18px;border-radius:10px;background:linear-gradient(135deg,#6366f1,#8b5cf6);"
         f"color:#fff;text-decoration:none;font-weight:700;margin:6px}}a.ghost{{color:#9aa0ad;text-decoration:none;margin:6px}}</style>"
         f"<div>{body}</div>")
+
+
+@app.get("/resume", response_class=HTMLResponse)
+def resume_page(request: Request):
+    if not current_user(request):
+        return RedirectResponse("/login")
+    return _page("resume.html")
+
+
+@app.get("/api/resume")
+def api_resume_get(request: Request, token: str = ""):
+    """Return the user's structured resume (parsing it from their uploaded resume on first use) +
+    an ATS health score."""
+    from . import enrich, resume_export
+    user = _resolve_user(request, token)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    rj = db.get_resume_json(user["id"])
+    if rj is None and user.get("resume_text") and enrich.available():
+        obj, _err = enrich.parse_resume_structured(user["resume_text"])
+        if obj:
+            rj = obj
+            db.set_resume_json(user["id"], rj)
+    if rj is None:
+        rj = {"name": user.get("name") or "", "email": user.get("email") or "", "phone": "",
+              "links": [], "summary": "", "skills": user.get("keywords") or [],
+              "experience": [], "education": []}
+    return {"ok": True, "resume": rj, "health": resume_export.ats_health(rj)}
+
+
+@app.post("/api/resume")
+async def api_resume_save(request: Request, token: str = ""):
+    from . import resume_export
+    user = _resolve_user(request, token)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        rj = await request.json()
+    except Exception:
+        return JSONResponse({"error": "bad json"}, status_code=400)
+    db.set_resume_json(user["id"], rj)
+    return {"ok": True, "health": resume_export.ats_health(rj)}
+
+
+@app.get("/api/resume/tailor")
+def api_resume_tailor(request: Request, job_id: int = 0, token: str = ""):
+    """Concrete, approvable edits to tailor the user's structured resume to a specific job."""
+    from . import enrich
+    user = _resolve_user(request, token)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    rj = db.get_resume_json(user["id"])
+    if not rj:
+        return {"ok": False, "reason": "Build your resume in the studio first."}
+    job = db.get_job_log(job_id, user["id"])
+    if not job:
+        return JSONResponse({"error": "job not found"}, status_code=404)
+    if not enrich.available():
+        return {"ok": False, "reason": "Needs a free Groq or Gemini key."}
+    edits, err = enrich.tailor_edits(rj, job.get("title") or "", db.catalog_description(job.get("url")))
+    if not edits:
+        return {"ok": False, "reason": err or "Could not generate edits."}
+    return {"ok": True, "edits": edits, "job": {"title": job.get("title"), "company": job.get("company")}}
+
+
+@app.post("/api/resume/export")
+async def api_resume_export(request: Request, token: str = ""):
+    """Build an ATS-safe .docx from the (possibly tailored) resume JSON in the body."""
+    from . import resume_export
+    user = _resolve_user(request, token)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        rj = await request.json()
+    except Exception:
+        return JSONResponse({"error": "bad json"}, status_code=400)
+    try:
+        data = resume_export.build_docx(rj)
+    except Exception as e:
+        return JSONResponse({"error": f"export failed: {e}"}, status_code=500)
+    safe = "".join(c for c in (rj.get("name") or "resume") if c.isalnum() or c in "-_") or "resume"
+    return Response(
+        content=data,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{safe}_JobHunt.docx"'},
+    )
 
 
 @app.get("/healthz")

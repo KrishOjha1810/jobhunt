@@ -93,6 +93,59 @@ def _run(prompt: str, job: dict, resume_text: str, jd_chars: int = 3000):
         return "", f"{LLM_PROVIDER} request failed: {e}"
 
 
+def _json_call(system: str, user_msg: str):
+    """Run an LLM call expected to return JSON; parse defensively. Returns (obj, error)."""
+    if not available():
+        return None, "No LLM key set (add a free Groq or Gemini key)."
+    try:
+        if LLM_PROVIDER == "anthropic":
+            raw = _chat_anthropic(system, user_msg)
+        else:
+            raw = _chat_openai_compat([{"role": "system", "content": system}, {"role": "user", "content": user_msg}])
+        import json as _json
+        import re as _re
+        m = _re.search(r"\{.*\}", raw, _re.S)
+        return (_json.loads(m.group(0)) if m else _json.loads(raw)), ""
+    except requests.HTTPError as e:
+        code = (e.response.status_code if e.response is not None else "?")
+        return None, ("Daily free AI quota used up; resets daily or use a Groq key." if code == 429
+                      else f"{LLM_PROVIDER} API error {code}")
+    except Exception as e:
+        return None, f"could not parse AI response ({e})"
+
+
+def parse_resume_structured(resume_text: str):
+    """Turn raw resume text into a structured, editable resume. Returns (dict, error)."""
+    if not resume_text:
+        return None, "No resume on file."
+    sys = (
+        "Convert this resume into JSON with EXACTLY these keys: name, email, phone, links (array of "
+        "strings), summary (string), skills (array of strings), experience (array of objects with "
+        "keys: title, company, dates, bullets[array of strings]), education (array of objects with "
+        "keys: degree, school, dates). Use only what's in the resume; empty string/array if unknown. "
+        "Keep bullets verbatim. Output ONLY the JSON object."
+    )
+    obj, err = _json_call(sys, resume_text[:8000])
+    return obj, err
+
+
+def tailor_edits(resume_json: dict, job_title: str, job_desc: str):
+    """Produce concrete, reviewable edits to tailor the resume to a job. Returns (dict, error) where
+    dict = {summary: str, add_skills: [str], bullets: [{original, improved, why}]}."""
+    import json as _json
+    sys = (
+        "You tailor a resume to a specific job. Given the candidate's structured resume (JSON) and a "
+        "job, return JSON with keys: summary (a rewritten 2-3 line summary tuned to this job, or ''), "
+        "add_skills (array of real skills from the candidate that this JD wants but the skills list "
+        "omits, [] if none), bullets (array of up to 6 objects {original, improved, why} that rewrite "
+        "EXISTING experience bullets to mirror the JD's language and quantify impact). Never fabricate; "
+        "improve only what the resume supports. No em dashes. Output ONLY the JSON object."
+    )
+    user_msg = (f"RESUME JSON:\n{_json.dumps(resume_json)[:6000]}\n\n"
+                f"JOB: {job_title}\n{(job_desc or '')[:2500]}")
+    return _json_call(sys, user_msg)
+
+
 def rerank(resume_text: str, jobs: list):
     """Score how well the candidate fits each job, 0-100, in ONE batched LLM call. Returns a list of
     ints aligned to `jobs` (or [] on any failure). This is the strongest matching signal we have,

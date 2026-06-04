@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Resume Studio , JobHunt</title>
+  <style>
+    :root { --bg:#0f1117; --card:#171a23; --card-border:#262a36; --ink:#e8eaf0; --muted:#9aa0ad;
+      --line:#222633; --field:#0c0e14; --field-border:#2b3040; --accent:#818cf8; --accent2:#a5b4fc;
+      --accent-soft:rgba(99,102,241,.16); --grad:linear-gradient(135deg,#6366f1,#8b5cf6); }
+    * { box-sizing:border-box; font-family:-apple-system,Inter,Segoe UI,sans-serif; }
+    body { margin:0; background:var(--bg); color:var(--ink); }
+    .nav { position:sticky; top:0; z-index:30; background:var(--card); border-bottom:1px solid var(--card-border); backdrop-filter:blur(14px); }
+    .nav-inner { max-width:1040px; margin:0 auto; display:flex; align-items:center; gap:6px; padding:12px 20px; }
+    .nav-brand { font-weight:800; color:var(--ink); text-decoration:none; font-size:1.05rem; margin-right:auto; }
+    .nav a.nlink { color:var(--muted); text-decoration:none; font-size:.9rem; font-weight:600; padding:6px 11px; border-radius:8px; }
+    .nav a.nlink:hover { color:var(--ink); } .nav a.nlink.active { color:var(--ink); background:var(--accent-soft); }
+    .wrap { max-width:1040px; margin:0 auto; padding:24px 20px 60px; }
+    h1 { font-size:1.5rem; margin:0 0 4px; } .sub { color:var(--muted); margin:0 0 20px; font-size:.92rem; }
+    .grid { display:grid; grid-template-columns:1fr 300px; gap:20px; align-items:start; }
+    @media (max-width:760px){ .grid { grid-template-columns:1fr; } }
+    .card { background:var(--card); border:1px solid var(--card-border); border-radius:16px; padding:18px; margin-bottom:16px; }
+    .card h2 { font-size:1rem; margin:0 0 10px; }
+    label { display:block; font-size:.75rem; color:var(--muted); margin:10px 0 4px; text-transform:uppercase; letter-spacing:.04em; }
+    input, textarea, select { width:100%; padding:9px 11px; border-radius:9px; border:1px solid var(--field-border); background:var(--field); color:var(--ink); font-size:.9rem; font-family:inherit; }
+    textarea { resize:vertical; min-height:64px; }
+    button { padding:10px 15px; border:0; border-radius:10px; font-weight:700; font-size:.9rem; cursor:pointer; background:var(--grad); color:#fff; }
+    button.ghost { background:transparent; border:1px solid var(--field-border); color:var(--ink); font-weight:600; }
+    button.sm { padding:6px 10px; font-size:.8rem; }
+    .row { display:flex; gap:8px; flex-wrap:wrap; }
+    .exp { border:1px solid var(--line); border-radius:10px; padding:12px; margin-bottom:10px; }
+    .exp .row input { flex:1; min-width:120px; }
+    .score-ring { font-size:2.4rem; font-weight:800; }
+    .chk { display:flex; gap:8px; align-items:flex-start; font-size:.82rem; padding:5px 0; color:var(--muted); }
+    .chk.ok { color:var(--ink); } .chk .dot { flex:0 0 auto; width:16px; }
+    .edit { border:1px solid var(--line); border-radius:10px; padding:10px; margin-bottom:8px; font-size:.85rem; }
+    .edit .before { color:var(--muted); text-decoration:line-through; opacity:.7; }
+    .edit .after { color:#34d399; margin-top:3px; }
+    .pill { font-size:.7rem; padding:2px 8px; border-radius:999px; background:var(--accent-soft); color:var(--accent2); }
+    #msg { font-size:.85rem; margin-top:8px; min-height:16px; } .ok{color:#22c55e}.err{color:#f59e0b}
+    .skillchips span { display:inline-block; background:var(--accent-soft); color:var(--accent2); border-radius:999px; padding:3px 9px; font-size:.78rem; margin:0 5px 5px 0; }
+  </style>
+</head>
+<body>
+  <nav class="nav"><div class="nav-inner">
+    <a class="nav-brand" href="/jobs">JobHunt</a>
+    <a class="nlink" href="/jobs">Browse</a>
+    <a class="nlink" href="/dashboard">My matches</a>
+    <a class="nlink active" href="/resume">Resume</a>
+    <a class="nlink" href="/subscribe">Subscribe</a>
+    <a class="nlink" href="/logout">Log out</a>
+  </div></nav>
+
+  <div class="wrap">
+    <h1>Resume Studio</h1>
+    <p class="sub">Edit your resume, tailor it to a specific job with one click, and export an ATS-safe file , without leaving JobHunt.</p>
+
+    <div class="grid">
+      <div>
+        <div class="card" id="tailorCard">
+          <h2>Tailor for a job</h2>
+          <div class="row">
+            <select id="jobSel" style="flex:1"><option value="">Pick a matched job...</option></select>
+            <button id="tailorBtn" class="sm">Tailor</button>
+          </div>
+          <div id="edits"></div>
+        </div>
+
+        <div class="card">
+          <h2>Summary</h2>
+          <textarea id="summary" placeholder="A 2-3 line professional summary..."></textarea>
+          <label>Skills (comma separated)</label>
+          <input id="skills" placeholder="python, react, aws..." />
+        </div>
+
+        <div class="card">
+          <h2>Experience</h2>
+          <div id="exps"></div>
+          <button class="ghost sm" id="addExp">+ Add role</button>
+        </div>
+
+        <div class="card">
+          <h2>Education</h2>
+          <div id="edus"></div>
+          <button class="ghost sm" id="addEdu">+ Add education</button>
+        </div>
+
+        <div class="row">
+          <button id="saveBtn">Save</button>
+          <button id="exportBtn" class="ghost">Export DOCX</button>
+          <button id="pdfBtn" class="ghost">Print / PDF</button>
+        </div>
+        <div id="msg"></div>
+      </div>
+
+      <div>
+        <div class="card" style="position:sticky;top:80px">
+          <h2>ATS health</h2>
+          <div class="score-ring"><span id="score">--</span><span style="font-size:1rem;color:var(--muted)">/100</span></div>
+          <div id="checks"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const $ = id => document.getElementById(id);
+    let R = { name:"", email:"", phone:"", links:[], summary:"", skills:[], experience:[], education:[] };
+    const esc = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+    function renderExps(){
+      $('exps').innerHTML = (R.experience||[]).map((e,i)=>`
+        <div class="exp">
+          <div class="row">
+            <input data-e="${i}" data-f="title" value="${esc(e.title)}" placeholder="Title" />
+            <input data-e="${i}" data-f="company" value="${esc(e.company)}" placeholder="Company" />
+            <input data-e="${i}" data-f="dates" value="${esc(e.dates)}" placeholder="Dates" style="flex:0 0 110px" />
+          </div>
+          <label>Bullets (one per line)</label>
+          <textarea data-e="${i}" data-f="bullets">${esc((e.bullets||[]).join('\n'))}</textarea>
+          <button class="ghost sm" data-del="${i}" style="margin-top:6px">Remove</button>
+        </div>`).join('');
+      $('exps').querySelectorAll('input,textarea').forEach(el=>el.addEventListener('input',()=>{
+        const i=+el.dataset.e, f=el.dataset.f;
+        R.experience[i][f] = f==='bullets' ? el.value.split('\n').map(s=>s.trim()).filter(Boolean) : el.value;
+      }));
+      $('exps').querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{ R.experience.splice(+b.dataset.del,1); renderExps(); });
+    }
+    function renderEdus(){
+      $('edus').innerHTML = (R.education||[]).map((e,i)=>`
+        <div class="exp"><div class="row">
+          <input data-d="${i}" data-f="degree" value="${esc(e.degree)}" placeholder="Degree" />
+          <input data-d="${i}" data-f="school" value="${esc(e.school)}" placeholder="School" />
+          <input data-d="${i}" data-f="dates" value="${esc(e.dates)}" placeholder="Dates" style="flex:0 0 110px" />
+        </div><button class="ghost sm" data-deld="${i}" style="margin-top:6px">Remove</button></div>`).join('');
+      $('edus').querySelectorAll('input').forEach(el=>el.addEventListener('input',()=>{ R.education[+el.dataset.d][el.dataset.f]=el.value; }));
+      $('edus').querySelectorAll('[data-deld]').forEach(b=>b.onclick=()=>{ R.education.splice(+b.dataset.deld,1); renderEdus(); });
+    }
+    function renderAll(){
+      $('summary').value = R.summary||''; $('skills').value = (R.skills||[]).join(', ');
+      renderExps(); renderEdus();
+    }
+    function syncTop(){ R.summary=$('summary').value; R.skills=$('skills').value.split(',').map(s=>s.trim()).filter(Boolean); }
+    function renderHealth(h){
+      if(!h) return;
+      $('score').textContent = h.score;
+      $('checks').innerHTML = (h.checks||[]).map(c=>`<div class="chk ${c.ok?'ok':''}"><span class="dot">${c.ok?'✓':'•'}</span><span>${esc(c.label)}</span></div>`).join('');
+    }
+
+    async function load(){
+      const r = await fetch('/api/resume'); const d = await r.json();
+      if (d.resume) { R = Object.assign(R, d.resume); renderAll(); renderHealth(d.health); }
+      const jr = await fetch('/api/jobs'); if (jr.ok){ const jd = await jr.json();
+        $('jobSel').innerHTML = '<option value="">Pick a matched job...</option>' +
+          (jd.jobs||[]).slice(0,80).map(j=>`<option value="${j.id}">${esc((j.company||'')+' , '+(j.title||''))}</option>`).join('');
+      }
+    }
+    async function save(){
+      syncTop(); $('msg').innerHTML = 'Saving...';
+      const r = await fetch('/api/resume',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(R)});
+      const d = await r.json(); renderHealth(d.health);
+      $('msg').innerHTML = '<span class="ok">Saved.</span>';
+    }
+    $('saveBtn').onclick = save;
+    $('addExp').onclick = ()=>{ R.experience.push({title:'',company:'',dates:'',bullets:[]}); renderExps(); };
+    $('addEdu').onclick = ()=>{ R.education.push({degree:'',school:'',dates:''}); renderEdus(); };
+
+    $('tailorBtn').onclick = async ()=>{
+      const id = $('jobSel').value; if(!id) return $('msg').innerHTML='<span class="err">Pick a job first.</span>';
+      $('edits').innerHTML = '<p class="sub">Generating tailored edits...</p>';
+      const r = await fetch('/api/resume/tailor?job_id='+id); const d = await r.json();
+      if(!d.ok){ $('edits').innerHTML = `<p class="err">${esc(d.reason||'Could not generate.')}</p>`; return; }
+      const e = d.edits;
+      let html = '';
+      if (e.summary) html += `<div class="edit"><span class="pill">Summary</span><div class="after">${esc(e.summary)}</div><label><input type="checkbox" class="appr" data-t="summary" checked style="width:auto"> apply</label></div>`;
+      (e.add_skills||[]).forEach((s,i)=>{ html += `<div class="edit"><span class="pill">+ Skill</span> ${esc(s)} <label><input type="checkbox" class="appr" data-t="skill" data-v="${esc(s)}" checked style="width:auto"> add</label></div>`; });
+      (e.bullets||[]).forEach((b,i)=>{ html += `<div class="edit"><span class="pill">Bullet</span><div class="before">${esc(b.original)}</div><div class="after">${esc(b.improved)}</div><label><input type="checkbox" class="appr" data-t="bullet" data-i="${i}" checked style="width:auto"> apply</label></div>`; });
+      html += '<button class="sm" id="applyBtn" style="margin-top:8px">Apply approved changes</button>';
+      $('edits').innerHTML = html;
+      $('applyBtn').onclick = ()=>{
+        syncTop();
+        document.querySelectorAll('.appr:checked').forEach(c=>{
+          if(c.dataset.t==='summary') R.summary = e.summary;
+          else if(c.dataset.t==='skill'){ if(!R.skills.includes(c.dataset.v)) R.skills.push(c.dataset.v); }
+          else if(c.dataset.t==='bullet'){ const bb=e.bullets[+c.dataset.i];
+            R.experience.forEach(x=>{ x.bullets=(x.bullets||[]).map(t=> t.trim()===(bb.original||'').trim()? bb.improved : t); }); }
+        });
+        renderAll(); save(); $('edits').innerHTML='<p class="ok">Applied. Review above, then Export.</p>';
+      };
+    };
+
+    $('exportBtn').onclick = async ()=>{
+      syncTop();
+      const r = await fetch('/api/resume/export',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(R)});
+      if(!r.ok) return $('msg').innerHTML='<span class="err">Export failed.</span>';
+      const blob = await r.blob(); const a=document.createElement('a');
+      a.href=URL.createObjectURL(blob); a.download=(R.name||'resume')+'_JobHunt.docx'; a.click();
+      $('msg').innerHTML='<span class="ok">Exported DOCX.</span>';
+    };
+    $('pdfBtn').onclick = ()=>{ syncTop(); window.print(); };
+
+    load();
+  </script>
+</body>
+</html>
