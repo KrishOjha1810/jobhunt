@@ -113,13 +113,13 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
         return
     pool = sources.fetch_pool(users)
     _phase(f"fetched:{len(pool)}")
-    # Store every found job in the shared catalog so new users can browse them right away.
+    # Categorize, then batch-insert new jobs in one transaction (fast even at POOL_CAP).
     for j in pool:
         j["category"] = matcher.categorize(j)
-        try:
-            db.upsert_job(j)
-        except Exception as e:
-            print(f"[runner] catalog upsert failed: {e}")
+    try:
+        db.upsert_jobs(pool)
+    except Exception as e:
+        print(f"[runner] catalog upsert failed: {e}")
     _phase("upserted")
     if verbose:
         print(f"[runner] {len(users)} user(s), shared pool of {len(pool)} jobs")

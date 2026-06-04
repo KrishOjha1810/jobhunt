@@ -215,6 +215,37 @@ def upsert_job(job):
         ))
 
 
+def upsert_jobs(jobs):
+    """Batch-insert new catalog jobs in ONE transaction (1 SELECT + 1 multi-row INSERT) instead of
+    a transaction per job. At 500 jobs this is the difference between ~2 round-trips and ~1000."""
+    rows, seen = [], set()
+    for j in jobs:
+        url = (j.get("url") or "").strip()
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        rows.append({
+            "url": url, "title": j.get("title"), "company": j.get("company"),
+            "category": j.get("category"), "location": j.get("location"),
+            "source": j.get("source"), "posted_at": str(j.get("posted_at") or ""),
+            "salary": j.get("salary"), "description": (j.get("description") or "")[:2000],
+        })
+    if not rows:
+        return 0
+    urls = [r["url"] for r in rows]
+    with engine.begin() as conn:
+        existing = set()
+        # chunk the IN() to stay well under driver limits
+        for i in range(0, len(urls), 500):
+            chunk = urls[i:i + 500]
+            existing |= {r[0] for r in conn.execute(
+                select(jobs_catalog.c.url).where(jobs_catalog.c.url.in_(chunk))).all()}
+        new = [r for r in rows if r["url"] not in existing]
+        if new:
+            conn.execute(insert(jobs_catalog), new)
+    return len(new)
+
+
 def list_catalog(category=None, q=None, limit=200):
     sel = select(jobs_catalog)
     if category:
