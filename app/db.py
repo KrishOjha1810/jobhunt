@@ -58,10 +58,11 @@ job_log = Table(
 # Speeds up the per-job dedup lookups (is_seen / log_job) as the log grows.
 Index("ix_joblog_user_url", job_log.c.user_id, job_log.c.url)
 
-# Application pipeline stages (stored lowercase). 'saved' = matched/sent but not yet applied.
-STATUSES = ["saved", "applied", "screening", "interview", "offer", "rejected", "ghosted"]
-APPLIED_STATES = {"applied", "screening", "interview", "offer", "rejected", "ghosted"}
-RESPONDED_STATES = {"screening", "interview", "offer", "rejected"}  # a real reply (not ghosted)
+# Simple, realistic states people will actually set. 'saved' = matched/sent (default);
+# 'not_interested' = user dismissed it (a negative signal we learn from).
+STATUSES = ["saved", "applied", "not_interested", "rejected"]
+APPLIED_STATES = {"applied", "rejected"}      # rejected implies they had applied
+RESPONDED_STATES = {"rejected"}               # the only "heard back" state we keep
 
 # Shared catalog of every job we have found (so new users can browse immediately).
 jobs_catalog = Table(
@@ -113,11 +114,12 @@ def init_db():
                 conn.execute(text("ALTER TABLE jobs_catalog ADD COLUMN salary TEXT"))
             if "embedding" not in cat_cols:
                 conn.execute(text("ALTER TABLE jobs_catalog ADD COLUMN embedding TEXT"))
-    # Backfill job_log.status from legacy applied/responded flags (idempotent: only NULL/empty rows).
+    # Backfill job_log.status from legacy applied/responded flags (idempotent: only NULL/empty rows),
+    # and collapse any older granular stages into the simplified set.
     with engine.begin() as conn:
-        conn.execute(text("UPDATE job_log SET status='interview' WHERE (status IS NULL OR status='') AND responded=1"))
         conn.execute(text("UPDATE job_log SET status='applied' WHERE (status IS NULL OR status='') AND applied=1"))
         conn.execute(text("UPDATE job_log SET status='saved' WHERE status IS NULL OR status=''"))
+        conn.execute(text("UPDATE job_log SET status='applied' WHERE status IN ('screening','interview','offer','ghosted')"))
     # backfill dashboard tokens + referral codes for any user missing them
     with engine.begin() as conn:
         for (uid,) in conn.execute(select(users.c.id).where(users.c.dash_token.is_(None))).all():
@@ -376,8 +378,6 @@ def stats(user_id):
             ).scalar() or 0
         by_status = {s: count(job_log.c.status == s) for s in STATUSES}
         applied_total = sum(by_status[s] for s in APPLIED_STATES)
-        responded_total = sum(by_status[s] for s in RESPONDED_STATES)
-        interview_plus = by_status["interview"] + by_status["offer"]
         return {
             "total": count(),
             "applied_week": count(job_log.c.applied == 1, job_log.c.sent_at >= wk),
@@ -385,9 +385,8 @@ def stats(user_id):
             "responses": count(job_log.c.responded == 1),
             "by_status": by_status,
             "applied_total": applied_total,
-            "response_rate": round(100 * responded_total / applied_total) if applied_total else 0,
-            "interview_rate": round(100 * interview_plus / applied_total) if applied_total else 0,
-            "offers": by_status["offer"],
+            "not_interested": by_status["not_interested"],
+            "rejected": by_status["rejected"],
         }
 
 
@@ -427,20 +426,24 @@ def set_status_by_url(user_id, url, status):
     return (r.rowcount or 0) > 0
 
 
-def applied_category_weights(user_id):
-    """Normalized weights of the categories this user actually advances (applied/screening/
-    interview/offer), for personalizing future ranking toward what they pursue."""
+def category_signal(user_id):
+    """Per-category preference in [-1, 1]: +1 each for jobs the user applied to, -1 each for jobs
+    marked 'not a fit'. Used to boost/demote categories in future ranking."""
     with engine.connect() as c:
-        rows = c.execute(
-            select(job_log.c.category, func.count()).where(
-                job_log.c.user_id == user_id,
-                job_log.c.status.in_(["applied", "screening", "interview", "offer"]),
-            ).group_by(job_log.c.category)
-        ).all()
-    total = sum(n for _, n in rows)
-    if not total:
-        return {}
-    return {cat: n / total for cat, n in rows if cat}
+        def by_cat(*conds):
+            return dict(c.execute(
+                select(job_log.c.category, func.count()).where(
+                    job_log.c.user_id == user_id, *conds
+                ).group_by(job_log.c.category)
+            ).all())
+        pos = by_cat(job_log.c.status.in_(["applied", "rejected"]))
+        neg = by_cat(job_log.c.status == "not_interested")
+    raw = {}
+    for cat in set(pos) | set(neg):
+        if cat:
+            raw[cat] = pos.get(cat, 0) - neg.get(cat, 0)
+    m = max((abs(v) for v in raw.values()), default=0)
+    return {cat: v / m for cat, v in raw.items()} if m else {}
 
 
 def last_digest_at(user_id):

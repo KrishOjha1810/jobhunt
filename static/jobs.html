@@ -283,7 +283,7 @@
     const TR_KEY = 'jh_triaged';  // {url: 'short'|'skip'}
     const trState = () => { try { return JSON.parse(localStorage.getItem(TR_KEY) || '{}'); } catch { return {}; } };
     const trSet = (url, v) => { const s = trState(); s[url] = v; localStorage.setItem(TR_KEY, JSON.stringify(s)); };
-    let trQueue = [], trIdx = 0;
+    let trQueue = [], trIdx = 0, dashToken = '';
     function setupTriage(){
       const matched = all.filter(j => j.matched && safeUrl(j.url));
       const btn = document.getElementById('triageBtn');
@@ -316,7 +316,15 @@
       document.getElementById('trApply').href = safeUrl(j.url);
     }
     function trAct(v){
-      if (trIdx < trQueue.length){ trSet(trQueue[trIdx].url, v); trIdx++; showTriage(); }
+      if (trIdx < trQueue.length){
+        const j = trQueue[trIdx];
+        trSet(j.url, v);
+        // Skipping in triage = "not a fit": record it so we send fewer like it (personalization).
+        if (v === 'skip' && dashToken && j.url) {
+          fetch(`/track?t=${encodeURIComponent(dashToken)}&u=${encodeURIComponent(j.url)}&s=not_interested`).catch(()=>{});
+        }
+        trIdx++; showTriage();
+      }
     }
     function closeTriage(){ document.getElementById('triage').style.display='none'; setupTriage(); }
     document.getElementById('trClose').onclick = closeTriage;
@@ -402,6 +410,7 @@
         const me = await r.json();
         subscribed = !!me.subscribed;
         appVersion = me.version || '';
+        dashToken = me.dash_token || '';
         document.getElementById(subscribed ? 'subnote' : 'sbanner').style.display = 'flex';
         // show the walkthrough once per deployed version, to everyone
         if (localStorage.getItem(TOUR_VER_KEY) !== appVersion) startTour();

@@ -230,17 +230,14 @@
     let state = { days: 0, minScore: 0, sortKey: 'score', sortDir: 'desc' };
 
     const STATUS_OPTS = [
-      {v:'saved',label:'Saved'},{v:'applied',label:'Applied'},{v:'screening',label:'Screening'},
-      {v:'interview',label:'Interview'},{v:'offer',label:'Offer'},{v:'rejected',label:'Rejected'},{v:'ghosted',label:'Ghosted'}
+      {v:'saved',label:'Saved'},{v:'applied',label:'Applied'},
+      {v:'not_interested',label:'Not a fit'},{v:'rejected',label:'Rejected'}
     ];
     const STATUS_COLORS = {
-      saved:    ['rgba(148,163,184,.16)','#94a3b8','rgba(148,163,184,.35)'],
-      applied:  ['rgba(99,102,241,.16)','#818cf8','rgba(99,102,241,.4)'],
-      screening:['rgba(245,158,11,.16)','#fbbf24','rgba(245,158,11,.4)'],
-      interview:['rgba(14,165,233,.16)','#38bdf8','rgba(14,165,233,.4)'],
-      offer:    ['rgba(16,185,129,.18)','#34d399','rgba(16,185,129,.45)'],
-      rejected: ['rgba(239,68,68,.16)','#f87171','rgba(239,68,68,.4)'],
-      ghosted:  ['rgba(120,120,140,.14)','#9499b0','rgba(120,120,140,.3)']
+      saved:         ['rgba(148,163,184,.16)','#94a3b8','rgba(148,163,184,.35)'],
+      applied:       ['rgba(99,102,241,.16)','#818cf8','rgba(99,102,241,.4)'],
+      not_interested:['rgba(120,120,140,.14)','#9499b0','rgba(120,120,140,.3)'],
+      rejected:      ['rgba(239,68,68,.16)','#f87171','rgba(239,68,68,.4)']
     };
     function statusStyle(s){ const c=STATUS_COLORS[s||'saved']||STATUS_COLORS.saved; return `background:${c[0]};color:${c[1]};border-color:${c[2]}`; }
     async function updStatus(id, el){ el.setAttribute('style', statusStyle(el.value)); await upd(id,'status',el.value); }
@@ -273,8 +270,8 @@
       document.getElementById('stats').innerHTML = `
         <div class="stat"><b>${s.total ?? 0}</b><span>jobs saved</span></div>
         <div class="stat"><b>${s.applied_total ?? 0}</b><span>applied</span></div>
-        <div class="stat"><b>${s.response_rate ?? 0}%</b><span>response rate</span></div>
-        <div class="stat"><b>${s.interview_rate ?? 0}%</b><span>interview rate</span></div>`;
+        <div class="stat"><b>${s.not_interested ?? 0}</b><span>not a fit</span></div>
+        <div class="stat"><b>${s.rejected ?? 0}</b><span>rejected</span></div>`;
     }
 
     function buildFilterOptions() {
