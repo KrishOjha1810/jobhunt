@@ -50,11 +50,17 @@ job_log = Table(
     Column("responded", Integer, default=0),
     Column("notes", Text, default=""),
     Column("posted_at", Text),
+    Column("status", Text, default="saved"),
     Column("sent_at", DateTime, default=datetime.utcnow),
 )
 
 # Speeds up the per-job dedup lookups (is_seen / log_job) as the log grows.
 Index("ix_joblog_user_url", job_log.c.user_id, job_log.c.url)
+
+# Application pipeline stages (stored lowercase). 'saved' = matched/sent but not yet applied.
+STATUSES = ["saved", "applied", "screening", "interview", "offer", "rejected", "ghosted"]
+APPLIED_STATES = {"applied", "screening", "interview", "offer", "rejected", "ghosted"}
+RESPONDED_STATES = {"screening", "interview", "offer", "rejected"}  # a real reply (not ghosted)
 
 # Shared catalog of every job we have found (so new users can browse immediately).
 jobs_catalog = Table(
@@ -92,10 +98,13 @@ def init_db():
                 conn.execute(text(f"ALTER TABLE users ADD COLUMN {col} TEXT"))
         if "referred_by" not in existing:
             conn.execute(text("ALTER TABLE users ADD COLUMN referred_by INTEGER"))
-        # job_log.posted_at for older DBs
+        # job_log.posted_at / status for older DBs (no DEFAULT clause: portable across sqlite+pg)
         jl_cols = {c["name"] for c in insp.get_columns("job_log")}
         if "posted_at" not in jl_cols:
             conn.execute(text("ALTER TABLE job_log ADD COLUMN posted_at TEXT"))
+        status_is_new = "status" not in jl_cols
+        if status_is_new:
+            conn.execute(text("ALTER TABLE job_log ADD COLUMN status TEXT"))
         # jobs_catalog.salary for older DBs
         if insp.has_table("jobs_catalog"):
             cat_cols = {c["name"] for c in insp.get_columns("jobs_catalog")}
@@ -103,6 +112,11 @@ def init_db():
                 conn.execute(text("ALTER TABLE jobs_catalog ADD COLUMN salary TEXT"))
             if "embedding" not in cat_cols:
                 conn.execute(text("ALTER TABLE jobs_catalog ADD COLUMN embedding TEXT"))
+    # Backfill job_log.status from legacy applied/responded flags (idempotent: only NULL/empty rows).
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE job_log SET status='interview' WHERE (status IS NULL OR status='') AND responded=1"))
+        conn.execute(text("UPDATE job_log SET status='applied' WHERE (status IS NULL OR status='') AND applied=1"))
+        conn.execute(text("UPDATE job_log SET status='saved' WHERE status IS NULL OR status=''"))
     # backfill dashboard tokens + referral codes for any user missing them
     with engine.begin() as conn:
         for (uid,) in conn.execute(select(users.c.id).where(users.c.dash_token.is_(None))).all():
@@ -195,7 +209,7 @@ def log_job(user_id, job):
         conn.execute(insert(job_log).values(
             user_id=user_id, title=job.get("title"), company=job.get("company"),
             category=job.get("category"), url=job.get("url"), score=job.get("score"),
-            posted_at=job.get("posted_at"),
+            posted_at=job.get("posted_at"), status="saved",
         ))
 
 
@@ -331,7 +345,16 @@ def list_jobs(user_id, week=False, company=None, category=None):
 
 
 def update_job(job_id, user_id, **fields):
-    allowed = {k: v for k, v in fields.items() if k in ("applied", "responded", "resume_used", "notes")}
+    allowed = {k: v for k, v in fields.items() if k in ("applied", "responded", "resume_used", "notes", "status")}
+    if "status" in allowed:
+        st = (allowed["status"] or "").lower()
+        if st not in STATUSES:
+            del allowed["status"]  # drop invalid status rather than corrupt the row
+        else:
+            allowed["status"] = st
+            # keep legacy flags consistent with the stage unless caller set them explicitly
+            allowed.setdefault("applied", 1 if st in APPLIED_STATES else 0)
+            allowed.setdefault("responded", 1 if st in RESPONDED_STATES else 0)
     if not allowed:
         return
     with engine.begin() as conn:
@@ -349,11 +372,20 @@ def stats(user_id):
             return conn.execute(
                 select(func.count()).select_from(job_log).where(job_log.c.user_id == user_id, *conds)
             ).scalar() or 0
+        by_status = {s: count(job_log.c.status == s) for s in STATUSES}
+        applied_total = sum(by_status[s] for s in APPLIED_STATES)
+        responded_total = sum(by_status[s] for s in RESPONDED_STATES)
+        interview_plus = by_status["interview"] + by_status["offer"]
         return {
             "total": count(),
             "applied_week": count(job_log.c.applied == 1, job_log.c.sent_at >= wk),
             "applied_month": count(job_log.c.applied == 1, job_log.c.sent_at >= mo),
             "responses": count(job_log.c.responded == 1),
+            "by_status": by_status,
+            "applied_total": applied_total,
+            "response_rate": round(100 * responded_total / applied_total) if applied_total else 0,
+            "interview_rate": round(100 * interview_plus / applied_total) if applied_total else 0,
+            "offers": by_status["offer"],
         }
 
 

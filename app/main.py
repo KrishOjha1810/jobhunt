@@ -467,7 +467,8 @@ def api_jobs(request: Request, token: str = "", week: int = 0, company: str = ""
 
 @app.post("/api/jobs/{job_id}")
 def api_update_job(request: Request, job_id: int, token: str = "", applied: int = None,
-                   responded: int = None, resume_used: str = None, notes: str = None):
+                   responded: int = None, resume_used: str = None, notes: str = None,
+                   status: str = None):
     user = _resolve_user(request, token)
     if not user:
         return JSONResponse({"error": "unauthorized"}, status_code=403)
@@ -480,6 +481,8 @@ def api_update_job(request: Request, job_id: int, token: str = "", applied: int 
         fields["resume_used"] = resume_used
     if notes is not None:
         fields["notes"] = notes
+    if status is not None:
+        fields["status"] = status
     db.update_job(job_id, user["id"], **fields)
     return {"ok": True}
 
