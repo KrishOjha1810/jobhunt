@@ -413,6 +413,22 @@ def set_keywords(user_id, keywords):
         c.execute(update(users).where(users.c.id == user_id).values(keywords=json.dumps(keywords)))
 
 
+def applied_category_weights(user_id):
+    """Normalized weights of the categories this user actually advances (applied/screening/
+    interview/offer), for personalizing future ranking toward what they pursue."""
+    with engine.connect() as c:
+        rows = c.execute(
+            select(job_log.c.category, func.count()).where(
+                job_log.c.user_id == user_id,
+                job_log.c.status.in_(["applied", "screening", "interview", "offer"]),
+            ).group_by(job_log.c.category)
+        ).all()
+    total = sum(n for _, n in rows)
+    if not total:
+        return {}
+    return {cat: n / total for cat, n in rows if cat}
+
+
 def last_digest_at(user_id):
     """When we last sent this user any job (max sent_at), or None. Drives cadence throttling."""
     with engine.connect() as c:

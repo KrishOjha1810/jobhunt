@@ -171,6 +171,18 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
                 ranked = [j for j in ranked if (j.get("category") or matcher.categorize(j)) in cats]
                 d["matched"] = len(ranked)
             ranked = _semantic_rerank(user, ranked, verbose)  # cached-only, no network here
+            # Personalization: nudge toward the categories this user actually applies to (learned
+            # from their tracker). Bounded +15 so it tunes order without burying fresh strong fits.
+            try:
+                weights = db.applied_category_weights(user["id"])
+                if weights:
+                    for j in ranked:
+                        w = weights.get(j.get("category"), 0)
+                        if w:
+                            j["score"] = min(100, (j.get("score") or 0) + round(15 * w))
+                    ranked.sort(key=lambda j: j.get("score", 0), reverse=True)
+            except Exception as e:
+                print(f"[runner] personalization skipped for {user.get('id')}: {e}")
             # Coverage fallback: a subscribed user whose (often thin) resume matched nothing still
             # gets the most recent jobs in their roles/locations, so everyone hears from us.
             used_fallback = False
