@@ -92,6 +92,31 @@ async function scan() {
   $("reset").onclick = (e) => { e.preventDefault(); chrome.storage.local.remove(["token", "profile"]); $("flow").style.display = "none"; $("setup").style.display = "block"; };
   $("scan").onclick = scan;
 
+  $("saveJob").onclick = async () => {
+    status("Saving this page...");
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      const res = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: () => {
+          const main = document.querySelector("main, article, [role=main]") || document.body;
+          return {
+            url: location.href, title: document.title,
+            company: location.hostname.replace(/^www\./, "").split(".")[0],
+            description: (main.innerText || "").slice(0, 3000),
+          };
+        },
+      });
+      const p = res && res[0] && res[0].result;
+      if (!p) return status("Couldn't read this page.", "err");
+      const d = await api(`/api/save-job?token=${encodeURIComponent(TOKEN)}`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify(p),
+      });
+      status(d.saved ? `Saved to tracker (${d.category}, fit ${d.score}).` : (d.reason || "Already saved."), "ok");
+    } catch (e) { status(e.message || "Could not save.", "err"); }
+  };
+
   $("fillId").onclick = async () => {
     const r = await send({ type: "FILL_IDENTITY", profile: PROFILE });
     if (r.error) return status("Open the application page first.", "err");

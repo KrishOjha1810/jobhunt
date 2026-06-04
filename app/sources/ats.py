@@ -12,18 +12,21 @@ and drop the slug in the matching list below.
 import concurrent.futures
 import requests
 
-# Curated boards, weighted toward Web3/crypto/infra/dev-tools (the niche where these feeds win).
+# Curated boards, weighted toward Web3/crypto/infra/dev-tools + strong tech (where these feeds win).
 GREENHOUSE = [
     "coinbase", "chainalysis", "consensys", "circle", "gemini", "ripple", "anchorage",
     "dydx", "matterlabs", "alchemy", "databricks", "anthropic", "stripe",
+    "razorpay", "postman", "hasura", "mongodb", "datadog", "gitlab", "hashicorp",
+    "twilio", "dropbox", "pinterest", "doordash", "affirm", "plaid", "robinhood",
 ]
 LEVER = [
     "blockchain", "ledger", "chainlink", "kraken", "nethermind", "blockdaemon", "fireblocks",
-    "gnosis", "status",
+    "gnosis", "status", "netlify", "spotify", "kucoin", "voiceflow",
 ]
 ASHBY = [
     "openai", "vercel", "mercury", "replit", "uniswap-labs", "wintermute", "gauntlet",
-    "flashbots", "phantom", "zora", "eigenlabs", "succinct",
+    "flashbots", "phantom", "zora", "eigenlabs", "succinct", "deel", "supabase", "render",
+    "neon", "modal", "baseten", "perplexity-ai", "ramp", "linear", "cursor",
 ]
 
 # Keep only technical roles, these feeds list every department (HR, legal, sales...).

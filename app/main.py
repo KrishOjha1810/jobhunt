@@ -584,6 +584,32 @@ def api_profile(request: Request, token: str = ""):
     }
 
 
+@app.post("/api/save-job")
+async def api_save_job(request: Request, token: str = ""):
+    """Capture a job from ANY page (browser extension) into the user's tracker. Body JSON:
+    {url, title, company, description}. Scores it against the user's resume and saves it."""
+    user = _resolve_user(request, token)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        b = await request.json()
+    except Exception:
+        b = {}
+    url = (b.get("url") or "").strip()
+    if not url.startswith("http"):
+        return {"ok": False, "reason": "no valid job URL"}
+    job = {"url": url, "title": (b.get("title") or "Saved job")[:200],
+           "company": (b.get("company") or "")[:120], "description": (b.get("description") or "")[:4000],
+           "posted_at": ""}
+    job["category"] = matcher.categorize(job)
+    score, _ = matcher.score_job(job, user.get("keywords") or [])
+    job["score"] = max(15, min(100, score * 8)) if score else 0
+    if db.is_seen(user["id"], url):
+        return {"ok": True, "saved": False, "reason": "already in your tracker"}
+    db.log_job(user["id"], job)
+    return {"ok": True, "saved": True, "category": job["category"], "score": job["score"]}
+
+
 @app.post("/api/answer")
 async def api_answer(request: Request, job_id: int = 0, token: str = ""):
     """Draft answers to screening questions (browser extension). Body JSON: {questions:[...]}."""
