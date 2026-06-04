@@ -680,6 +680,31 @@ def envcheck():
                               "smtp_host": _sh or None, "email_will_work": email_ready}}
 
 
+@app.get("/track", response_class=HTMLResponse)
+def track(t: str = "", u: str = "", s: str = "applied"):
+    """One-tap status update from an alert link: t=dash_token, u=job url, s=status. Shows a small
+    confirmation page with an Undo, so an accidental tap is reversible."""
+    user = db.user_by_token(t)
+    ok = bool(user) and db.set_status_by_url(user["id"], u, s)
+    dash = "/dashboard?token=" + t
+    if not ok:
+        body = "<h2>Link expired or job not found</h2><p>Open your tracker to update it.</p>"
+    else:
+        undo_link = ""
+        if s != "saved":
+            undo_link = "<a class='ghost' href='/track?t=" + t + "&u=" + u + "&s=saved'>Undo</a>"
+        body = ("<h2>Marked as " + s.capitalize() + " ✓</h2>"
+                "<p>Updated in your JobHunt tracker.</p>"
+                "<p><a class='btn' href='" + dash + "'>Open tracker</a> " + undo_link + "</p>")
+    return HTMLResponse(
+        f"<!doctype html><meta name='viewport' content='width=device-width,initial-scale=1'>"
+        f"<style>body{{font-family:-apple-system,Inter,sans-serif;background:#0f1117;color:#e8eaf0;"
+        f"display:flex;align-items:center;justify-content:center;min-height:90vh;text-align:center;padding:20px}}"
+        f"a.btn{{display:inline-block;padding:11px 18px;border-radius:10px;background:linear-gradient(135deg,#6366f1,#8b5cf6);"
+        f"color:#fff;text-decoration:none;font-weight:700;margin:6px}}a.ghost{{color:#9aa0ad;text-decoration:none;margin:6px}}</style>"
+        f"<div>{body}</div>")
+
+
 @app.get("/healthz")
 def healthz():
     # The keep-awake ping doubles as the daily run trigger: this no-ops unless a run is overdue.

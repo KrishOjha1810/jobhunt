@@ -5,6 +5,7 @@ from email.mime.text import MIMEText
 import requests
 from .config import (
     TELEGRAM_BOT_TOKEN, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, EMAIL_FROM, BREVO_API_KEY,
+    BASE_URL,
 )
 
 
@@ -170,6 +171,7 @@ def send(chat_id: str, text: str) -> bool:
 
 def format_digest(user: dict, jobs: list) -> str:
     """One message listing all of a user's new matches (keeps us under send-rate/quota limits)."""
+    tok = user.get("dash_token") or ""
     lines = [f"\U0001F4CB {len(jobs)} new job match(es) for you:", ""]
     for j in jobs:
         cat = f" [{j.get('category')}]" if j.get("category") else ""
@@ -178,7 +180,13 @@ def format_digest(user: dict, jobs: list) -> str:
         if j.get("reason"):
             lines.append(f"   {j['reason']}")
         lines.append(f"   Apply: {j.get('url','')}")
+        # one-tap: mark this applied straight from the alert (token-gated, reversible)
+        if tok and j.get("url"):
+            u = urllib.parse.quote(j["url"], safe="")
+            lines.append(f"   Mark applied: {BASE_URL}/track?t={tok}&u={u}&s=applied")
         lines.append("")
+    if tok:
+        lines.append(f"Your tracker: {BASE_URL}/dashboard?token={tok}")
     return "\n".join(lines)
 
 

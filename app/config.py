@@ -88,8 +88,9 @@ EMAIL_FROM = os.environ.get("EMAIL_FROM", "") or SMTP_USER
 # Brevo HTTP email API (works on hosts that block SMTP, like Render free). Preferred when set.
 BREVO_API_KEY = os.environ.get("BREVO_API_KEY", "")
 
-# Public base URL (for building dashboard links in messages). e.g. https://jobhunt-8i1m.onrender.com
-BASE_URL = os.environ.get("BASE_URL", "").rstrip("/")
+# Public base URL (for building action links in digests). Defaults to the deployed URL so one-tap
+# "mark applied" links work even when BASE_URL isn't explicitly set.
+BASE_URL = (os.environ.get("BASE_URL", "") or "https://jobhunt-8i1m.onrender.com").rstrip("/")
 
 # Auth: session signing key. Defaults to a secure random per-process value (sessions reset on
 # restart). Set SECRET_KEY in the environment to keep sessions persistent across restarts.

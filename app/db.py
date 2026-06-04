@@ -413,6 +413,20 @@ def set_keywords(user_id, keywords):
         c.execute(update(users).where(users.c.id == user_id).values(keywords=json.dumps(keywords)))
 
 
+def set_status_by_url(user_id, url, status):
+    """Set a tracked job's status by (user, url) — used by one-tap links in alerts. Returns True
+    if a row matched."""
+    if status not in STATUSES or not url:
+        return False
+    vals = {"status": status, "applied": 1 if status in APPLIED_STATES else 0,
+            "responded": 1 if status in RESPONDED_STATES else 0}
+    with engine.begin() as c:
+        r = c.execute(
+            update(job_log).where(job_log.c.user_id == user_id, job_log.c.url == url).values(**vals)
+        )
+    return (r.rowcount or 0) > 0
+
+
 def applied_category_weights(user_id):
     """Normalized weights of the categories this user actually advances (applied/screening/
     interview/offer), for personalizing future ranking toward what they pursue."""
