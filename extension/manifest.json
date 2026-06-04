@@ -1,0 +1,9 @@
+{
+  "manifest_version": 3,
+  "name": "JobHunt Autofill",
+  "version": "1.0.0",
+  "description": "Autofill job application forms (Greenhouse, Lever, Ashby, Workday and most ATS) with your JobHunt profile.",
+  "permissions": ["storage", "activeTab", "scripting"],
+  "host_permissions": ["https://jobhunt-8i1m.onrender.com/*"],
+  "action": { "default_popup": "popup.html", "default_title": "JobHunt Autofill" }
+}

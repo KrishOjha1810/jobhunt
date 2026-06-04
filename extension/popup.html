@@ -1,0 +1,45 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    :root { --indigo:#6366f1; --bg:#0f1117; --card:#171a23; --ink:#e8eaf0; --muted:#9aa0ad; --border:#262a36; }
+    * { box-sizing:border-box; font-family:-apple-system,Inter,Segoe UI,sans-serif; }
+    body { width:320px; margin:0; background:var(--bg); color:var(--ink); padding:16px; }
+    h1 { font-size:15px; margin:0 0 2px; }
+    p.sub { color:var(--muted); font-size:12px; margin:0 0 14px; line-height:1.4; }
+    label { display:block; font-size:12px; color:var(--muted); margin:10px 0 4px; }
+    input { width:100%; padding:9px 10px; border-radius:8px; border:1px solid var(--border); background:#0c0e14; color:var(--ink); font-size:13px; }
+    button { width:100%; margin-top:12px; padding:11px; border:0; border-radius:9px; font-weight:700; font-size:14px; cursor:pointer;
+      background:linear-gradient(135deg,#6366f1,#8b5cf6); color:#fff; }
+    button.ghost { background:transparent; border:1px solid var(--border); color:var(--ink); font-weight:600; }
+    #status { font-size:12px; margin-top:10px; min-height:16px; }
+    .ok { color:#22c55e; } .err { color:#f59e0b; }
+    .row { display:flex; gap:8px; } .row button { margin-top:12px; }
+    details { margin-top:12px; } summary { cursor:pointer; color:var(--muted); font-size:12px; }
+  </style>
+</head>
+<body>
+  <h1>JobHunt Autofill</h1>
+  <p class="sub">Open a job application page, then click Fill. We fill name, email, phone, LinkedIn, etc. (You attach the resume file yourself, browsers block auto-attaching files.)</p>
+
+  <div id="setup">
+    <label>Your dashboard link or token</label>
+    <input id="token" placeholder="paste /dashboard?token=... or just the token" />
+    <button id="save">Save profile</button>
+  </div>
+
+  <div id="ready" style="display:none">
+    <p class="sub" id="who"></p>
+    <button id="fill">Fill this page</button>
+    <button class="ghost" id="copytailor">Copy a tailored cover note</button>
+    <details><summary>Change profile</summary>
+      <input id="token2" placeholder="new token" style="margin-top:8px" />
+      <button class="ghost" id="save2">Update</button>
+    </details>
+  </div>
+
+  <div id="status"></div>
+  <script src="popup.js"></script>
+</body>
+</html>

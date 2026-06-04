@@ -539,6 +539,39 @@ def tailor_endpoint(request: Request, job_id: int = 0, token: str = ""):
     return {"ok": True, "tailoring": block}
 
 
+@app.get("/api/profile")
+def api_profile(request: Request, token: str = ""):
+    """Autofill profile for the browser extension: name/email + contact fields parsed from the
+    resume. Token-or-session auth. No secrets; just what's needed to fill an application form."""
+    user = _resolve_user(request, token)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    txt = user.get("resume_text") or ""
+    phone = ""
+    m = re.search(r"(\+?\d[\d \-]{8,14}\d)", txt)
+    if m:
+        phone = m.group(1).strip()
+    linkedin = ""
+    m = re.search(r"(linkedin\.com/in/[A-Za-z0-9\-_/]+)", txt, re.I)
+    if m:
+        linkedin = "https://" + m.group(1)
+    github = ""
+    m = re.search(r"(github\.com/[A-Za-z0-9\-_]+)", txt, re.I)
+    if m:
+        github = "https://" + m.group(1)
+    from . import resume as _resume
+    return {
+        "name": user.get("name") or "",
+        "first_name": (user.get("name") or "").split(" ")[0],
+        "last_name": " ".join((user.get("name") or "").split(" ")[1:]),
+        "email": user.get("email") or "",
+        "phone": phone, "linkedin": linkedin, "github": github,
+        "locations": user.get("locations") or [],
+        "years": _resume.years_experience(txt) or "",
+        "skills": (user.get("keywords") or [])[:30],
+    }
+
+
 @app.get("/booster")
 def booster_endpoint(request: Request, job_id: int = 0, token: str = ""):
     """Generate ready-to-send outreach drafts + a checklist to boost an application (manual send)."""
