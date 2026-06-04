@@ -143,6 +143,11 @@
 
     <div class="stats" id="stats"></div>
 
+    <details id="insightsBox" style="margin-bottom:18px;display:none">
+      <summary style="cursor:pointer;color:var(--muted);font-size:.85rem;font-weight:600">Insights , what you pursue + which resume you use</summary>
+      <div id="insights" style="margin-top:10px;font-size:.85rem"></div>
+    </details>
+
     <div class="filters">
       <div class="toggle-group" id="dateGroup">
         <button class="btn active" data-days="0">All time</button>
@@ -252,6 +257,7 @@
       const data = await res.json();
       document.getElementById('hello').textContent = `${data.name}'s JobHunt tracker`;
       renderStats(data.stats);
+      renderInsights(data.analytics);
       all = data.jobs;
       buildFilterOptions();
       render();
@@ -272,6 +278,20 @@
         <div class="stat"><b>${s.applied_total ?? 0}</b><span>applied</span></div>
         <div class="stat"><b>${s.not_interested ?? 0}</b><span>not a fit</span></div>
         <div class="stat"><b>${s.rejected ?? 0}</b><span>rejected</span></div>`;
+    }
+
+    function renderInsights(a) {
+      if (!a || (!a.by_category || !a.by_category.length)) return;
+      const box = document.getElementById('insightsBox');
+      const cats = (a.by_category || []).slice(0, 6).map(c =>
+        `<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--line)">
+          <span>${esc(c.category)}</span><span style="color:var(--muted)">${c.applied} applied / ${c.saved} saved</span></div>`).join('');
+      const res = (a.by_resume || []).map(r =>
+        `<span class="tag" style="margin-right:6px">${esc(r.resume)}: ${r.applied}</span>`).join('');
+      document.getElementById('insights').innerHTML =
+        `<div style="margin-bottom:8px"><b>By role</b>${cats || '<div style="color:var(--muted)">No data yet</div>'}</div>` +
+        (res ? `<div><b>Resume used (applied)</b><br>${res}</div>` : '');
+      box.style.display = 'block';
     }
 
     function buildFilterOptions() {
@@ -306,7 +326,7 @@
           <td class="title" data-label="Job">${esc(j.title)}</td>
           <td class="date" data-label="Date">${esc((j.sent_at||'').slice(0,10))}</td>
           <td data-label="Match">${j.score ? `<span class="score">${esc(j.score)}</span>` : ''}</td>
-          <td data-label="Apply"><div class="actions">${safeUrl(j.url)?`<a class="applylink" href="${esc(safeUrl(j.url))}" target="_blank" rel="noopener">Apply <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8"/></svg></a>`:''}<button class="tailorbtn" onclick="tailor(${j.id})">Tailor</button><button class="tailorbtn" onclick="boost(${j.id})">Outreach</button><button class="tailorbtn" onclick="prep(${j.id})">Interview</button><button class="tailorbtn" onclick="fit(${j.id})">Fit</button></div></td>
+          <td data-label="Apply"><div class="actions">${safeUrl(j.url)?`<a class="applylink" href="${esc(safeUrl(j.url))}" target="_blank" rel="noopener">Apply <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8"/></svg></a>`:''}<button class="tailorbtn" onclick="tailor(${j.id})">Tailor</button><button class="tailorbtn" onclick="boost(${j.id})">Outreach</button><button class="tailorbtn" onclick="prep(${j.id})">Interview</button><button class="tailorbtn" onclick="fit(${j.id})">Fit</button><button class="tailorbtn" onclick="ats(${j.id})">ATS</button></div></td>
           <td data-label="Status"><select class="statussel" style="${statusStyle(j.status)}" onchange="updStatus(${j.id}, this)">
             ${STATUS_OPTS.map(o=>`<option value="${o.v}" ${ (j.status||'saved')===o.v ? 'selected':''}>${o.label}</option>`).join('')}
           </select></td>
@@ -341,6 +361,7 @@
     const boost = id => aiTool(id, 'booster', 'booster', 'Boost this application', 'Drafting your outreach (connection note, recruiter email, checklist)...');
     const prep = id => aiTool(id, 'interview', 'interview', 'Interview prep', 'Generating likely questions + your angles...');
     const fit = id => aiTool(id, 'gap', 'gap', 'Fit & gaps', 'Analyzing your fit and gaps for this role...');
+    const ats = id => aiTool(id, 'ats', 'ats', 'ATS match score', 'Checking your ATS keyword match...');
 
     function wireChips(groupId, attr, apply) {
       const g = document.getElementById(groupId);

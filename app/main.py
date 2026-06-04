@@ -471,7 +471,8 @@ def api_jobs(request: Request, token: str = "", week: int = 0, company: str = ""
     for j in jobs:
         if j.get("sent_at"):
             j["sent_at"] = str(j["sent_at"])[:16]
-    return {"ok": True, "name": user["name"], "stats": db.stats(user["id"]), "jobs": jobs}
+    return {"ok": True, "name": user["name"], "stats": db.stats(user["id"]),
+            "analytics": db.analytics(user["id"]), "jobs": jobs}
 
 
 @app.post("/api/jobs/{job_id}")
@@ -689,6 +690,35 @@ def interview_endpoint(request: Request, job_id: int = 0, token: str = ""):
 def gap_endpoint(request: Request, job_id: int = 0, token: str = ""):
     from . import enrich
     return _advice(request, job_id, token, enrich.resume_gap, "gap")
+
+
+@app.get("/ats")
+def ats_endpoint(request: Request, job_id: int = 0, token: str = ""):
+    """Instant ATS keyword-match score for the user's resume vs this JD (no LLM): which of the
+    JD's skills appear in the resume and which are missing. The 'fix' is the Fit button (LLM)."""
+    from .resume import SKILL_VOCAB, extract_keywords
+    user = _resolve_user(request, token)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    job = db.get_job_log(job_id, user["id"])
+    if not job:
+        return JSONResponse({"error": "job not found"}, status_code=404)
+    txt = (user.get("resume_text") or "")
+    if not txt:
+        return {"ok": False, "reason": "No resume on file."}
+    jd = (str(job.get("title") or "") + " " + (db.catalog_description(job.get("url")) or "")).lower()
+    wanted = [s for s in SKILL_VOCAB if s in jd][:22]
+    rk = set(extract_keywords(txt)) | set(user.get("keywords") or [])
+    low = txt.lower()
+    present = [s for s in wanted if s in rk or s in low]
+    missing = [s for s in wanted if s not in present]
+    score = round(100 * len(present) / len(wanted)) if wanted else 70
+    block = (f"ATS match: {score}/100\n\n"
+             f"In your resume ({len(present)}): {', '.join(present[:18]) or 'none detected'}\n\n"
+             f"Missing ({len(missing)}): {', '.join(missing[:18]) or 'none, great coverage'}\n\n"
+             f"To raise this: click 'Fit' for AI suggestions to work the missing skills into your "
+             f"resume (only where true).")
+    return {"ok": True, "ats": block, "score": score}
 
 
 @app.get("/envcheck")

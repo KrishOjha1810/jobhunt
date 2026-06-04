@@ -426,6 +426,36 @@ def set_status_by_url(user_id, url, status):
     return (r.rowcount or 0) > 0
 
 
+def analytics(user_id):
+    """Funnel breakdown for the dashboard insights: per-category saved/applied and which resume
+    version gets used most (proxy for what's performing)."""
+    with engine.connect() as c:
+        cat_rows = c.execute(
+            select(job_log.c.category, job_log.c.status, func.count()).where(
+                job_log.c.user_id == user_id
+            ).group_by(job_log.c.category, job_log.c.status)
+        ).all()
+        res_rows = c.execute(
+            select(job_log.c.resume_used, func.count()).where(
+                job_log.c.user_id == user_id, job_log.c.status.in_(["applied", "rejected"]),
+                job_log.c.resume_used.isnot(None), job_log.c.resume_used != "",
+            ).group_by(job_log.c.resume_used)
+        ).all()
+    by_cat = {}
+    for cat, st, n in cat_rows:
+        cat = cat or "Other"
+        d = by_cat.setdefault(cat, {"saved": 0, "applied": 0})
+        d["saved"] += n
+        if st in ("applied", "rejected"):
+            d["applied"] += n
+    cats = sorted(by_cat.items(), key=lambda kv: kv[1]["applied"], reverse=True)
+    return {
+        "by_category": [{"category": k, "saved": v["saved"], "applied": v["applied"]} for k, v in cats],
+        "by_resume": [{"resume": r or "?", "applied": n} for r, n in
+                      sorted(res_rows, key=lambda x: x[1], reverse=True)],
+    }
+
+
 def category_signal(user_id):
     """Per-category preference in [-1, 1]: +1 each for jobs the user applied to, -1 each for jobs
     marked 'not a fit'. Used to boost/demote categories in future ranking."""
