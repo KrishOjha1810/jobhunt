@@ -1,0 +1,89 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    :root { --indigo:#6366f1; --bg:#0f1117; --card:#171a23; --ink:#e8eaf0; --muted:#9aa0ad; --border:#262a36; }
+    * { box-sizing:border-box; font-family:-apple-system,Inter,Segoe UI,sans-serif; }
+    body { margin:0; background:var(--bg); color:var(--ink); padding:14px; font-size:13px; }
+    h1 { font-size:15px; margin:0 0 2px; }
+    p.sub { color:var(--muted); font-size:12px; margin:0 0 12px; line-height:1.45; }
+    label { display:block; font-size:12px; color:var(--muted); margin:8px 0 4px; }
+    input, textarea, select { width:100%; padding:8px 9px; border-radius:8px; border:1px solid var(--border); background:#0c0e14; color:var(--ink); font-size:12px; font-family:inherit; }
+    textarea { min-height:60px; resize:vertical; }
+    button { padding:9px 11px; border:0; border-radius:8px; font-weight:700; font-size:13px; cursor:pointer; background:linear-gradient(135deg,#6366f1,#8b5cf6); color:#fff; }
+    button.ghost { background:transparent; border:1px solid var(--border); color:var(--ink); font-weight:600; }
+    button.sm { padding:6px 9px; font-size:11px; }
+    .step { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:12px; margin-bottom:10px; }
+    .step h3 { margin:0 0 6px; font-size:13px; display:flex; align-items:center; gap:7px; }
+    .pill { font-size:10px; padding:2px 7px; border-radius:999px; background:rgba(148,163,184,.16); color:var(--muted); margin-left:auto; }
+    .pill.done { background:rgba(34,197,94,.16); color:#22c55e; }
+    .q { border-top:1px solid var(--border); padding-top:8px; margin-top:8px; }
+    .q small { color:var(--muted); }
+    #status { font-size:12px; margin-top:8px; min-height:15px; }
+    .ok { color:#22c55e; } .err { color:#f59e0b; }
+    .full { width:100%; margin-top:8px; }
+    .banner { background:rgba(99,102,241,.12); border:1px solid rgba(99,102,241,.35); border-radius:10px; padding:9px 11px; font-size:12px; margin-bottom:10px; }
+  </style>
+</head>
+<body>
+  <!-- Setup (first run) -->
+  <div id="setup">
+    <h1>JobHunt Auto-Apply</h1>
+    <p class="sub">Paste your dashboard link or token (from /dashboard?token=... or open /me and copy dash_token).</p>
+    <input id="token" placeholder="dashboard link or token" />
+    <button class="full" id="save">Save profile</button>
+    <div id="status"></div>
+  </div>
+
+  <!-- Flow -->
+  <div id="flow" style="display:none">
+    <h1>Auto-Apply</h1>
+    <p class="sub" id="who"></p>
+    <div class="banner" id="atsBanner">Open a Greenhouse / Lever / Ashby / Workday application page, then click Scan.</div>
+    <button class="full ghost" id="scan">Scan this page</button>
+
+    <div id="steps" style="display:none">
+      <div class="step">
+        <label>Which of your matched jobs is this?</label>
+        <select id="jobPick"><option value="">(none / not tracked)</option></select>
+      </div>
+
+      <div class="step" id="s1">
+        <h3>1 · Your details <span class="pill" id="p1">todo</span></h3>
+        <button class="full sm" id="fillId">Autofill name, email, phone, links</button>
+      </div>
+
+      <div class="step" id="s2">
+        <h3>2 · Screening questions <span class="pill" id="p2">todo</span></h3>
+        <div id="qlist"><small class="sub">No screening questions detected.</small></div>
+        <button class="full sm ghost" id="draftAll" style="display:none;margin-top:8px">Draft all answers with AI</button>
+      </div>
+
+      <div class="step" id="s3">
+        <h3>3 · Cover note <span class="pill" id="p3">todo</span></h3>
+        <textarea id="cover" placeholder="A short note... or Generate from your resume + this job"></textarea>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button class="sm ghost" id="genCover" style="flex:1">Generate</button>
+          <button class="sm" id="pasteCover" style="flex:1">Paste into form</button>
+        </div>
+      </div>
+
+      <div class="step" id="s4">
+        <h3>4 · Resume + review <span class="pill" id="p4">todo</span></h3>
+        <p class="sub">Attach your resume file yourself (browsers block auto-attaching). Review every field before submitting.</p>
+        <button class="full sm ghost" id="showUpload">Show me the upload box</button>
+      </div>
+
+      <div class="step" id="s5">
+        <h3>5 · Done <span class="pill" id="p5">todo</span></h3>
+        <button class="full" id="markApplied">Mark as applied in tracker</button>
+      </div>
+    </div>
+    <div id="status"></div>
+    <p class="sub" style="margin-top:10px"><a href="#" id="reset" style="color:var(--muted)">Change profile</a></p>
+  </div>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>

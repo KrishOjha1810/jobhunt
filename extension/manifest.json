@@ -1,9 +1,22 @@
 {
   "manifest_version": 3,
-  "name": "JobHunt Autofill",
-  "version": "1.0.0",
-  "description": "Autofill job application forms (Greenhouse, Lever, Ashby, Workday and most ATS) with your JobHunt profile.",
-  "permissions": ["storage", "activeTab", "scripting"],
+  "name": "JobHunt Auto-Apply",
+  "version": "2.0.0",
+  "description": "Guided auto-apply: detect the ATS, autofill your details, draft screening answers with AI, paste a tailored note, and mark applied in your JobHunt tracker.",
+  "permissions": ["storage", "activeTab", "scripting", "sidePanel", "tabs"],
   "host_permissions": ["https://jobhunt-8i1m.onrender.com/*"],
-  "action": { "default_popup": "popup.html", "default_title": "JobHunt Autofill" }
+  "background": { "service_worker": "background.js" },
+  "action": { "default_title": "JobHunt Auto-Apply" },
+  "side_panel": { "default_path": "sidepanel.html" },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://boards.greenhouse.io/*", "https://job-boards.greenhouse.io/*", "https://*.greenhouse.io/*",
+        "https://jobs.lever.co/*", "https://jobs.ashbyhq.com/*", "https://*.ashbyhq.com/*",
+        "https://*.myworkdayjobs.com/*"
+      ],
+      "js": ["ats.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ]
 }

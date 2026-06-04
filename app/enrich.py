@@ -50,6 +50,51 @@ def available() -> bool:
     return bool(LLM_API_KEY)
 
 
+def answer_questions(job: dict, resume_text: str, questions: list, facts: dict = None):
+    """Return (answers, error). answers is a list aligned to `questions`, each a short first-person
+    answer drafted from the resume + facts. One batched LLM call (cheaper, fewer 429s)."""
+    if not available():
+        return [], "No LLM key set (add a free Groq or Gemini key)."
+    if not questions:
+        return [], "no questions"
+    facts = facts or {}
+    numbered = "\n".join(f"{i+1}. {q}" for i, q in enumerate(questions))
+    sys = (
+        "You fill job-application screening questions for a candidate. Answer each numbered question "
+        "in the FIRST PERSON, concise (1-3 sentences), using ONLY the resume and facts given. Do not "
+        "fabricate: if a fact isn't known (exact notice period, salary, etc.), answer with a clearly "
+        "bracketed placeholder like '[confirm: ...]'. No em dashes. Output ONLY a JSON array of "
+        "strings, one per question, in order. No prose around it."
+    )
+    user_msg = (
+        f"RESUME:\n{resume_text[:4000]}\n\nFACTS: {facts}\n\n"
+        f"JOB: {job.get('title','')} at {job.get('company','')}\n{job.get('description','')[:1500]}\n\n"
+        f"QUESTIONS:\n{numbered}"
+    )
+    try:
+        if LLM_PROVIDER == "anthropic":
+            raw = _chat_anthropic(sys, user_msg)
+        else:
+            raw = _chat_openai_compat([{"role": "system", "content": sys}, {"role": "user", "content": user_msg}])
+        import json as _json
+        import re as _re
+        m = _re.search(r"\[.*\]", raw, _re.S)
+        arr = _json.loads(m.group(0)) if m else None
+        if isinstance(arr, list) and arr:
+            return [str(a) for a in arr][:len(questions)], ""
+        # fallback: split on numbered headers
+        parts = _re.split(r"\n\s*\d+[\.\)]\s*", "\n" + raw)
+        parts = [p.strip() for p in parts if p.strip()]
+        return (parts[:len(questions)] or [raw.strip()]), ""
+    except requests.HTTPError as e:
+        code = (e.response.status_code if e.response is not None else "?")
+        if code == 429:
+            return [], "Daily free AI quota is used up. Resets daily, or use a free Groq key."
+        return [], f"{LLM_PROVIDER} API error {code}"
+    except Exception as e:
+        return [], f"{LLM_PROVIDER} request failed: {e}"
+
+
 def booster(job: dict, resume_text: str):
     """Return (text, error): ready-to-send outreach drafts + a checklist for a job. The user sends
     everything manually, no automated LinkedIn/email actions."""

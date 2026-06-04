@@ -19,6 +19,12 @@ EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 app = FastAPI(title="JobHunt")
 app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
+# Allow the browser extension (chrome-extension:// origin) to call the token-gated API.
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+app.add_middleware(
+    CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
+    allow_credentials=False,
+)
 db.init_db()
 
 # Optional Google OAuth, active only when both client id and secret are configured.
@@ -573,6 +579,35 @@ def api_profile(request: Request, token: str = ""):
         "years": _resume.years_experience(txt) or "",
         "skills": (user.get("keywords") or [])[:30],
     }
+
+
+@app.post("/api/answer")
+async def api_answer(request: Request, job_id: int = 0, token: str = ""):
+    """Draft answers to screening questions (browser extension). Body JSON: {questions:[...]}."""
+    from . import enrich, resume as _resume
+    user = _resolve_user(request, token)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    questions = [str(q) for q in (body.get("questions") or [])][:8]
+    if not questions:
+        return {"ok": False, "reason": "no questions"}
+    if not enrich.available():
+        return {"ok": False, "reason": "Needs a free Groq or Gemini key to draft answers."}
+    job = db.get_job_log(job_id, user["id"]) or {}
+    txt = user.get("resume_text") or ""
+    facts = {"name": user.get("name"), "years": _resume.years_experience(txt) or "",
+             "locations": user.get("locations") or []}
+    answers, err = enrich.answer_questions(
+        {"title": job.get("title"), "company": job.get("company"),
+         "description": db.catalog_description(job.get("url")) if job else ""},
+        txt, questions, facts)
+    if not answers:
+        return {"ok": False, "reason": err or "Could not draft answers."}
+    return {"ok": True, "answers": answers}
 
 
 @app.get("/booster")
