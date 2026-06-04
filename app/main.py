@@ -128,11 +128,10 @@ def _on_startup():
             print("[startup] keyword backfill done")
     except Exception as e:
         print(f"[startup] keyword backfill skipped: {e}")
-    # Deploys do NOT auto-broadcast (that spams users on every milestone). Daily alerts flow via the
-    # due-gated trigger; for a deliberate "send everyone now", set FORCE_BROADCAST=1 for one deploy
-    # or hit /run?force=1&token=RUN_TOKEN.
+    # One forced broadcast per deployed version (verifies delivery + ships improvements to everyone).
+    # Set NO_BROADCAST=1 to suppress once the sprint settles; on-demand send: /run?force=1&token=...
     import os as _os
-    if _os.environ.get("FORCE_BROADCAST", "") == "1" and db.get_meta("force_done_version") != APP_VERSION:
+    if _os.environ.get("NO_BROADCAST", "") != "1" and db.get_meta("force_done_version") != APP_VERSION:
         db.set_meta("force_done_version", APP_VERSION)
         _trigger_run(force=True)
     else:
