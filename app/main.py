@@ -566,6 +566,51 @@ def booster_endpoint(request: Request, job_id: int = 0, token: str = ""):
     return {"ok": True, "booster": block}
 
 
+@app.get("/envcheck")
+def envcheck():
+    """Show, at runtime, which expected env vars are set (masked, never full secrets), plus any
+    misnamed vars that look related (so typos like BREVO_KEY vs BREVO_API_KEY are caught). Safe to
+    share: values are masked to a short prefix + length."""
+    import os as _os
+
+    expected = {
+        # secrets: report presence + length ONLY (never any characters)
+        "TELEGRAM_BOT_TOKEN": True, "BREVO_API_KEY": True, "SMTP_PASS": True,
+        "ADZUNA_APP_ID": True, "ADZUNA_APP_KEY": True, "JSEARCH_RAPIDAPI_KEY": True,
+        "LLM_API_KEY": True, "GEMINI_API_KEY": True, "RUN_TOKEN": True, "SECRET_KEY": True,
+        "DATABASE_URL": True, "GOOGLE_CLIENT_ID": True, "GOOGLE_CLIENT_SECRET": True,
+        # non-secret config (shown in full, these aren't sensitive)
+        "EMAIL_FROM": False, "SMTP_HOST": False, "SMTP_USER": False, "LLM_PROVIDER": False,
+        "SEMANTIC_MATCHING": False, "ENABLE_SCHEDULER": False, "RUN_TZ": False, "RUN_HOURS": False,
+        "CATCHUP_HOURS": False, "BASE_URL": False, "APP_VERSION": False,
+    }
+    report = {}
+    for k, secret in expected.items():
+        raw = _os.environ.get(k)
+        if not raw:
+            report[k] = {"set": False}
+        elif secret:
+            report[k] = {"set": True, "len": len(raw)}  # no characters revealed
+        else:
+            report[k] = {"set": True, "value": raw}
+    # format check for the email key without revealing it: valid Brevo v3 keys start with 'xkeysib-'
+    bk = _os.environ.get("BREVO_API_KEY") or ""
+    report["BREVO_API_KEY"]["looks_like_brevo_key"] = bk.startswith("xkeysib-") if bk else False
+    report["BREVO_API_KEY"]["has_whitespace"] = (bk != bk.strip()) if bk else False
+    # catch misnamed vars: any env key containing a known fragment that isn't an exact expected name
+    frags = ("BREVO", "ADZUNA", "JSEARCH", "SMTP", "GEMINI", "TELEGRAM", "LLM", "RAPIDAPI", "EMAIL")
+    misnamed = sorted(
+        k for k in _os.environ
+        if any(f in k.upper() for f in frags) and k not in expected
+    )
+    # what the app actually resolved for email (the thing that's failing)
+    from .config import BREVO_API_KEY as _bk, EMAIL_FROM as _ef, SMTP_HOST as _sh
+    email_ready = bool(_bk) or bool(_sh)
+    return {"expected": report, "possible_misnamed_vars": misnamed,
+            "email_pathway": {"brevo_key_loaded": bool(_bk), "email_from": _ef or None,
+                              "smtp_host": _sh or None, "email_will_work": email_ready}}
+
+
 @app.get("/healthz")
 def healthz():
     # The keep-awake ping doubles as the daily run trigger: this no-ops unless a run is overdue.
