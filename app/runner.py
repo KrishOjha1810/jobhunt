@@ -4,8 +4,33 @@ dedupe, and send each a single digest. Fetch-once-match-many keeps API usage fla
 Run directly (python -m app.runner) or via cron / the external /run trigger.
 """
 import os
+from datetime import datetime, timedelta
 from . import db, sources, matcher, notifier, embeddings
 from .config import MIN_SCORE, MAX_MATCHES_PER_RUN
+
+
+def _cadence_due(user, force):
+    """Whether this user should receive a digest on this run, per their chosen cadence.
+    twice (default) = every run; daily = at most once / ~20h; weekly = Saturdays only."""
+    if force:
+        return True
+    cad = user.get("cadence") or "twice"
+    if cad == "twice":
+        return True
+    last = db.last_digest_at(user["id"])
+    now = datetime.utcnow()
+    if cad == "daily":
+        return (not last) or (now - last) >= timedelta(hours=20)
+    if cad == "weekly":
+        try:
+            from zoneinfo import ZoneInfo
+            from .config import RUN_TZ
+            if datetime.now(ZoneInfo(RUN_TZ)).weekday() != 5:  # 5 = Saturday
+                return False
+        except Exception:
+            pass
+        return (not last) or (now - last) >= timedelta(days=5)
+    return True
 
 # How many catalog jobs to embed per run, AFTER delivery (background precompute, never blocks sends).
 EMBED_BUDGET = int(os.environ.get("EMBED_BUDGET", "") or "40")
@@ -131,6 +156,9 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
         try:
             if not user.get("keywords"):
                 d["why"] = "no resume/keywords"
+                detail.append(d); continue
+            if not _cadence_due(user, force):
+                d["why"] = f"cadence:{user.get('cadence')}"
                 detail.append(d); continue
             from . import resume as _resume
             uyears = _resume.years_experience(user.get("resume_text") or "") or 0

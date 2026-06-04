@@ -287,6 +287,7 @@ def me(request: Request):
     return {"authenticated": True, "name": u["name"], "email": u.get("email"),
             "subscribed": db.is_subscribed(u), "channel": u.get("channel"),
             "categories": u.get("categories") or [],
+            "cadence": u.get("cadence") or "twice",
             "schedule": sched_info.describe(), "next_run": sched_info.next_run_label(),
             "dash_token": u.get("dash_token"), "version": APP_VERSION}
 
@@ -303,6 +304,7 @@ async def subscribe_post(
     locations: str = Form("remote,india"),
     extra_keywords: str = Form(""),
     categories: List[str] = Form([]),
+    cadence: str = Form("twice"),
     resume_file: List[UploadFile] = File(...),
 ):
     user = current_user(request)
@@ -353,6 +355,7 @@ async def subscribe_post(
         resume_text=resume_text, telegram_chat_id=telegram_chat_id.strip(),
         whatsapp_phone=whatsapp_phone.strip() or None, whatsapp_apikey=whatsapp_apikey.strip() or None,
         email=eff_email or None, categories=cat_list,
+        cadence=cadence if cadence in ("twice", "daily", "weekly") else "twice",
     )
     # Give the new subscriber their first matches right now, in the background.
     background_tasks.add_task(runner.run_once, False, user["id"])

@@ -33,6 +33,7 @@ users = Table(
     Column("referred_by", Integer),
     Column("embedding", Text),
     Column("categories", Text),  # JSON list of subscribed role categories; empty/null = all
+    Column("cadence", Text),     # "twice" (default) | "daily" | "weekly" (Saturday digest)
     Column("active", Integer, default=1),
 )
 
@@ -93,7 +94,7 @@ def init_db():
     insp = inspect(engine)
     existing = {c["name"] for c in insp.get_columns("users")}
     with engine.begin() as conn:
-        for col in ("email", "dash_token", "password_hash", "ref_code", "embedding", "categories"):
+        for col in ("email", "dash_token", "password_hash", "ref_code", "embedding", "categories", "cadence"):
             if col not in existing:
                 conn.execute(text(f"ALTER TABLE users ADD COLUMN {col} TEXT"))
         if "referred_by" not in existing:
@@ -179,6 +180,7 @@ def list_active_users():
             "whatsapp_phone": r["whatsapp_phone"], "whatsapp_apikey": r["whatsapp_apikey"],
             "dash_token": r["dash_token"], "embedding": r["embedding"],
             "categories": json.loads(r["categories"]) if r["categories"] else [],
+            "cadence": r["cadence"] or "twice",
         })
     return out
 
@@ -411,6 +413,15 @@ def set_keywords(user_id, keywords):
         c.execute(update(users).where(users.c.id == user_id).values(keywords=json.dumps(keywords)))
 
 
+def last_digest_at(user_id):
+    """When we last sent this user any job (max sent_at), or None. Drives cadence throttling."""
+    with engine.connect() as c:
+        r = c.execute(
+            select(func.max(job_log.c.sent_at)).where(job_log.c.user_id == user_id)
+        ).scalar()
+    return r
+
+
 def matched_urls(user_id):
     """Set of job URLs already matched/sent to this user (for syncing the /jobs catalog view)."""
     with engine.connect() as c:
@@ -467,6 +478,7 @@ def _row_to_user(r):
     d["locations"] = json.loads(d["locations"]) if d.get("locations") else []
     d["categories"] = json.loads(d["categories"]) if d.get("categories") else []
     d["channel"] = d.get("channel") or "telegram"
+    d["cadence"] = d.get("cadence") or "twice"
     return d
 
 
@@ -516,7 +528,7 @@ def is_subscribed(user):
 
 def update_subscription(user_id, keywords, locations, channel, resume_path=None,
                         resume_text=None, telegram_chat_id=None, whatsapp_phone=None,
-                        whatsapp_apikey=None, email=None, categories=None):
+                        whatsapp_apikey=None, email=None, categories=None, cadence=None):
     vals = {
         "keywords": json.dumps(keywords), "locations": json.dumps(locations), "channel": channel,
         "telegram_chat_id": telegram_chat_id or "", "whatsapp_phone": whatsapp_phone,
@@ -524,6 +536,8 @@ def update_subscription(user_id, keywords, locations, channel, resume_path=None,
     }
     if categories is not None:
         vals["categories"] = json.dumps(categories)
+    if cadence in ("twice", "daily", "weekly"):
+        vals["cadence"] = cadence
     if resume_path is not None:
         vals["resume_path"] = resume_path
     if resume_text is not None:

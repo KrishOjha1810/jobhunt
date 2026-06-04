@@ -26,17 +26,36 @@ def build_query(keywords: list) -> str:
 
 
 def _dedup(jobs: list) -> list:
-    seen_urls, seen_keys, unique = set(), set(), []
+    # Strip common seniority/level words from titles so "Senior Backend Engineer" and "Backend
+    # Engineer" at the same company collapse (aggregators repost the same role many ways).
+    _LEVEL = _re.compile(r"\b(senior|sr|junior|jr|lead|staff|principal|mid|i{1,3}|1|2|3|ii|iii)\b")
+
+    def title_key(j):
+        t = _LEVEL.sub("", (j.get("title", "") or "").lower())
+        return _re.sub(r"[^a-z0-9]", "", t + (j.get("company", "") or "").lower())
+
+    def desc_fp(j):
+        # fingerprint the first chunk of the (normalized) description to catch reworded reposts
+        d = _re.sub(r"[^a-z0-9]", "", (j.get("description", "") or "").lower())[:160]
+        c = _re.sub(r"[^a-z0-9]", "", (j.get("company", "") or "").lower())
+        return (c + d) if len(d) >= 80 else ""
+
+    seen_urls, seen_keys, seen_fps, unique = set(), set(), set(), []
     for j in jobs:
         u = (j.get("url") or "").strip()
         if not u or u in seen_urls:
             continue
-        key = _re.sub(r"[^a-z0-9]", "", (j.get("title", "") + j.get("company", "")).lower())
+        key = title_key(j)
         if key and key in seen_keys:
+            continue
+        fp = desc_fp(j)
+        if fp and fp in seen_fps:
             continue
         seen_urls.add(u)
         if key:
             seen_keys.add(key)
+        if fp:
+            seen_fps.add(fp)
         unique.append(j)
     return unique
 

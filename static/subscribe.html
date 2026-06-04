@@ -202,6 +202,14 @@
         </div>
         <small>You get ONE daily digest of the best matches across the roles you pick, not a separate batch per role. Everything else stays browsable in <a href="/jobs">Browse jobs</a>.</small>
 
+        <label>How often do you want alerts?</label>
+        <div class="roles" id="cadence">
+          <label class="rolechip"><input type="radio" name="cadence" value="twice" checked /><span>Twice a day</span></label>
+          <label class="rolechip"><input type="radio" name="cadence" value="daily" /><span>Once a day</span></label>
+          <label class="rolechip"><input type="radio" name="cadence" value="weekly" /><span>Weekly (Saturday)</span></label>
+        </div>
+        <small>Weekend appliers often prefer the Saturday digest, everything new in one go.</small>
+
         <label>Locations</label>
         <input type="text" name="locations" value="remote,india" />
         <small>Comma separated, e.g. remote, india, bangalore</small>
@@ -246,6 +254,10 @@
         const box = document.querySelector('#roles input[value="' + c + '"]');
         if (box) box.checked = true;
       });
+      if (me.cadence) {
+        const cad = document.querySelector('#cadence input[value="' + me.cadence + '"]');
+        if (cad) cad.checked = true;
+      }
     }).catch(() => {});
 
     // ----- Channel show/hide (email default) -----

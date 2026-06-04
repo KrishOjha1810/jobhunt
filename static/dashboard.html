@@ -115,6 +115,18 @@
       h1 { font-size:1.3rem; }
       .filters { gap:8px; }
       select { flex:1; min-width:0; }
+      /* Collapse the wide table into stacked cards (one card per job). */
+      .table-wrap { background:transparent; border:0; }
+      .scroll { overflow:visible; }
+      table, tbody, tr, td { display:block; width:100%; }
+      table { min-width:0; }
+      thead { display:none; }
+      tr { background:var(--card); border:1px solid var(--card-border); border-radius:14px; margin-bottom:12px; padding:6px 2px; }
+      td { border:0; padding:8px 14px; display:flex; justify-content:space-between; align-items:center; gap:12px; text-align:right; }
+      td::before { content:attr(data-label); color:var(--muted); font-size:.66rem; font-weight:600; text-transform:uppercase; letter-spacing:.05em; text-align:left; flex-shrink:0; }
+      td.title { font-weight:600; text-align:right; }
+      td .actions { justify-content:flex-end; flex-wrap:wrap; }
+      .notes, .res, .statussel { width:auto; max-width:62%; }
     }
   </style>
 </head>
@@ -292,19 +304,19 @@
       document.getElementById('empty').style.display = rows.length ? 'none' : 'block';
       tb.innerHTML = rows.map(j => `
         <tr>
-          <td class="company">${esc(j.company)}</td>
-          <td><span class="tag" style="${tagStyle(j.category)}">${esc(j.category || 'Other')}</span></td>
-          <td class="title">${esc(j.title)}</td>
-          <td class="date">${esc((j.sent_at||'').slice(0,10))}</td>
-          <td>${j.score ? `<span class="score">${esc(j.score)}</span>` : ''}</td>
-          <td><div class="actions">${safeUrl(j.url)?`<a class="applylink" href="${esc(safeUrl(j.url))}" target="_blank" rel="noopener">Apply <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8"/></svg></a>`:''}<button class="tailorbtn" onclick="tailor(${j.id})">Tailor</button><button class="tailorbtn" onclick="boost(${j.id})">Boost</button></div></td>
-          <td><select class="statussel" style="${statusStyle(j.status)}" onchange="updStatus(${j.id}, this)">
+          <td class="company" data-label="Company">${esc(j.company)}</td>
+          <td data-label="Role"><span class="tag" style="${tagStyle(j.category)}">${esc(j.category || 'Other')}</span></td>
+          <td class="title" data-label="Job">${esc(j.title)}</td>
+          <td class="date" data-label="Date">${esc((j.sent_at||'').slice(0,10))}</td>
+          <td data-label="Match">${j.score ? `<span class="score">${esc(j.score)}</span>` : ''}</td>
+          <td data-label="Apply"><div class="actions">${safeUrl(j.url)?`<a class="applylink" href="${esc(safeUrl(j.url))}" target="_blank" rel="noopener">Apply <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8"/></svg></a>`:''}<button class="tailorbtn" onclick="tailor(${j.id})">Tailor</button><button class="tailorbtn" onclick="boost(${j.id})">Boost</button></div></td>
+          <td data-label="Status"><select class="statussel" style="${statusStyle(j.status)}" onchange="updStatus(${j.id}, this)">
             ${STATUS_OPTS.map(o=>`<option value="${o.v}" ${ (j.status||'saved')===o.v ? 'selected':''}>${o.label}</option>`).join('')}
           </select></td>
-          <td><select class="res" onchange="upd(${j.id},'resume_used',this.value)">
+          <td data-label="Resume"><select class="res" onchange="upd(${j.id},'resume_used',this.value)">
             ${['','Backend','Blockchain','FullStack','Other'].map(r=>`<option ${j.resume_used===r?'selected':''}>${r}</option>`).join('')}
           </select></td>
-          <td><input class="notes" value="${(j.notes||'').replace(/"/g,'&quot;')}" onblur="upd(${j.id},'notes',this.value)" placeholder="notes..."></td>
+          <td data-label="Notes"><input class="notes" value="${(j.notes||'').replace(/"/g,'&quot;')}" onblur="upd(${j.id},'notes',this.value)" placeholder="notes..."></td>
         </tr>`).join('');
     }
 
