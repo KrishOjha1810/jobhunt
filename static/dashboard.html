@@ -246,7 +246,7 @@
       const rows = all.filter(j =>
         (!co || j.company === co) && (!ca || j.category === ca) &&
         (!week || (j.sent_at && new Date(j.sent_at.replace(' ','T')).getTime() >= week))
-      );
+      ).sort((a, b) => (b.score || 0) - (a.score || 0));  // best fit first
       const tb = document.getElementById('rows');
       document.getElementById('empty').style.display = rows.length ? 'none' : 'block';
       tb.innerHTML = rows.map(j => `

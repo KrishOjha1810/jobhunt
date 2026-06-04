@@ -132,7 +132,9 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
             if not user.get("keywords"):
                 d["why"] = "no resume/keywords"
                 detail.append(d); continue
-            ranked = matcher.rank_matches(pool, user["keywords"], user["locations"], MIN_SCORE)
+            from . import resume as _resume
+            uyears = _resume.years_experience(user.get("resume_text") or "") or 0
+            ranked = matcher.rank_matches(pool, user["keywords"], user["locations"], MIN_SCORE, uyears)
             d["matched"] = len(ranked)
             # Role filter: if the user picked specific role categories, keep only those, then take
             # the merged best-of across all of them (one top-N list, not N per role).

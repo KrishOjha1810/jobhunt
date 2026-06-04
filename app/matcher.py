@@ -68,8 +68,13 @@ def score_job(job: dict, keywords: list) -> tuple:
     return len(matched) + title_bonus, matched
 
 
-def rank_matches(jobs: list, keywords: list, locations: list, min_score: int) -> list:
-    """Return jobs that clear min_score and pass the location filter, sorted by score desc."""
+def rank_matches(jobs: list, keywords: list, locations: list, min_score: int,
+                 user_years: int = 0) -> list:
+    """Return jobs that clear min_score and pass the location filter, sorted by fit desc.
+
+    user_years (from the resume) drives a seniority-GAP penalty: a job asking far more experience
+    than the candidate has is deprioritized, but a senior candidate is NOT penalized for senior
+    roles (the old code penalized any 6+ yr role regardless of the candidate)."""
     results = []
     for job in jobs:
         if not location_ok(job.get("location", ""), locations):
@@ -77,9 +82,9 @@ def rank_matches(jobs: list, keywords: list, locations: list, min_score: int) ->
         score, matched = score_job(job, keywords)
         if score >= min_score:
             job = dict(job)
-            # Roles asking far more experience than a mid-level fit are deprioritized (not dropped).
             yrs = years_required(job.get("description", ""))
-            penalty = 25 if yrs >= 8 else (12 if yrs >= 6 else 0)
+            gap = max(0, yrs - user_years)  # how much more experience the job wants than they have
+            penalty = 25 if gap >= 6 else (12 if gap >= 3 else 0)
             # Normalized 0-100 fit: scaled skill+title overlap, minus a seniority-gap penalty.
             # Fixed scale (not within-run) so a "90" means the same thing every time.
             fit = max(15, min(100, score * 8 - penalty))
@@ -90,9 +95,9 @@ def rank_matches(jobs: list, keywords: list, locations: list, min_score: int) ->
             job["seniority_note"] = f"{yrs}+ yrs asked" if yrs >= 6 else ""
             tier = "Strong fit" if fit >= 75 else ("Good fit" if fit >= 50 else "Possible fit")
             top = ", ".join(matched[:5])
+            gap_note = f". Note: asks {yrs}+ yrs (you list ~{user_years})" if gap >= 3 else ""
             job["reason"] = (f"{tier} ({fit}/100). Matches {len(matched)} of your skills"
-                             + (f": {top}" if top else "")
-                             + (f". Note: {yrs}+ yrs experience asked" if yrs >= 6 else ""))
+                             + (f": {top}" if top else "") + gap_note)
             results.append(job)
     results.sort(key=lambda j: j["score"], reverse=True)
     return results
