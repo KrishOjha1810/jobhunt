@@ -186,9 +186,29 @@
 
     <div class="filters" id="filters"></div>
     <input class="search" id="search" placeholder="Search title or company..." />
-    <p class="count" id="count"></p>
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+      <p class="count" id="count"></p>
+      <button id="triageBtn" type="button" style="display:none;padding:7px 14px;border:0;border-radius:8px;cursor:pointer;font-weight:700;font-size:.85rem;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;">⚡ Triage my matches</button>
+    </div>
 
     <div id="list"></div>
+
+    <!-- Weekend triage: one matched job at a time, Skip / Shortlist / Apply, keyboard arrows. -->
+    <div id="triage" style="display:none;position:fixed;inset:0;z-index:70;background:var(--overlay,rgba(0,0,0,.72));backdrop-filter:blur(6px);align-items:center;justify-content:center;padding:18px;">
+      <div style="width:100%;max-width:560px;background:var(--card);border:1px solid var(--card-border);border-radius:18px;padding:24px;box-shadow:0 30px 80px rgba(0,0,0,.5);">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <span id="trProgress" style="color:var(--muted);font-size:.82rem;font-weight:600;"></span>
+          <button id="trClose" style="background:transparent;border:0;color:var(--muted);font-size:1.4rem;cursor:pointer;line-height:1;">&times;</button>
+        </div>
+        <div id="trCard"></div>
+        <div style="display:flex;gap:10px;margin-top:18px;">
+          <button id="trSkip" style="flex:1;padding:12px;border:1px solid var(--card-border);border-radius:10px;background:transparent;color:var(--ink);font-weight:700;cursor:pointer;">Skip <span style="opacity:.5;font-weight:400">←</span></button>
+          <button id="trShort" style="flex:1;padding:12px;border:0;border-radius:10px;background:#22c55e;color:#fff;font-weight:700;cursor:pointer;">Shortlist <span style="opacity:.6;font-weight:400">→</span></button>
+        </div>
+        <a id="trApply" href="#" target="_blank" rel="noopener" style="display:block;text-align:center;margin-top:10px;padding:12px;border-radius:10px;background:var(--accent-soft);color:var(--accent2);text-decoration:none;font-weight:700;">Open & apply <span style="opacity:.6;font-weight:400">↵</span></a>
+        <p style="text-align:center;color:var(--muted);font-size:.74rem;margin:12px 0 0;">Shortlisted jobs are saved in this browser. Use ← / → / Enter.</p>
+      </div>
+    </div>
     <div class="empty" id="empty" style="display:none;">No jobs yet, check back soon.</div>
   </div>
 
@@ -253,10 +273,62 @@
           b.classList.add('active'); render();
         });
         render();
+        setupTriage();
       } catch (e) {
         document.getElementById('empty').style.display = 'block';
       }
     }
+
+    // ----- Weekend triage -----
+    const TR_KEY = 'jh_triaged';  // {url: 'short'|'skip'}
+    const trState = () => { try { return JSON.parse(localStorage.getItem(TR_KEY) || '{}'); } catch { return {}; } };
+    const trSet = (url, v) => { const s = trState(); s[url] = v; localStorage.setItem(TR_KEY, JSON.stringify(s)); };
+    let trQueue = [], trIdx = 0;
+    function setupTriage(){
+      const matched = all.filter(j => j.matched && safeUrl(j.url));
+      const btn = document.getElementById('triageBtn');
+      if (!matched.length) { btn.style.display = 'none'; return; }
+      const s = trState();
+      const pending = matched.filter(j => !s[j.url]);
+      btn.style.display = 'inline-block';
+      btn.textContent = pending.length ? `⚡ Triage ${pending.length} new match${pending.length===1?'':'es'}` : '⚡ Re-triage matches';
+      btn.onclick = () => startTriage(pending.length ? pending : matched);
+    }
+    function startTriage(queue){
+      trQueue = queue; trIdx = 0;
+      document.getElementById('triage').style.display = 'flex';
+      showTriage();
+    }
+    function showTriage(){
+      if (trIdx >= trQueue.length){ closeTriage(); return; }
+      const j = trQueue[trIdx];
+      document.getElementById('trProgress').textContent = `${trIdx+1} of ${trQueue.length}`;
+      const a = ago(j.posted_at, j.first_seen_at);
+      document.getElementById('trCard').innerHTML =
+        `<h2 style="margin:0 0 6px;font-size:1.3rem;">${esc(j.title)}</h2>
+         <div class="meta" style="margin-bottom:10px;">
+           <span>${esc(j.company||'')}</span>
+           ${j.category?`<span class="tag">${esc(j.category)}</span>`:''}
+           ${j.location?`<span>${esc(j.location)}</span>`:''}
+           ${j.salary?`<span class="sal">${esc(j.salary)}</span>`:''}
+           ${a?`<span class="ago">${a}</span>`:''}
+         </div>`;
+      document.getElementById('trApply').href = safeUrl(j.url);
+    }
+    function trAct(v){
+      if (trIdx < trQueue.length){ trSet(trQueue[trIdx].url, v); trIdx++; showTriage(); }
+    }
+    function closeTriage(){ document.getElementById('triage').style.display='none'; setupTriage(); }
+    document.getElementById('trClose').onclick = closeTriage;
+    document.getElementById('trSkip').onclick = () => trAct('skip');
+    document.getElementById('trShort').onclick = () => trAct('short');
+    document.getElementById('trApply').onclick = () => { if(trIdx<trQueue.length) trSet(trQueue[trIdx].url,'short'); };
+    document.addEventListener('keydown', (e) => {
+      if (document.getElementById('triage').style.display !== 'flex') return;
+      if (e.key === 'ArrowLeft') trAct('skip');
+      else if (e.key === 'ArrowRight') trAct('short');
+      else if (e.key === 'Escape') closeTriage();
+    });
     function render(){
       const q = document.getElementById('search').value.toLowerCase();
       const rows = all.filter(j =>
