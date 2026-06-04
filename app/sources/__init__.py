@@ -5,7 +5,7 @@ the same as 1; each user is then matched against that shared pool. fetch_all() i
 path kept for tests/compatibility.
 """
 import re as _re
-from . import remotive, remoteok, arbeitnow, adzuna, jsearch, jobicy, himalayas
+from . import remotive, remoteok, arbeitnow, adzuna, jsearch, jobicy, himalayas, ats
 
 PRIORITY_TERMS = [
     "rust", "solidity", "typescript", "python", "java", "golang", "go",
@@ -43,26 +43,47 @@ def _dedup(jobs: list) -> list:
 
 # Hard cap on the pool per run so a run stays fast (fits in one Render wake window): too many jobs
 # means a long upsert loop and the instance can suspend mid-run before recording completion.
-POOL_CAP = 350
+POOL_CAP = 500
+# Cap each high-volume source's contribution so no single one crowds out the others under POOL_CAP.
+ATS_CAP = 220
+
+
+def _ats_capped():
+    aj = ats.fetch()
+    aj.sort(key=lambda j: str(j.get("posted_at") or ""), reverse=True)
+    return aj[:ATS_CAP]
 
 
 def _fetch(terms: list, india_wanted: bool, max_adzuna_terms: int = 3) -> list:
-    jobs = []
+    # Build independent fetch tasks and run them concurrently, so total time ~= slowest source,
+    # not the sum. Each thunk returns a list; failures are swallowed by the adapters.
+    import concurrent.futures
+    tasks = []
     for term in terms[:5]:
-        jobs += remotive.fetch(term)
-    # whole-feed sources (query ignored); fetched once regardless of term count
-    jobs += remoteok.fetch("")   # note: often blocked from datacenter IPs (e.g. Render)
-    jobs += arbeitnow.fetch("")
-    jobs += jobicy.fetch("")
-    jobs += himalayas.fetch("")
+        tasks.append(lambda t=term: remotive.fetch(t))
+    tasks.append(lambda: remoteok.fetch(""))   # often blocked from datacenter IPs (e.g. Render)
+    tasks.append(lambda: arbeitnow.fetch(""))
+    tasks.append(lambda: jobicy.fetch(""))
+    tasks.append(lambda: himalayas.fetch(""))
+    tasks.append(_ats_capped)  # Greenhouse/Lever/Ashby niche roles (already concurrent internally)
     if adzuna.available():
-        # India-first (a couple terms) keeps this bounded; add one global term for remote roles.
         for term in terms[:max_adzuna_terms]:
-            jobs += adzuna.fetch(term, country="in" if india_wanted else "gb")
+            tasks.append(lambda t=term: adzuna.fetch(t, country="in" if india_wanted else "gb"))
     if jsearch.available():
         base = " ".join(terms[:3]) or "software engineer"
-        # JSearch aggregates Google-for-Jobs (LinkedIn/Indeed/etc.). One India + one remote query.
-        jobs += jsearch.fetch((base + " jobs in India") if india_wanted else (base + " remote"))
+        q = (base + " jobs in India") if india_wanted else (base + " remote")
+        tasks.append(lambda: jsearch.fetch(q))
+    jobs = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as ex:
+        futures = [ex.submit(t) for t in tasks]
+        try:
+            for f in concurrent.futures.as_completed(futures, timeout=45):
+                try:
+                    jobs += f.result() or []
+                except Exception:
+                    pass
+        except concurrent.futures.TimeoutError:
+            pass  # take whatever finished in budget
     jobs = _dedup(jobs)
     # keep the freshest, capped, so the run stays quick (str() guards mixed int/str posted_at)
     jobs.sort(key=lambda j: str(j.get("posted_at") or ""), reverse=True)
