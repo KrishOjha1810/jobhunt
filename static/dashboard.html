@@ -164,6 +164,14 @@
       <div id="insights" style="margin-top:10px;font-size:.85rem"></div>
     </details>
 
+    <div class="toggle-group" id="statusGroup" style="margin-bottom:14px;flex-wrap:wrap">
+      <button class="btn active" data-status="">All</button>
+      <button class="btn" data-status="saved">Saved</button>
+      <button class="btn" data-status="applied">Applied</button>
+      <button class="btn" data-status="not_interested">Not a fit</button>
+      <button class="btn" data-status="rejected">Rejected</button>
+    </div>
+
     <div class="filters">
       <div class="toggle-group" id="dateGroup">
         <button class="btn active" data-days="0">All time</button>
@@ -248,7 +256,7 @@
 
     const token = new URLSearchParams(location.search).get('token') || '';
     let all = [];
-    let state = { days: 0, minScore: 0, sortKey: 'score', sortDir: 'desc' };
+    let state = { days: 0, minScore: 0, sortKey: 'score', sortDir: 'desc', status: '' };
 
     const STATUS_OPTS = [
       {v:'saved',label:'Saved'},{v:'applied',label:'Applied'},
@@ -261,7 +269,7 @@
       rejected:      ['rgba(239,68,68,.16)','#f87171','rgba(239,68,68,.4)']
     };
     function statusStyle(s){ const c=STATUS_COLORS[s||'saved']||STATUS_COLORS.saved; return `background:${c[0]};color:${c[1]};border-color:${c[2]}`; }
-    async function updStatus(id, el){ el.setAttribute('style', statusStyle(el.value)); await upd(id,'status',el.value); }
+    async function updStatus(id, el){ el.setAttribute('style', statusStyle(el.value)); await upd(id,'status',el.value); updateStatusCounts(); render(); }
 
     async function load() {
       const res = await fetch(`/api/jobs?token=${encodeURIComponent(token)}`);
@@ -276,6 +284,7 @@
       renderInsights(data.analytics);
       all = data.jobs;
       buildFilterOptions();
+      updateStatusCounts();
       render();
     }
 
@@ -327,6 +336,7 @@
       const rows = all.filter(j =>
         (!co || j.company === co) && (!ca || j.category === ca) &&
         ((j.score || 0) >= state.minScore) &&
+        (!state.status || (j.status || 'saved') === state.status) &&
         (!cutoff || (j.sent_at && ts(j) >= cutoff))
       ).sort((a, b) => {
         let d = state.sortKey === 'date' ? ts(a) - ts(b) : (a.score || 0) - (b.score || 0);
@@ -390,6 +400,19 @@
     }
     wireChips('dateGroup', 'days', v => state.days = v);
     wireChips('scoreGroup', 'min', v => state.minScore = v);
+    document.getElementById('statusGroup').addEventListener('click', e => {
+      const b = e.target.closest('.btn'); if (!b) return;
+      document.querySelectorAll('#statusGroup .btn').forEach(x => x.classList.remove('active'));
+      b.classList.add('active'); state.status = b.dataset.status; render();
+    });
+    function updateStatusCounts() {
+      const c = { '': all.length, saved: 0, applied: 0, not_interested: 0, rejected: 0 };
+      all.forEach(j => { const s = j.status || 'saved'; if (c[s] != null) c[s]++; });
+      document.querySelectorAll('#statusGroup .btn').forEach(b => {
+        const s = b.dataset.status, base = b.textContent.replace(/\s*\(\d+\)\s*$/, '');
+        b.textContent = `${base} (${c[s] ?? 0})`;
+      });
+    }
     document.getElementById('companyFilter').onchange = render;
     document.getElementById('categoryFilter').onchange = render;
     document.getElementById('sortSelect').onchange = e => {
