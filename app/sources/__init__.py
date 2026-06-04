@@ -13,6 +13,13 @@ PRIORITY_TERMS = [
     "react", "node", "devops", "data engineer", "web3",
 ]
 
+# Common roles we always poll so the browse catalog stays broad + useful to non-subscribers,
+# not just whatever current subscribers happen to search for.
+COMMON_ROLE_TERMS = [
+    "data engineer", "devops", "machine learning", "blockchain", "full stack",
+    "backend", "frontend", "security engineer", "mobile developer", "product manager",
+]
+
 
 def query_terms(keywords: list) -> list:
     picked = [t for t in PRIORITY_TERMS if t in keywords]
@@ -78,7 +85,7 @@ def _fetch(terms: list, india_wanted: bool, max_adzuna_terms: int = 3) -> list:
     # not the sum. Each thunk returns a list; failures are swallowed by the adapters.
     import concurrent.futures
     tasks = []
-    for term in terms[:5]:
+    for term in terms[:8]:
         tasks.append(lambda t=term: remotive.fetch(t))
     tasks.append(lambda: remoteok.fetch(""))   # often blocked from datacenter IPs (e.g. Render)
     tasks.append(lambda: arbeitnow.fetch(""))
@@ -116,7 +123,8 @@ def fetch_all(keywords: list, locations: list) -> list:
 
 
 def fetch_pool(users: list) -> list:
-    """Fetch ONE shared pool for all users this run (union of their query terms)."""
+    """Fetch ONE shared pool this run: union of subscribers' query terms PLUS the common roles, so
+    the browse catalog stays broad and useful even to people who haven't subscribed yet."""
     terms, india = [], False
     for u in users:
         for t in query_terms(u.get("keywords", [])):
@@ -124,4 +132,8 @@ def fetch_pool(users: list) -> list:
                 terms.append(t)
         if any("india" in (l or "").lower() for l in u.get("locations", [])):
             india = True
-    return _fetch(terms[:12], india)
+    # always include the common roles (capped); subscriber terms first so they're prioritized
+    for t in COMMON_ROLE_TERMS:
+        if t not in terms:
+            terms.append(t)
+    return _fetch(terms[:16], india)

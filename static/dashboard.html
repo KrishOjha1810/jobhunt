@@ -128,9 +128,25 @@
       td .actions { justify-content:flex-end; flex-wrap:wrap; }
       .notes, .res, .statussel { width:auto; max-width:62%; }
     }
+    .nav { position:sticky; top:0; z-index:30; background:var(--card); border-bottom:1px solid var(--card-border); backdrop-filter:blur(14px); }
+    .nav-inner { max-width:1140px; margin:0 auto; display:flex; align-items:center; gap:6px; padding:12px 20px; }
+    .nav-brand { font-weight:800; color:var(--ink); text-decoration:none; font-size:1.05rem; margin-right:auto; }
+    .nav a.nlink { color:var(--muted); text-decoration:none; font-size:.9rem; font-weight:600; padding:6px 11px; border-radius:8px; }
+    .nav a.nlink:hover { color:var(--ink); }
+    .nav a.nlink.active { color:var(--ink); background:var(--accent-soft); }
+    @media (max-width:600px) { .nav-inner { gap:2px; padding:10px 10px; } .nav a.nlink { padding:5px 7px; font-size:.8rem; } .nav-brand { font-size:.95rem; } }
   </style>
 </head>
 <body>
+  <nav class="nav">
+    <div class="nav-inner">
+      <a class="nav-brand" href="/jobs">JobHunt</a>
+      <a class="nlink" href="/jobs">Browse</a>
+      <a class="nlink active" href="/dashboard">My matches</a>
+      <a class="nlink" href="/subscribe">Subscribe</a>
+      <a class="nlink" href="/logout">Log out</a>
+    </div>
+  </nav>
   <div class="wrap">
     <div class="head">
       <div>

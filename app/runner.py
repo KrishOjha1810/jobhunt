@@ -145,6 +145,13 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
         db.upsert_jobs(pool)
     except Exception as e:
         print(f"[runner] catalog upsert failed: {e}")
+    # Keep the browse catalog fresh + bounded: age out >14d, cap per role, cap total.
+    try:
+        n = db.prune_catalog()
+        if verbose and n:
+            print(f"[runner] pruned {n} stale/excess catalog jobs")
+    except Exception as e:
+        print(f"[runner] catalog prune failed: {e}")
     _phase("upserted")
     if verbose:
         print(f"[runner] {len(users)} user(s), shared pool of {len(pool)} jobs")

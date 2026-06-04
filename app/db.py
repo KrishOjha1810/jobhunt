@@ -6,7 +6,7 @@ import hashlib
 from datetime import datetime, timedelta
 from sqlalchemy import (
     create_engine, MetaData, Table, Column, Integer, Text, DateTime, Index, inspect, text,
-    select, insert, update, func,
+    select, insert, update, delete, func,
 )
 from .config import DATABASE_URL
 
@@ -231,6 +231,32 @@ def upsert_job(job):
             source=job.get("source"), posted_at=job.get("posted_at"),
             salary=job.get("salary"), description=(job.get("description") or "")[:2000],
         ))
+
+
+def prune_catalog(max_age_days=14, per_category=120, total=1000):
+    """Keep the browse catalog fresh + bounded: drop jobs older than max_age_days (by when we first
+    saw them), cap each category to its newest `per_category`, and the whole catalog to `total`.
+    Uses timestamp thresholds (not IN-lists) so it's safe on sqlite's 999-param limit + Postgres."""
+    cutoff = datetime.utcnow() - timedelta(days=max_age_days)
+    removed = 0
+    with engine.begin() as c:
+        removed += c.execute(delete(jobs_catalog).where(jobs_catalog.c.first_seen_at < cutoff)).rowcount or 0
+        cats = [r[0] for r in c.execute(select(jobs_catalog.c.category).distinct()).all()]
+        for cat in cats:
+            th = c.execute(
+                select(jobs_catalog.c.first_seen_at).where(jobs_catalog.c.category == cat)
+                .order_by(jobs_catalog.c.first_seen_at.desc()).offset(per_category).limit(1)
+            ).first()
+            if th:
+                removed += c.execute(delete(jobs_catalog).where(
+                    jobs_catalog.c.category == cat, jobs_catalog.c.first_seen_at < th[0])).rowcount or 0
+        th = c.execute(
+            select(jobs_catalog.c.first_seen_at)
+            .order_by(jobs_catalog.c.first_seen_at.desc()).offset(total).limit(1)
+        ).first()
+        if th:
+            removed += c.execute(delete(jobs_catalog).where(jobs_catalog.c.first_seen_at < th[0])).rowcount or 0
+    return removed
 
 
 def upsert_jobs(jobs):
