@@ -306,7 +306,7 @@
           <td class="title" data-label="Job">${esc(j.title)}</td>
           <td class="date" data-label="Date">${esc((j.sent_at||'').slice(0,10))}</td>
           <td data-label="Match">${j.score ? `<span class="score">${esc(j.score)}</span>` : ''}</td>
-          <td data-label="Apply"><div class="actions">${safeUrl(j.url)?`<a class="applylink" href="${esc(safeUrl(j.url))}" target="_blank" rel="noopener">Apply <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8"/></svg></a>`:''}<button class="tailorbtn" onclick="tailor(${j.id})">Tailor</button><button class="tailorbtn" onclick="boost(${j.id})">Boost</button></div></td>
+          <td data-label="Apply"><div class="actions">${safeUrl(j.url)?`<a class="applylink" href="${esc(safeUrl(j.url))}" target="_blank" rel="noopener">Apply <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8"/></svg></a>`:''}<button class="tailorbtn" onclick="tailor(${j.id})">Tailor</button><button class="tailorbtn" onclick="boost(${j.id})">Outreach</button><button class="tailorbtn" onclick="prep(${j.id})">Interview</button><button class="tailorbtn" onclick="fit(${j.id})">Fit</button></div></td>
           <td data-label="Status"><select class="statussel" style="${statusStyle(j.status)}" onchange="updStatus(${j.id}, this)">
             ${STATUS_OPTS.map(o=>`<option value="${o.v}" ${ (j.status||'saved')===o.v ? 'selected':''}>${o.label}</option>`).join('')}
           </select></td>
@@ -326,28 +326,21 @@
     const tov = document.getElementById('tov');
     document.getElementById('tclose').onclick = () => tov.classList.remove('show');
     tov.addEventListener('click', e => { if (e.target === tov) tov.classList.remove('show'); });
-    async function tailor(id) {
+    async function aiTool(id, path, key, title, loading) {
       tov.classList.add('show');
-      document.getElementById('ttitle').textContent = 'Tailored for this job';
-      document.getElementById('tbody').textContent = 'Generating your tailored resume tips...';
+      document.getElementById('ttitle').textContent = title;
+      document.getElementById('tbody').textContent = loading;
       try {
         const p = new URLSearchParams({ token, job_id: id });
-        const r = await fetch(`/tailor?${p.toString()}`);
+        const r = await fetch(`/${path}?${p.toString()}`);
         const d = await r.json();
-        document.getElementById('tbody').textContent = d.ok ? d.tailoring : (d.reason || d.error || 'Could not tailor.');
+        document.getElementById('tbody').textContent = d.ok ? d[key] : (d.reason || d.error || 'Could not generate.');
       } catch (e) { document.getElementById('tbody').textContent = 'Error: ' + e; }
     }
-    async function boost(id) {
-      tov.classList.add('show');
-      document.getElementById('ttitle').textContent = 'Boost this application';
-      document.getElementById('tbody').textContent = 'Drafting your outreach (connection note, recruiter email, checklist)...';
-      try {
-        const p = new URLSearchParams({ token, job_id: id });
-        const r = await fetch(`/booster?${p.toString()}`);
-        const d = await r.json();
-        document.getElementById('tbody').textContent = d.ok ? d.booster : (d.reason || d.error || 'Could not generate.');
-      } catch (e) { document.getElementById('tbody').textContent = 'Error: ' + e; }
-    }
+    const tailor = id => aiTool(id, 'tailor', 'tailoring', 'Tailored for this job', 'Generating your tailored resume tips...');
+    const boost = id => aiTool(id, 'booster', 'booster', 'Boost this application', 'Drafting your outreach (connection note, recruiter email, checklist)...');
+    const prep = id => aiTool(id, 'interview', 'interview', 'Interview prep', 'Generating likely questions + your angles...');
+    const fit = id => aiTool(id, 'gap', 'gap', 'Fit & gaps', 'Analyzing your fit and gaps for this role...');
 
     function wireChips(groupId, attr, apply) {
       const g = document.getElementById(groupId);

@@ -635,6 +635,36 @@ def booster_endpoint(request: Request, job_id: int = 0, token: str = ""):
     return {"ok": True, "booster": block}
 
 
+def _advice(request, job_id, token, fn, key):
+    """Shared handler for the per-job LLM advice endpoints (interview prep, fit/gap)."""
+    from . import enrich
+    user = _resolve_user(request, token)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    job = db.get_job_log(job_id, user["id"])
+    if not job:
+        return JSONResponse({"error": "job not found"}, status_code=404)
+    if not enrich.available():
+        return {"ok": False, "reason": "Needs a free Groq or Gemini key for AI features."}
+    block, err = fn({"title": job.get("title"), "company": job.get("company"),
+                     "description": db.catalog_description(job.get("url"))}, user.get("resume_text") or "")
+    if not block:
+        return {"ok": False, "reason": err or "Could not generate right now."}
+    return {"ok": True, key: block}
+
+
+@app.get("/interview")
+def interview_endpoint(request: Request, job_id: int = 0, token: str = ""):
+    from . import enrich
+    return _advice(request, job_id, token, enrich.interview_prep, "interview")
+
+
+@app.get("/gap")
+def gap_endpoint(request: Request, job_id: int = 0, token: str = ""):
+    from . import enrich
+    return _advice(request, job_id, token, enrich.resume_gap, "gap")
+
+
 @app.get("/envcheck")
 def envcheck():
     """Show, at runtime, which expected env vars are set (masked, never full secrets), plus any

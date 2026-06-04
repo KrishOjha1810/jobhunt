@@ -446,6 +446,20 @@ def category_signal(user_id):
     return {cat: v / m for cat, v in raw.items()} if m else {}
 
 
+def pending_saved_count(user_id, days=30):
+    """How many recent matches the user has left in 'saved' (not applied / dismissed). Drives the
+    weekly 'you have N saved jobs you haven't applied to' nudge."""
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    with engine.connect() as c:
+        return c.execute(
+            select(func.count()).select_from(job_log).where(
+                job_log.c.user_id == user_id,
+                (job_log.c.status == "saved") | (job_log.c.status.is_(None)),
+                job_log.c.sent_at >= cutoff,
+            )
+        ).scalar() or 0
+
+
 def last_digest_at(user_id):
     """When we last sent this user any job (max sent_at), or None. Drives cadence throttling."""
     with engine.connect() as c:

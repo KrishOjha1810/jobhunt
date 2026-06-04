@@ -233,6 +233,30 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
         db.set_meta("run_started", "")  # clear the in-flight marker
     except Exception as e:
         print(f"[runner] could not record last_run: {e}")
+    # Weekly pipeline nudge: remind users sitting on un-applied saved matches (throttled per user,
+    # once / 6 days). Not on forced runs. Folds retention into the existing channels, no new infra.
+    if not force:
+        from .config import BASE_URL
+        for user in users:
+            try:
+                pend = db.pending_saved_count(user["id"])
+                if pend < 3:
+                    continue
+                key = f"nudge:{user['id']}"
+                last = db.get_meta(key)
+                if last:
+                    try:
+                        if (datetime.utcnow() - datetime.strptime(last, "%Y-%m-%d")).days < 6:
+                            continue
+                    except Exception:
+                        pass
+                link = f"{BASE_URL}/dashboard?token={user.get('dash_token')}"
+                msg = (f"Quick nudge: you have {pend} saved job match(es) you haven't applied to yet. "
+                       f"A few minutes now beats missing a good one, review them: {link}")
+                if notifier.send_to_user(user, msg):
+                    db.set_meta(key, datetime.utcnow().strftime("%Y-%m-%d"))
+            except Exception as e:
+                print(f"[runner] nudge failed for {user.get('id')}: {e}")
     # Background embedding precompute LAST, purely best-effort, so smart ranking improves over time
     # without ever delaying alerts or the completion record.
     _precompute_embeddings(users, pool, verbose)

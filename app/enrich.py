@@ -50,6 +50,57 @@ def available() -> bool:
     return bool(LLM_API_KEY)
 
 
+INTERVIEW_PROMPT = (
+    "You are an interview coach. Given a candidate's resume and a job, output, no preamble:\n"
+    "LIKELY QUESTIONS: 6-8 questions they will probably be asked for THIS role (mix of technical "
+    "specific to the JD and behavioral), as a numbered list.\n"
+    "YOUR ANGLES: for the 3 most important questions, a 1-2 line talking point drawing on the "
+    "candidate's real resume experience.\n"
+    "ASK THEM: 3 sharp questions the candidate should ask the interviewer.\n"
+    "No em dashes. Be specific to this job and this resume, not generic."
+)
+
+GAP_PROMPT = (
+    "You assess fit between a resume and a job. Output, no preamble:\n"
+    "FIT: one line, an honest read (strong / decent / a stretch) and why.\n"
+    "MATCHES: 3-4 bullets of what the resume already shows that the JD wants.\n"
+    "GAPS: 2-4 bullets of what the JD asks for that the resume does NOT show, each with a concrete "
+    "way to address it (a real bullet they could add if true, a quick skill to learn, or how to "
+    "reframe existing experience). Never tell them to fabricate.\n"
+    "No em dashes. Be concrete and honest, not flattering."
+)
+
+
+def _run(prompt: str, job: dict, resume_text: str, jd_chars: int = 3000):
+    """Shared LLM call for the per-job advice features. Returns (text, error)."""
+    if not available():
+        return "", "No LLM key set (add a free Groq or Gemini key)."
+    if not resume_text:
+        return "", "No resume on file. Subscribe with a resume first."
+    user_msg = (f"RESUME:\n{resume_text[:6000]}\n\nJOB: {job.get('title','')} at "
+                f"{job.get('company','')}\n{job.get('description','')[:jd_chars]}")
+    try:
+        if LLM_PROVIDER == "anthropic":
+            return _chat_anthropic(prompt, user_msg), ""
+        return _chat_openai_compat(
+            [{"role": "system", "content": prompt}, {"role": "user", "content": user_msg}]), ""
+    except requests.HTTPError as e:
+        code = (e.response.status_code if e.response is not None else "?")
+        if code == 429:
+            return "", "Daily free AI quota is used up. Resets daily, or use a free Groq key."
+        return "", f"{LLM_PROVIDER} API error {code}"
+    except Exception as e:
+        return "", f"{LLM_PROVIDER} request failed: {e}"
+
+
+def interview_prep(job: dict, resume_text: str):
+    return _run(INTERVIEW_PROMPT, job, resume_text)
+
+
+def resume_gap(job: dict, resume_text: str):
+    return _run(GAP_PROMPT, job, resume_text)
+
+
 def answer_questions(job: dict, resume_text: str, questions: list, facts: dict = None):
     """Return (answers, error). answers is a list aligned to `questions`, each a short first-person
     answer drafted from the resume + facts. One batched LLM call (cheaper, fewer 429s)."""
