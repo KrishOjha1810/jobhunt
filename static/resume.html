@@ -39,6 +39,18 @@
     .pill { font-size:.7rem; padding:2px 8px; border-radius:999px; background:var(--accent-soft); color:var(--accent2); }
     #msg { font-size:.85rem; margin-top:8px; min-height:16px; } .ok{color:#22c55e}.err{color:#f59e0b}
     .skillchips span { display:inline-block; background:var(--accent-soft); color:var(--accent2); border-radius:999px; padding:3px 9px; font-size:.78rem; margin:0 5px 5px 0; }
+    .vbar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:16px; }
+    /* Clean printable resume (hidden on screen, the only thing shown when printing). */
+    #preview { display:none; }
+    @media print {
+      .nav, .wrap > h1, .wrap > .sub, .grid > div:last-child, .card, .vbar, #msg { display:none !important; }
+      body { background:#fff; color:#000; }
+      .wrap { max-width:none; padding:0; }
+      #preview { display:block; font-family:Calibri,Arial,sans-serif; color:#000; }
+      #preview h2 { font-size:13px; text-transform:uppercase; border-bottom:1px solid #999; margin:14px 0 6px; padding-bottom:2px; }
+      #preview .nm { font-size:22px; font-weight:bold; } #preview .ct { color:#333; margin-bottom:4px; font-size:12px; }
+      #preview .role { font-weight:bold; margin-top:8px; } #preview ul { margin:4px 0 0 18px; } #preview li { margin:2px 0; }
+    }
   </style>
 </head>
 <body>
@@ -55,6 +67,15 @@
     <h1>Resume Studio</h1>
     <p class="sub">Edit your resume, tailor it to a specific job with one click, and export an ATS-safe file , without leaving JobHunt.</p>
 
+    <div class="vbar">
+      <select id="verSel" style="width:auto;min-width:180px"><option value="">Base resume</option></select>
+      <button class="ghost sm" id="loadVer">Load</button>
+      <button class="ghost sm" id="saveVer">Save as version</button>
+      <button class="ghost sm" id="delVer">Delete</button>
+    </div>
+
+    <div id="preview"></div>
+
     <div class="grid">
       <div>
         <div class="card" id="tailorCard">
@@ -67,7 +88,7 @@
         </div>
 
         <div class="card">
-          <h2>Summary</h2>
+          <h2>Summary <button class="ghost sm" id="impSummary" style="float:right">✨ Improve</button></h2>
           <textarea id="summary" placeholder="A 2-3 line professional summary..."></textarea>
           <label>Skills (comma separated)</label>
           <input id="skills" placeholder="python, react, aws..." />
@@ -118,13 +139,30 @@
           </div>
           <label>Bullets (one per line)</label>
           <textarea data-e="${i}" data-f="bullets">${esc((e.bullets||[]).join('\n'))}</textarea>
-          <button class="ghost sm" data-del="${i}" style="margin-top:6px">Remove</button>
+          <div class="row" style="margin-top:6px">
+            <button class="ghost sm" data-imp="${i}">✨ Improve bullets</button>
+            <button class="ghost sm" data-del="${i}">Remove</button>
+          </div>
         </div>`).join('');
       $('exps').querySelectorAll('input,textarea').forEach(el=>el.addEventListener('input',()=>{
         const i=+el.dataset.e, f=el.dataset.f;
         R.experience[i][f] = f==='bullets' ? el.value.split('\n').map(s=>s.trim()).filter(Boolean) : el.value;
       }));
       $('exps').querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{ R.experience.splice(+b.dataset.del,1); renderExps(); });
+      $('exps').querySelectorAll('[data-imp]').forEach(b=>b.onclick=async()=>{
+        const i=+b.dataset.imp, bl=(R.experience[i].bullets||[]).filter(Boolean);
+        if(!bl.length) return; b.textContent='Improving...'; b.disabled=true;
+        const out = await improve('bullets', bl.join('\n'));
+        if(out){ R.experience[i].bullets = out.split('\n').map(s=>s.replace(/^[-*\d.\s]+/,'').trim()).filter(Boolean); renderExps(); }
+        else { b.textContent='✨ Improve bullets'; b.disabled=false; }
+      });
+    }
+    async function improve(field, text){
+      const jid = $('jobSel').value || '';
+      $('msg').innerHTML='Improving with AI...';
+      const r = await fetch('/api/resume/improve',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({field,text,job_id:jid})});
+      const d = await r.json(); $('msg').innerHTML = d.ok?'<span class="ok">Improved.</span>':`<span class="err">${esc(d.reason||'failed')}</span>`;
+      return d.ok ? d.text : '';
     }
     function renderEdus(){
       $('edus').innerHTML = (R.education||[]).map((e,i)=>`
@@ -164,6 +202,35 @@
     $('saveBtn').onclick = save;
     $('addExp').onclick = ()=>{ R.experience.push({title:'',company:'',dates:'',bullets:[]}); renderExps(); };
     $('addEdu').onclick = ()=>{ R.education.push({degree:'',school:'',dates:''}); renderEdus(); };
+    $('impSummary').onclick = async ()=>{ syncTop(); const out = await improve('summary', R.summary); if(out){ R.summary=out; $('summary').value=out; } };
+
+    // ---- saved versions ----
+    let VERSIONS = [];
+    async function loadVersions(){
+      const r = await fetch('/api/resume/versions'); const d = await r.json(); VERSIONS = d.versions||[];
+      $('verSel').innerHTML = '<option value="">Base resume</option>' + VERSIONS.map((v,i)=>`<option value="${i}">${esc(v.name)}</option>`).join('');
+    }
+    $('loadVer').onclick = async ()=>{ const i=$('verSel').value; if(i==='') { await load(); return; }
+      R = Object.assign({name:"",email:"",phone:"",links:[],summary:"",skills:[],experience:[],education:[]}, VERSIONS[+i].data); renderAll(); $('msg').innerHTML='<span class="ok">Loaded version.</span>'; };
+    $('saveVer').onclick = async ()=>{ syncTop(); const name=prompt('Name this version (e.g. "Backend , Acme"):'); if(!name) return;
+      const r=await fetch('/api/resume/versions',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'save',name,data:R})});
+      const d=await r.json(); VERSIONS=d.versions||[]; await loadVersions(); $('msg').innerHTML='<span class="ok">Saved version.</span>'; };
+    $('delVer').onclick = async ()=>{ const i=$('verSel').value; if(i==='') return; const name=VERSIONS[+i].name;
+      await fetch('/api/resume/versions',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'delete',name})}); await loadVersions(); };
+
+    function buildPreview(){
+      syncTop();
+      const links = (R.links||[]).join(' | ');
+      const ct = [R.email,R.phone,links].filter(Boolean).join(' | ');
+      let h = `<div class="nm">${esc(R.name||'')}</div><div class="ct">${esc(ct)}</div>`;
+      if(R.summary) h += `<h2>Summary</h2><div>${esc(R.summary)}</div>`;
+      if((R.skills||[]).length) h += `<h2>Skills</h2><div>${esc(R.skills.join(', '))}</div>`;
+      if((R.experience||[]).length){ h+='<h2>Experience</h2>'; R.experience.forEach(e=>{
+        h += `<div class="role">${esc([e.title,e.company,e.dates].filter(Boolean).join(' | '))}</div>`;
+        if((e.bullets||[]).length) h += '<ul>'+e.bullets.map(b=>`<li>${esc(b)}</li>`).join('')+'</ul>'; }); }
+      if((R.education||[]).length){ h+='<h2>Education</h2>'; R.education.forEach(e=>{ h+=`<div>${esc([e.degree,e.school,e.dates].filter(Boolean).join(' | '))}</div>`; }); }
+      $('preview').innerHTML = h;
+    }
 
     $('tailorBtn').onclick = async ()=>{
       const id = $('jobSel').value; if(!id) return $('msg').innerHTML='<span class="err">Pick a job first.</span>';
@@ -172,6 +239,8 @@
       if(!d.ok){ $('edits').innerHTML = `<p class="err">${esc(d.reason||'Could not generate.')}</p>`; return; }
       const e = d.edits;
       let html = '';
+      try { const ar = await fetch('/ats?job_id='+id); const ad = await ar.json();
+        if (ad.ok) html += `<div class="edit"><span class="pill">ATS match for this job</span> <b>${ad.score}/100</b></div>`; } catch {}
       if (e.summary) html += `<div class="edit"><span class="pill">Summary</span><div class="after">${esc(e.summary)}</div><label><input type="checkbox" class="appr" data-t="summary" checked style="width:auto"> apply</label></div>`;
       (e.add_skills||[]).forEach((s,i)=>{ html += `<div class="edit"><span class="pill">+ Skill</span> ${esc(s)} <label><input type="checkbox" class="appr" data-t="skill" data-v="${esc(s)}" checked style="width:auto"> add</label></div>`; });
       (e.bullets||[]).forEach((b,i)=>{ html += `<div class="edit"><span class="pill">Bullet</span><div class="before">${esc(b.original)}</div><div class="after">${esc(b.improved)}</div><label><input type="checkbox" class="appr" data-t="bullet" data-i="${i}" checked style="width:auto"> apply</label></div>`; });
@@ -197,9 +266,10 @@
       a.href=URL.createObjectURL(blob); a.download=(R.name||'resume')+'_JobHunt.docx'; a.click();
       $('msg').innerHTML='<span class="ok">Exported DOCX.</span>';
     };
-    $('pdfBtn').onclick = ()=>{ syncTop(); window.print(); };
+    $('pdfBtn').onclick = ()=>{ buildPreview(); window.print(); };
 
     load();
+    loadVersions();
   </script>
 </body>
 </html>

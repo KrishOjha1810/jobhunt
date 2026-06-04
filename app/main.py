@@ -859,6 +859,48 @@ def api_resume_tailor(request: Request, job_id: int = 0, token: str = ""):
     return {"ok": True, "edits": edits, "job": {"title": job.get("title"), "company": job.get("company")}}
 
 
+@app.post("/api/resume/improve")
+async def api_resume_improve(request: Request, token: str = ""):
+    """Rewrite one field (summary or a bullet) with AI. Body: {field, text, job_id?}."""
+    from . import enrich
+    user = _resolve_user(request, token)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        b = await request.json()
+    except Exception:
+        b = {}
+    jd = ""
+    if b.get("job_id"):
+        job = db.get_job_log(int(b["job_id"]), user["id"])
+        if job:
+            jd = (job.get("title") or "") + "\n" + (db.catalog_description(job.get("url")) or "")
+    text, err = enrich.improve_text(b.get("field", ""), b.get("text", ""), jd)
+    if not text:
+        return {"ok": False, "reason": err or "Could not improve."}
+    return {"ok": True, "text": text}
+
+
+@app.api_route("/api/resume/versions", methods=["GET", "POST"])
+async def api_resume_versions(request: Request, token: str = ""):
+    """GET: list saved versions. POST {action:'save'|'delete', name, data?}: manage them."""
+    user = _resolve_user(request, token)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    if request.method == "GET":
+        return {"ok": True, "versions": db.get_resume_versions(user["id"])}
+    try:
+        b = await request.json()
+    except Exception:
+        b = {}
+    name = (b.get("name") or "").strip()[:60]
+    if not name:
+        return {"ok": False, "reason": "name required"}
+    if b.get("action") == "delete":
+        return {"ok": True, "versions": db.delete_resume_version(user["id"], name)}
+    return {"ok": True, "versions": db.save_resume_version(user["id"], name, b.get("data") or {})}
+
+
 @app.post("/api/resume/export")
 async def api_resume_export(request: Request, token: str = ""):
     """Build an ATS-safe .docx from the (possibly tailored) resume JSON in the body."""

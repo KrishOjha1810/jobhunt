@@ -114,6 +114,37 @@ def _json_call(system: str, user_msg: str):
         return None, f"could not parse AI response ({e})"
 
 
+def improve_text(field: str, text: str, jd: str = ""):
+    """Rewrite a single resume field (summary or a bullet) , premium inline assist. Returns (text, error)."""
+    if not available():
+        return "", "No LLM key set (add a free Groq or Gemini key)."
+    if not (text or "").strip():
+        return "", "nothing to improve"
+    instr = {
+        "summary": "Rewrite this resume summary to be punchy and specific in 2-3 lines.",
+        "bullet": "Rewrite this resume bullet to open with a strong action verb and quantify impact "
+                  "where the original implies numbers; keep it to one line.",
+        "bullets": "Rewrite EACH line below as a stronger resume bullet (strong action verb, quantify "
+                   "impact where the original implies numbers). Return the SAME number of lines, one "
+                   "improved bullet per line, no numbering or extra lines.",
+    }.get(field, "Tighten this resume text.")
+    sys = (instr + " Use only what the original supports, never fabricate. Mirror the target job's "
+           "language where relevant. No em dashes. Return ONLY the rewritten text, no quotes/preamble.")
+    user_msg = (f"TARGET JOB:\n{jd[:1500]}\n\n" if jd else "") + f"TEXT:\n{text[:1200]}"
+    try:
+        if LLM_PROVIDER == "anthropic":
+            out = _chat_anthropic(sys, user_msg)
+        else:
+            out = _chat_openai_compat([{"role": "system", "content": sys}, {"role": "user", "content": user_msg}])
+        return out.strip().strip('"'), ""
+    except requests.HTTPError as e:
+        code = (e.response.status_code if e.response is not None else "?")
+        return "", ("Daily free AI quota used up; resets daily or use a Groq key." if code == 429
+                    else f"{LLM_PROVIDER} API error {code}")
+    except Exception as e:
+        return "", f"{LLM_PROVIDER} request failed: {e}"
+
+
 def parse_resume_structured(resume_text: str):
     """Turn raw resume text into a structured, editable resume. Returns (dict, error)."""
     if not resume_text:

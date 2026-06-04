@@ -35,6 +35,7 @@ users = Table(
     Column("categories", Text),  # JSON list of subscribed role categories; empty/null = all
     Column("cadence", Text),     # "twice" (default) | "daily" | "weekly" (Saturday digest)
     Column("resume_json", Text), # structured resume for the Resume Studio (sections as JSON)
+    Column("resume_versions", Text), # JSON list of saved/tailored resume copies [{name,data}]
     Column("active", Integer, default=1),
 )
 
@@ -96,7 +97,8 @@ def init_db():
     insp = inspect(engine)
     existing = {c["name"] for c in insp.get_columns("users")}
     with engine.begin() as conn:
-        for col in ("email", "dash_token", "password_hash", "ref_code", "embedding", "categories", "cadence", "resume_json"):
+        for col in ("email", "dash_token", "password_hash", "ref_code", "embedding", "categories",
+                    "cadence", "resume_json", "resume_versions"):
             if col not in existing:
                 conn.execute(text(f"ALTER TABLE users ADD COLUMN {col} TEXT"))
         if "referred_by" not in existing:
@@ -448,6 +450,34 @@ def get_resume_json(user_id):
 def set_resume_json(user_id, data):
     with engine.begin() as c:
         c.execute(update(users).where(users.c.id == user_id).values(resume_json=json.dumps(data)))
+
+
+def get_resume_versions(user_id):
+    with engine.connect() as c:
+        r = c.execute(select(users.c.resume_versions).where(users.c.id == user_id)).first()
+    if r and r[0]:
+        try:
+            return json.loads(r[0])
+        except Exception:
+            return []
+    return []
+
+
+def save_resume_version(user_id, name, data, limit=12):
+    """Save (or overwrite by name) a named resume version. Keeps the newest `limit`."""
+    versions = [v for v in get_resume_versions(user_id) if v.get("name") != name]
+    versions.insert(0, {"name": name, "data": data})
+    versions = versions[:limit]
+    with engine.begin() as c:
+        c.execute(update(users).where(users.c.id == user_id).values(resume_versions=json.dumps(versions)))
+    return versions
+
+
+def delete_resume_version(user_id, name):
+    versions = [v for v in get_resume_versions(user_id) if v.get("name") != name]
+    with engine.begin() as c:
+        c.execute(update(users).where(users.c.id == user_id).values(resume_versions=json.dumps(versions)))
+    return versions
 
 
 def set_keywords(user_id, keywords):
