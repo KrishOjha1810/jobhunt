@@ -34,6 +34,7 @@ users = Table(
     Column("embedding", Text),
     Column("categories", Text),  # JSON list of subscribed role categories; empty/null = all
     Column("cadence", Text),     # "twice" (default) | "daily" | "weekly" (Saturday digest)
+    Column("experience", Text),  # fresher | junior | mid | senior | lead (drives seniority matching)
     Column("resume_json", Text), # structured resume for the Resume Studio (sections as JSON)
     Column("resume_versions", Text), # JSON list of saved/tailored resume copies [{name,data}]
     Column("active", Integer, default=1),
@@ -98,7 +99,7 @@ def init_db():
     existing = {c["name"] for c in insp.get_columns("users")}
     with engine.begin() as conn:
         for col in ("email", "dash_token", "password_hash", "ref_code", "embedding", "categories",
-                    "cadence", "resume_json", "resume_versions"):
+                    "cadence", "experience", "resume_json", "resume_versions"):
             if col not in existing:
                 conn.execute(text(f"ALTER TABLE users ADD COLUMN {col} TEXT"))
         if "referred_by" not in existing:
@@ -186,6 +187,7 @@ def list_active_users():
             "dash_token": r["dash_token"], "embedding": r["embedding"],
             "categories": json.loads(r["categories"]) if r["categories"] else [],
             "cadence": r["cadence"] or "twice",
+            "experience": r["experience"] or "",
         })
     return out
 
@@ -629,6 +631,7 @@ def _row_to_user(r):
     d["categories"] = json.loads(d["categories"]) if d.get("categories") else []
     d["channel"] = d.get("channel") or "telegram"
     d["cadence"] = d.get("cadence") or "twice"
+    d["experience"] = d.get("experience") or ""
     return d
 
 
@@ -678,7 +681,8 @@ def is_subscribed(user):
 
 def update_subscription(user_id, keywords, locations, channel, resume_path=None,
                         resume_text=None, telegram_chat_id=None, whatsapp_phone=None,
-                        whatsapp_apikey=None, email=None, categories=None, cadence=None):
+                        whatsapp_apikey=None, email=None, categories=None, cadence=None,
+                        experience=None):
     vals = {
         "keywords": json.dumps(keywords), "locations": json.dumps(locations), "channel": channel,
         "telegram_chat_id": telegram_chat_id or "", "whatsapp_phone": whatsapp_phone,
@@ -688,6 +692,8 @@ def update_subscription(user_id, keywords, locations, channel, resume_path=None,
         vals["categories"] = json.dumps(categories)
     if cadence in ("twice", "daily", "weekly"):
         vals["cadence"] = cadence
+    if experience in ("fresher", "junior", "mid", "senior", "lead"):
+        vals["experience"] = experience
     if resume_path is not None:
         vals["resume_path"] = resume_path
     if resume_text is not None:

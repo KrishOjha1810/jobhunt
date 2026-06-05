@@ -73,6 +73,7 @@
       font-size:.97rem; font-family:inherit; background:var(--field); color:var(--ink);
       transition:border .15s, box-shadow .15s, background .35s; }
     input::placeholder { color:var(--muted); opacity:.7; }
+    select option { background:var(--field); color:var(--ink); }  /* fix white dropdowns in dark mode */
     input[type=file] { padding:10px 14px; cursor:pointer; }
     input[type=file]::file-selector-button { border:0; background:var(--accent-soft); color:var(--accent); font-weight:600; font-family:inherit;
       padding:7px 12px; border-radius:8px; margin-right:12px; cursor:pointer; }
@@ -203,6 +204,17 @@
         </div>
         <small>You get ONE daily digest of the best matches across the roles you pick, not a separate batch per role. Everything else stays browsable in <a href="/jobs">Browse jobs</a>.</small>
 
+        <label>Your experience level</label>
+        <select name="experience" id="experience">
+          <option value="">Prefer not to say</option>
+          <option value="fresher">Fresher (0 yrs)</option>
+          <option value="junior">Junior (0-2 yrs)</option>
+          <option value="mid">Mid (2-5 yrs)</option>
+          <option value="senior">Senior (5+ yrs)</option>
+          <option value="lead">Lead / Staff (8+ yrs)</option>
+        </select>
+        <small>We use this to stop sending you roles far above (or below) your level.</small>
+
         <label>How often do you want alerts?</label>
         <div class="roles" id="cadence">
           <label class="rolechip"><input type="radio" name="cadence" value="twice" checked /><span>Twice a day</span></label>
@@ -259,6 +271,7 @@
         const cad = document.querySelector('#cadence input[value="' + me.cadence + '"]');
         if (cad) cad.checked = true;
       }
+      if (me.experience) document.getElementById('experience').value = me.experience;
     }).catch(() => {});
 
     // ----- Channel show/hide (email default) -----

@@ -173,7 +173,11 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
                 d["why"] = f"cadence:{user.get('cadence')}"
                 detail.append(d); continue
             from . import resume as _resume
-            uyears = _resume.years_experience(user.get("resume_text") or "") or 0
+            # Prefer the user's explicit experience level (reliable) over years parsed from the
+            # resume (often missing, which left senior roles un-demoted = "everything's senior").
+            exp_years = {"fresher": 0, "junior": 1, "mid": 3, "senior": 7, "lead": 11}
+            uyears = exp_years.get(user.get("experience") or "",
+                                   _resume.years_experience(user.get("resume_text") or "") or 0)
             ranked = matcher.rank_matches(pool, user["keywords"], user["locations"], MIN_SCORE, uyears)
             d["matched"] = len(ranked)
             # Role filter: if the user picked specific role categories, keep only those, then take

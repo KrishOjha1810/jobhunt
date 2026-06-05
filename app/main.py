@@ -139,14 +139,16 @@ def _on_startup():
             print("[startup] keyword backfill done")
     except Exception as e:
         print(f"[startup] keyword backfill skipped: {e}")
-    # One forced broadcast per deployed version (verifies delivery + ships improvements to everyone).
-    # Set NO_BROADCAST=1 to suppress once the sprint settles; on-demand send: /run?force=1&token=...
+    # Deploys do NOT broadcast anymore. The per-version forced broadcast was RESENDING the same
+    # matches to everyone on each deploy (users complained about repeats). Normal runs only send
+    # unseen jobs (is_seen). For a deliberate one-off blast, set FORCE_BROADCAST=1 for one boot,
+    # or hit /run?force=1&token=RUN_TOKEN.
     import os as _os
-    if _os.environ.get("NO_BROADCAST", "") != "1" and db.get_meta("force_done_version") != APP_VERSION:
+    if _os.environ.get("FORCE_BROADCAST", "") == "1" and db.get_meta("force_done_version") != APP_VERSION:
         db.set_meta("force_done_version", APP_VERSION)
         _trigger_run(force=True)
     else:
-        _trigger_run()  # no-op unless overdue
+        _trigger_run()  # no-op unless a normal run is overdue (and it respects is_seen)
     if not ENABLE_SCHEDULER:
         return
     try:
@@ -293,6 +295,7 @@ def me(request: Request):
             "subscribed": db.is_subscribed(u), "channel": u.get("channel"),
             "categories": u.get("categories") or [],
             "cadence": u.get("cadence") or "twice",
+            "experience": u.get("experience") or "",
             "schedule": sched_info.describe(), "next_run": sched_info.next_run_label(),
             "dash_token": u.get("dash_token"), "version": APP_VERSION}
 
@@ -310,6 +313,7 @@ async def subscribe_post(
     extra_keywords: str = Form(""),
     categories: List[str] = Form([]),
     cadence: str = Form("twice"),
+    experience: str = Form(""),
     resume_file: List[UploadFile] = File(...),
 ):
     user = current_user(request)
@@ -361,6 +365,7 @@ async def subscribe_post(
         whatsapp_phone=whatsapp_phone.strip() or None, whatsapp_apikey=whatsapp_apikey.strip() or None,
         email=eff_email or None, categories=cat_list,
         cadence=cadence if cadence in ("twice", "daily", "weekly") else "twice",
+        experience=experience if experience in ("fresher", "junior", "mid", "senior", "lead") else None,
     )
     # Give the new subscriber their first matches right now, in the background.
     background_tasks.add_task(runner.run_once, False, user["id"])

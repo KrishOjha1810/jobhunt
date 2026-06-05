@@ -60,6 +60,7 @@
     select { padding:9px 13px; border:1px solid var(--field-border); border-radius:10px; background:var(--field);
       color:var(--ink); font-size:.84rem; font-family:inherit; cursor:pointer; transition:border .15s, box-shadow .15s; }
     select:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
+    select option { background:var(--field); color:var(--ink); }  /* fix white dropdowns in dark mode */
     .table-wrap { background:var(--card); border:1px solid var(--card-border); border-radius:18px; overflow:hidden;
       box-shadow:var(--card-shadow); backdrop-filter:blur(16px); animation:rise .5s ease .1s both; }
     .scroll { overflow-x:auto; }
@@ -270,7 +271,15 @@
       rejected:      ['rgba(239,68,68,.16)','#f87171','rgba(239,68,68,.4)']
     };
     function statusStyle(s){ const c=STATUS_COLORS[s||'saved']||STATUS_COLORS.saved; return `background:${c[0]};color:${c[1]};border-color:${c[2]}`; }
-    async function updStatus(id, el){ el.setAttribute('style', statusStyle(el.value)); await upd(id,'status',el.value); updateStatusCounts(); render(); }
+    function recomputeStats(){
+      const c = { total: all.length, applied_total: 0, not_interested: 0, rejected: 0 };
+      all.forEach(j => { const s = j.status || 'saved';
+        if (s === 'applied' || s === 'rejected') c.applied_total++;
+        if (s === 'not_interested') c.not_interested++;
+        if (s === 'rejected') c.rejected++; });
+      renderStats(c);
+    }
+    async function updStatus(id, el){ el.setAttribute('style', statusStyle(el.value)); await upd(id,'status',el.value); updateStatusCounts(); recomputeStats(); render(); }
 
     async function load() {
       const res = await fetch(`/api/jobs?token=${encodeURIComponent(token)}`);
