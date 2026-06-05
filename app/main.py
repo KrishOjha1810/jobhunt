@@ -864,6 +864,47 @@ def api_resume_tailor(request: Request, job_id: int = 0, token: str = ""):
     return {"ok": True, "edits": edits, "job": {"title": job.get("title"), "company": job.get("company")}}
 
 
+@app.post("/api/resume/import")
+async def api_resume_import(request: Request, token: str = ""):
+    """Import a resume INTO the studio: upload a PDF/DOCX file OR paste text. Parses to structured
+    JSON, saves it, and updates the resume used for matching. Fixes 'no way to upload in the builder'."""
+    from . import enrich, resume as _resume, resume_export
+    user = _resolve_user(request, token)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    text = ""
+    ctype = request.headers.get("content-type", "")
+    try:
+        if "multipart" in ctype:
+            form = await request.form()
+            f = form.get("file")
+            if f is not None and getattr(f, "filename", ""):
+                raw = os.path.basename(f.filename)
+                safe = "".join(c for c in raw if c.isalnum() or c in "-_.") or "resume"
+                dest = RESUME_DIR / f"imp_{user['id']}_{safe}"
+                with open(dest, "wb") as out:
+                    shutil.copyfileobj(f.file, out)
+                text = _resume.extract_text(str(dest))
+            if not text:
+                text = (form.get("text") or "")
+        else:
+            body = await request.json()
+            text = body.get("text", "")
+    except Exception as e:
+        return {"ok": False, "reason": f"could not read file: {e}"}
+    text = (text or "").strip()
+    if len(text) < 40:
+        return {"ok": False, "reason": "No text found (a scanned/image PDF won't parse , paste your resume text instead)."}
+    if not enrich.available():
+        return {"ok": False, "reason": "Needs a free Groq or Gemini key to structure the resume."}
+    obj, err = enrich.parse_resume_structured(text)
+    if not obj:
+        return {"ok": False, "reason": err or "Could not parse the resume."}
+    db.set_resume_json(user["id"], obj)
+    db.set_resume_text(user["id"], text[:20000])
+    return {"ok": True, "resume": obj, "health": resume_export.ats_health(obj)}
+
+
 @app.post("/api/resume/improve")
 async def api_resume_improve(request: Request, token: str = ""):
     """Rewrite one field (summary or a bullet) with AI. Body: {field, text, job_id?}."""

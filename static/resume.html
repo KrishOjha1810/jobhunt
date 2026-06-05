@@ -41,16 +41,19 @@
     #msg { font-size:.85rem; margin-top:8px; min-height:16px; } .ok{color:#22c55e}.err{color:#f59e0b}
     .skillchips span { display:inline-block; background:var(--accent-soft); color:var(--accent2); border-radius:999px; padding:3px 9px; font-size:.78rem; margin:0 5px 5px 0; }
     .vbar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:16px; }
-    /* Clean printable resume (hidden on screen, the only thing shown when printing). */
-    #preview { display:none; }
+    /* Live preview , a paper-look resume on screen; the only thing shown when printing. */
+    #preview { background:#fff; color:#111; border-radius:8px; padding:16px; font-family:Calibri,Arial,sans-serif;
+      font-size:11px; line-height:1.4; max-height:540px; overflow:auto; }
+    #preview .nm { font-size:17px; font-weight:bold; color:#111; }
+    #preview .ct { color:#444; font-size:10px; margin-bottom:6px; }
+    #preview h2 { font-size:11px; text-transform:uppercase; border-bottom:1px solid #ccc; margin:11px 0 4px; padding-bottom:2px; color:#111; }
+    #preview .role { font-weight:bold; margin-top:6px; } #preview ul { margin:3px 0 0 16px; } #preview li { margin:2px 0; }
     @media print {
-      .nav, .wrap > h1, .wrap > .sub, .grid > div:last-child, .card, .vbar, #msg { display:none !important; }
-      body { background:#fff; color:#000; }
-      .wrap { max-width:none; padding:0; }
-      #preview { display:block; font-family:Calibri,Arial,sans-serif; color:#000; }
-      #preview h2 { font-size:13px; text-transform:uppercase; border-bottom:1px solid #999; margin:14px 0 6px; padding-bottom:2px; }
-      #preview .nm { font-size:22px; font-weight:bold; } #preview .ct { color:#333; margin-bottom:4px; font-size:12px; }
-      #preview .role { font-weight:bold; margin-top:8px; } #preview ul { margin:4px 0 0 18px; } #preview li { margin:2px 0; }
+      .nav, .wrap > h1, .wrap > .sub, .grid > div:first-child, #importCard, .vbar, #msg, .score-ring, #checks, .card h2 { display:none !important; }
+      body { background:#fff; color:#000; } .wrap { max-width:none; padding:0; }
+      .grid { display:block; } .card { border:0; background:#fff; padding:0; margin:0; }
+      #preview { max-height:none; overflow:visible; font-size:12px; padding:0; }
+      #preview .nm { font-size:22px; } #preview h2 { font-size:13px; border-bottom:1px solid #999; }
     }
   </style>
 </head>
@@ -66,7 +69,21 @@
 
   <div class="wrap">
     <h1>Resume Studio</h1>
-    <p class="sub">Edit your resume, tailor it to a specific job with one click, and export an ATS-safe file , without leaving JobHunt.</p>
+    <p class="sub">Import or edit your resume, tailor it to a job with one click, see it render live, and export an ATS-safe file , without leaving JobHunt.</p>
+
+    <div class="card" id="importCard">
+      <h2>Import a resume</h2>
+      <div class="row">
+        <input type="file" id="impFile" accept=".pdf,.docx,.doc,.txt" style="flex:1;min-width:160px" />
+        <button class="sm" id="impUpload">Upload &amp; parse</button>
+      </div>
+      <label>...or paste resume text</label>
+      <textarea id="impText" placeholder="Paste your full resume text here, then click Parse..."></textarea>
+      <div class="row" style="margin-top:6px;align-items:center">
+        <button class="sm ghost" id="impPaste">Paste &amp; parse</button>
+        <span class="sub" style="margin:0">Or just edit the resume below , it's already loaded from your account.</span>
+      </div>
+    </div>
 
     <div class="vbar">
       <select id="verSel" style="width:auto;min-width:180px"><option value="">Base resume</option></select>
@@ -74,8 +91,6 @@
       <button class="ghost sm" id="saveVer">Save as version</button>
       <button class="ghost sm" id="delVer">Delete</button>
     </div>
-
-    <div id="preview"></div>
 
     <div class="grid">
       <div>
@@ -120,6 +135,8 @@
           <h2>ATS health</h2>
           <div class="score-ring"><span id="score">--</span><span style="font-size:1rem;color:var(--muted)">/100</span></div>
           <div id="checks"></div>
+          <h2 style="margin-top:18px">Live preview</h2>
+          <div id="preview"></div>
         </div>
       </div>
     </div>
@@ -177,8 +194,11 @@
     }
     function renderAll(){
       $('summary').value = R.summary||''; $('skills').value = (R.skills||[]).join(', ');
-      renderExps(); renderEdus();
+      renderExps(); renderEdus(); buildPreview();
     }
+    const BASE = () => ({name:"",email:"",phone:"",links:[],summary:"",skills:[],experience:[],education:[]});
+    let pvT; function livePreview(){ clearTimeout(pvT); pvT=setTimeout(()=>{ syncTop(); buildPreview(); }, 250); }
+    document.addEventListener('input', livePreview);
     function syncTop(){ R.summary=$('summary').value; R.skills=$('skills').value.split(',').map(s=>s.trim()).filter(Boolean); }
     function renderHealth(h){
       if(!h) return;
@@ -268,6 +288,20 @@
       $('msg').innerHTML='<span class="ok">Exported DOCX.</span>';
     };
     $('pdfBtn').onclick = ()=>{ buildPreview(); window.print(); };
+
+    async function importResume(opts){
+      $('msg').innerHTML='Parsing your resume with AI...';
+      const r = await fetch('/api/resume/import', opts); const d = await r.json();
+      if (d.ok){ R = Object.assign(BASE(), d.resume); renderAll(); renderHealth(d.health);
+        $('msg').innerHTML='<span class="ok">Imported and parsed , review and edit below.</span>'; }
+      else $('msg').innerHTML=`<span class="err">${esc(d.reason||'Import failed.')}</span>`;
+    }
+    $('impUpload').onclick = ()=>{ const f=$('impFile').files[0];
+      if(!f) return $('msg').innerHTML='<span class="err">Choose a file first.</span>';
+      const fd=new FormData(); fd.append('file', f); importResume({method:'POST', body:fd}); };
+    $('impPaste').onclick = ()=>{ const t=$('impText').value.trim();
+      if(t.length<40) return $('msg').innerHTML='<span class="err">Paste your full resume text first.</span>';
+      importResume({method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({text:t})}); };
 
     load();
     loadVersions();

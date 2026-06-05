@@ -438,6 +438,12 @@ def get_meta(key, default=None):
     return r[0] if r else default
 
 
+def set_resume_text(user_id, text):
+    """Replace the raw resume text (used by matching) and drop the cached embedding so it re-embeds."""
+    with engine.begin() as c:
+        c.execute(update(users).where(users.c.id == user_id).values(resume_text=text, embedding=None))
+
+
 def get_resume_json(user_id):
     with engine.connect() as c:
         r = c.execute(select(users.c.resume_json).where(users.c.id == user_id)).first()
