@@ -171,8 +171,12 @@ STATIC_DIR = BASE_DIR / "static"
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
+_NOCACHE = {"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"}
+
+
 def _page(name):
-    return HTMLResponse((STATIC_DIR / name).read_text())
+    # no-cache so users always get the latest UI after a deploy (stale cached HTML hid fixes before)
+    return HTMLResponse((STATIC_DIR / name).read_text(), headers=_NOCACHE)
 
 
 @app.get("/")
@@ -266,7 +270,7 @@ async def signup(
 def dashboard(request: Request, token: str = ""):
     # token link (existing behavior, never breaks) OR a logged-in session; else go log in.
     if (token and db.user_by_token(token)) or current_user(request):
-        return HTMLResponse((STATIC_DIR / "dashboard.html").read_text())
+        return HTMLResponse((STATIC_DIR / "dashboard.html").read_text(), headers=_NOCACHE)
     return RedirectResponse("/login", status_code=302)
 
 
@@ -400,7 +404,7 @@ def api_catalog(request: Request, category: str = "", q: str = ""):
 def login_get(request: Request, ref: str = ""):
     if ref:
         request.session["pending_ref"] = ref  # attribute on the next register/oauth signup
-    return (STATIC_DIR / "login.html").read_text()
+    return HTMLResponse((STATIC_DIR / "login.html").read_text(), headers=_NOCACHE)
 
 
 def _attribute_referral(request: Request, new_user_id: int):
