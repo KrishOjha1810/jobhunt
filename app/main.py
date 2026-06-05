@@ -482,7 +482,9 @@ def api_jobs(request: Request, token: str = "", week: int = 0, company: str = ""
         if j.get("sent_at"):
             j["sent_at"] = str(j["sent_at"])[:16]
     return {"ok": True, "name": user["name"], "stats": db.stats(user["id"]),
-            "analytics": db.analytics(user["id"]), "jobs": jobs}
+            "analytics": db.analytics(user["id"]),
+            "resume_names": [v.get("name") for v in db.get_resume_versions(user["id"])],
+            "jobs": jobs}
 
 
 @app.post("/api/jobs/{job_id}")
@@ -944,6 +946,11 @@ async def api_resume_versions(request: Request, token: str = ""):
         return {"ok": False, "reason": "name required"}
     if b.get("action") == "delete":
         return {"ok": True, "versions": db.delete_resume_version(user["id"], name)}
+    if b.get("action") == "rename":
+        new = (b.get("new_name") or "").strip()[:60]
+        if not new:
+            return {"ok": False, "reason": "new name required"}
+        return {"ok": True, "versions": db.rename_resume_version(user["id"], name, new)}
     return {"ok": True, "versions": db.save_resume_version(user["id"], name, b.get("data") or {})}
 
 

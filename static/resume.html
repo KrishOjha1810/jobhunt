@@ -86,9 +86,11 @@
     </div>
 
     <div class="vbar">
-      <select id="verSel" style="width:auto;min-width:180px"><option value="">Base resume</option></select>
+      <span class="sub" style="margin:0">Profile:</span>
+      <select id="verSel" style="width:auto;min-width:200px"><option value="">Base resume</option></select>
       <button class="ghost sm" id="loadVer">Load</button>
-      <button class="ghost sm" id="saveVer">Save as version</button>
+      <button class="ghost sm" id="saveVer">Save as new</button>
+      <button class="ghost sm" id="renameVer">Rename</button>
       <button class="ghost sm" id="delVer">Delete</button>
     </div>
 
@@ -225,19 +227,27 @@
     $('addEdu').onclick = ()=>{ R.education.push({degree:'',school:'',dates:''}); renderEdus(); };
     $('impSummary').onclick = async ()=>{ syncTop(); const out = await improve('summary', R.summary); if(out){ R.summary=out; $('summary').value=out; } };
 
-    // ---- saved versions ----
-    let VERSIONS = [];
+    // ---- named resume profiles (versions) ----
+    let VERSIONS = [], activeVer = '';  // activeVer = name of the loaded profile ('' = base)
     async function loadVersions(){
       const r = await fetch('/api/resume/versions'); const d = await r.json(); VERSIONS = d.versions||[];
-      $('verSel').innerHTML = '<option value="">Base resume</option>' + VERSIONS.map((v,i)=>`<option value="${i}">${esc(v.name)}</option>`).join('');
+      $('verSel').innerHTML = '<option value="">Base resume' + (activeVer===''?' (active)':'') + '</option>' +
+        VERSIONS.map((v,i)=>`<option value="${i}" ${v.name===activeVer?'selected':''}>${esc(v.name)}${v.name===activeVer?' (active)':''}</option>`).join('');
     }
-    $('loadVer').onclick = async ()=>{ const i=$('verSel').value; if(i==='') { await load(); return; }
-      R = Object.assign({name:"",email:"",phone:"",links:[],summary:"",skills:[],experience:[],education:[]}, VERSIONS[+i].data); renderAll(); $('msg').innerHTML='<span class="ok">Loaded version.</span>'; };
-    $('saveVer').onclick = async ()=>{ syncTop(); const name=prompt('Name this version (e.g. "Backend , Acme"):'); if(!name) return;
+    $('loadVer').onclick = async ()=>{ const i=$('verSel').value; if(i==='') { activeVer=''; await load(); await loadVersions(); return; }
+      R = Object.assign(BASE(), VERSIONS[+i].data); activeVer = VERSIONS[+i].name; renderAll(); await loadVersions(); $('msg').innerHTML=`<span class="ok">Loaded profile: ${esc(activeVer)}</span>`; };
+    async function saveVersion(name){ syncTop();
       const r=await fetch('/api/resume/versions',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'save',name,data:R})});
-      const d=await r.json(); VERSIONS=d.versions||[]; await loadVersions(); $('msg').innerHTML='<span class="ok">Saved version.</span>'; };
+      const d=await r.json(); VERSIONS=d.versions||[]; activeVer=name; await loadVersions(); return d; }
+    $('saveVer').onclick = async ()=>{ const name=prompt('Name this resume profile (e.g. "Backend , Acme"):'); if(!name) return;
+      await saveVersion(name); $('msg').innerHTML='<span class="ok">Saved profile.</span>'; };
+    $('renameVer').onclick = async ()=>{ const i=$('verSel').value; if(i==='') return alert('Pick a saved profile to rename.');
+      const old=VERSIONS[+i].name; const nn=prompt('Rename profile:', old); if(!nn||nn===old) return;
+      await fetch('/api/resume/versions',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'rename',name:old,new_name:nn})});
+      if(activeVer===old) activeVer=nn; await loadVersions(); };
     $('delVer').onclick = async ()=>{ const i=$('verSel').value; if(i==='') return; const name=VERSIONS[+i].name;
-      await fetch('/api/resume/versions',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'delete',name})}); await loadVersions(); };
+      if(!confirm('Delete profile "'+name+'"?')) return;
+      await fetch('/api/resume/versions',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'delete',name})}); if(activeVer===name) activeVer=''; await loadVersions(); };
 
     function buildPreview(){
       syncTop();
@@ -265,9 +275,11 @@
       if (e.summary) html += `<div class="edit"><span class="pill">Summary</span><div class="after">${esc(e.summary)}</div><label><input type="checkbox" class="appr" data-t="summary" checked style="width:auto"> apply</label></div>`;
       (e.add_skills||[]).forEach((s,i)=>{ html += `<div class="edit"><span class="pill">+ Skill</span> ${esc(s)} <label><input type="checkbox" class="appr" data-t="skill" data-v="${esc(s)}" checked style="width:auto"> add</label></div>`; });
       (e.bullets||[]).forEach((b,i)=>{ html += `<div class="edit"><span class="pill">Bullet</span><div class="before">${esc(b.original)}</div><div class="after">${esc(b.improved)}</div><label><input type="checkbox" class="appr" data-t="bullet" data-i="${i}" checked style="width:auto"> apply</label></div>`; });
-      html += '<button class="sm" id="applyBtn" style="margin-top:8px">Apply approved changes</button>';
+      const jobName = [d.job&&d.job.company, d.job&&d.job.title].filter(Boolean).join(' , ').slice(0,60) || 'Tailored';
+      html += '<div class="row" style="margin-top:8px"><button class="sm" id="applyBtn">Apply approved changes</button>'
+            + `<button class="sm ghost" id="stampBtn">Save as "${esc(jobName)}" &amp; mark used for this job</button></div>`;
       $('edits').innerHTML = html;
-      $('applyBtn').onclick = ()=>{
+      function applyApproved(){
         syncTop();
         document.querySelectorAll('.appr:checked').forEach(c=>{
           if(c.dataset.t==='summary') R.summary = e.summary;
@@ -275,7 +287,14 @@
           else if(c.dataset.t==='bullet'){ const bb=e.bullets[+c.dataset.i];
             R.experience.forEach(x=>{ x.bullets=(x.bullets||[]).map(t=> t.trim()===(bb.original||'').trim()? bb.improved : t); }); }
         });
-        renderAll(); save(); $('edits').innerHTML='<p class="ok">Applied. Review above, then Export.</p>';
+        renderAll();
+      }
+      $('applyBtn').onclick = ()=>{ applyApproved(); save(); $('edits').innerHTML='<p class="ok">Applied. Review above, then Export.</p>'; };
+      $('stampBtn').onclick = async ()=>{
+        applyApproved();
+        await saveVersion(jobName);                       // save this tailored resume as a named profile
+        await fetch('/api/jobs/'+id+'?resume_used='+encodeURIComponent(jobName)+'&status=applied', {method:'POST'}); // stamp the application
+        $('edits').innerHTML = `<p class="ok">Saved profile "${esc(jobName)}" and marked it used for this job in your tracker.</p>`;
       };
     };
 

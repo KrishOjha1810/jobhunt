@@ -481,6 +481,16 @@ def save_resume_version(user_id, name, data, limit=12):
     return versions
 
 
+def rename_resume_version(user_id, name, new_name):
+    versions = get_resume_versions(user_id)
+    for v in versions:
+        if v.get("name") == name:
+            v["name"] = new_name
+    with engine.begin() as c:
+        c.execute(update(users).where(users.c.id == user_id).values(resume_versions=json.dumps(versions)))
+    return versions
+
+
 def delete_resume_version(user_id, name):
     versions = [v for v in get_resume_versions(user_id) if v.get("name") != name]
     with engine.begin() as c:

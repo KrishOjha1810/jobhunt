@@ -258,7 +258,16 @@
 
     const token = new URLSearchParams(location.search).get('token') || '';
     let all = [];
+    let RESUME_NAMES = [];
     let state = { days: 0, minScore: 0, sortKey: 'score', sortDir: 'desc', status: '' };
+    // Build the "resume used" options from the user's actual saved resume profiles (+ keep any
+    // legacy/stored value so it isn't lost). Falls back to a hint when no profiles exist yet.
+    function resumeOpts(current){
+      const opts = ['', ...RESUME_NAMES];
+      if (!RESUME_NAMES.length) opts.push('Base resume');
+      if (current && !opts.includes(current)) opts.push(current);
+      return opts;
+    }
 
     const STATUS_OPTS = [
       {v:'saved',label:'Saved'},{v:'applied',label:'Applied'},
@@ -292,6 +301,7 @@
       document.getElementById('hello').textContent = `${data.name}'s JobHunt tracker`;
       renderStats(data.stats);
       renderInsights(data.analytics);
+      RESUME_NAMES = data.resume_names || [];
       all = data.jobs;
       buildFilterOptions();
       updateStatusCounts();
@@ -367,7 +377,7 @@
             ${STATUS_OPTS.map(o=>`<option value="${o.v}" ${ (j.status||'saved')===o.v ? 'selected':''}>${o.label}</option>`).join('')}
           </select></td>
           <td data-label="Resume"><select class="res" onchange="upd(${j.id},'resume_used',this.value)">
-            ${['','Backend','Blockchain','FullStack','Other'].map(r=>`<option ${j.resume_used===r?'selected':''}>${r}</option>`).join('')}
+            ${resumeOpts(j.resume_used).map(r=>`<option ${ (j.resume_used||'')===r ? 'selected':''}>${esc(r)}</option>`).join('')}
           </select></td>
           <td data-label="Notes"><input class="notes" value="${(j.notes||'').replace(/"/g,'&quot;')}" onblur="upd(${j.id},'notes',this.value)" placeholder="notes..."></td>
         </tr>`).join('');
