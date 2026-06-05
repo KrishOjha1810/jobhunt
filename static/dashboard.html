@@ -204,7 +204,7 @@
               <th>Company</th><th>Role</th><th>Job</th>
               <th class="sortable" data-key="date">Date <span class="caret"></span></th>
               <th class="sortable" data-key="score">Match <span class="caret"></span></th>
-              <th>Apply</th><th>Status</th><th>Resume</th><th>Notes</th>
+              <th>Apply &amp; status</th><th>Resume</th><th>Notes</th>
             </tr>
           </thead>
           <tbody id="rows"></tbody>
@@ -372,10 +372,11 @@
           <td class="title" data-label="Job">${esc(j.title)}</td>
           <td class="date" data-label="Date">${esc((j.sent_at||'').slice(0,10))}</td>
           <td data-label="Match">${j.score ? `<span class="score">${esc(j.score)}</span>` : ''}</td>
-          <td data-label="Apply"><div class="actions">${safeUrl(j.url)?`<a class="applylink" href="${esc(safeUrl(j.url))}" target="_blank" rel="noopener">Apply <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8"/></svg></a>`:''}<button class="tailorbtn" onclick="tailor(${j.id})">Tailor</button><button class="tailorbtn" onclick="boost(${j.id})">Outreach</button><button class="tailorbtn" onclick="prep(${j.id})">Interview</button><button class="tailorbtn" onclick="fit(${j.id})">Fit</button><button class="tailorbtn" onclick="ats(${j.id})">ATS</button></div></td>
-          <td data-label="Status"><select class="statussel" style="${statusStyle(j.status)}" onchange="updStatus(${j.id}, this)">
-            ${STATUS_OPTS.map(o=>`<option value="${o.v}" ${ (j.status||'saved')===o.v ? 'selected':''}>${o.label}</option>`).join('')}
-          </select></td>
+          <td data-label="Apply & status"><div class="actions">
+            ${safeUrl(j.url)?`<a class="applylink" href="${esc(safeUrl(j.url))}" target="_blank" rel="noopener">Apply <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8"/></svg></a>`:''}
+            <select class="statussel" style="${statusStyle(j.status)}" onchange="updStatus(${j.id}, this)">${STATUS_OPTS.map(o=>`<option value="${o.v}" ${ (j.status||'saved')===o.v ? 'selected':''}>${o.label}</option>`).join('')}</select>
+            <button class="tailorbtn" onclick="tailor(${j.id})">Tailor</button><button class="tailorbtn" onclick="boost(${j.id})">Outreach</button><button class="tailorbtn" onclick="prep(${j.id})">Interview</button><button class="tailorbtn" onclick="fit(${j.id})">Fit</button><button class="tailorbtn" onclick="ats(${j.id})">ATS</button>
+          </div></td>
           <td data-label="Resume"><select class="res" onchange="upd(${j.id},'resume_used',this.value)">
             ${resumeOpts(j.resume_used).map(r=>`<option ${ (j.resume_used||'')===r ? 'selected':''}>${esc(r)}</option>`).join('')}
           </select></td>

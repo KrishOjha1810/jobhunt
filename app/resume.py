@@ -144,6 +144,39 @@ def years_experience(text: str):
     return max(yrs) if yrs else None
 
 
+def heuristic_structure(text: str) -> dict:
+    """Build a structured resume WITHOUT an LLM (fallback so upload/parse never hard-fails).
+    Pulls contact + skills reliably; leaves experience for the user (or the LLM) to fill."""
+    low = text
+    email = ""
+    m = re.search(r"[\w.+-]+@[\w-]+\.[\w.-]+", low)
+    if m:
+        email = m.group(0)
+    phone = ""
+    m = re.search(r"(\+?\d[\d\s\-()]{8,15}\d)", low)
+    if m:
+        phone = m.group(1).strip()
+    links = re.findall(r"(?:https?://)?(?:www\.)?(?:linkedin\.com/in/[\w\-/]+|github\.com/[\w\-]+)", low)
+    links = ["https://" + l if not l.startswith("http") else l for l in links][:3]
+    # name: first non-empty line that isn't an email/phone/heading
+    name = ""
+    for ln in text.splitlines():
+        s = ln.strip()
+        if s and "@" not in s and not re.search(r"\d{4}", s) and len(s.split()) <= 5 and len(s) < 50:
+            name = s
+            break
+    # summary: text right after a "summary/objective/about" heading, else the first real paragraph
+    summary = ""
+    ms = re.search(r"(?:summary|objective|about me|profile)\s*:?\s*\n+(.{40,400})", text, re.I)
+    if ms:
+        summary = " ".join(ms.group(1).split())
+    return {
+        "name": name, "email": email, "phone": phone, "links": links,
+        "summary": summary, "skills": extract_keywords(text)[:30],
+        "experience": [], "education": [],
+    }
+
+
 def profile_from_resume(path: str) -> dict:
     text = extract_text(path)
     keywords = extract_keywords(text)

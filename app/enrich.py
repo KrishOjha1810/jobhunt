@@ -104,6 +104,7 @@ def _json_call(system: str, user_msg: str):
             raw = _chat_openai_compat([{"role": "system", "content": system}, {"role": "user", "content": user_msg}])
         import json as _json
         import re as _re
+        raw = _re.sub(r"^```(?:json)?|```$", "", raw.strip(), flags=_re.M).strip()  # strip code fences
         m = _re.search(r"\{.*\}", raw, _re.S)
         return (_json.loads(m.group(0)) if m else _json.loads(raw)), ""
     except requests.HTTPError as e:

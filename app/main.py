@@ -818,15 +818,18 @@ def resume_page(request: Request):
 def api_resume_get(request: Request, token: str = ""):
     """Return the user's structured resume (parsing it from their uploaded resume on first use) +
     an ATS health score."""
-    from . import enrich, resume_export
+    from . import enrich, resume_export, resume as _resume
     user = _resolve_user(request, token)
     if not user:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     rj = db.get_resume_json(user["id"])
-    if rj is None and user.get("resume_text") and enrich.available():
-        obj, _err = enrich.parse_resume_structured(user["resume_text"])
-        if obj:
-            rj = obj
+    if rj is None and user.get("resume_text"):
+        if enrich.available():
+            obj, _err = enrich.parse_resume_structured(user["resume_text"])
+            rj = obj or _resume.heuristic_structure(user["resume_text"])
+        else:
+            rj = _resume.heuristic_structure(user["resume_text"])
+        if rj:
             db.set_resume_json(user["id"], rj)
     if rj is None:
         rj = {"name": user.get("name") or "", "email": user.get("email") or "", "phone": "",
@@ -901,14 +904,17 @@ async def api_resume_import(request: Request, token: str = ""):
     text = (text or "").strip()
     if len(text) < 40:
         return {"ok": False, "reason": "No text found (a scanned/image PDF won't parse , paste your resume text instead)."}
-    if not enrich.available():
-        return {"ok": False, "reason": "Needs a free Groq or Gemini key to structure the resume."}
-    obj, err = enrich.parse_resume_structured(text)
+    # Try the LLM parse; fall back to a heuristic structure so upload ALWAYS works (no key, quota, or
+    # a malformed AI response can't break it).
+    obj = None
+    if enrich.available():
+        obj, _err = enrich.parse_resume_structured(text)
     if not obj:
-        return {"ok": False, "reason": err or "Could not parse the resume."}
+        obj = _resume.heuristic_structure(text)
     db.set_resume_json(user["id"], obj)
     db.set_resume_text(user["id"], text[:20000])
-    return {"ok": True, "resume": obj, "health": resume_export.ats_health(obj)}
+    return {"ok": True, "resume": obj, "health": resume_export.ats_health(obj),
+            "parsed_by": "ai" if enrich.available() and obj.get("experience") else "basic"}
 
 
 @app.post("/api/resume/improve")

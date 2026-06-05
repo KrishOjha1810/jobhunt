@@ -93,8 +93,12 @@ def _fetch(terms: list, india_wanted: bool, max_adzuna_terms: int = 3) -> list:
     tasks.append(lambda: himalayas.fetch(""))
     tasks.append(_ats_capped)  # Greenhouse/Lever/Ashby niche roles (already concurrent internally)
     if adzuna.available():
-        for term in terms[:max_adzuna_terms]:
-            tasks.append(lambda t=term: adzuna.fetch(t, country="in" if india_wanted else "gb"))
+        # India users need real India jobs (foreign roles get filtered in matching), so pull more
+        # India terms; otherwise a global feed.
+        country = "in" if india_wanted else "gb"
+        adz_terms = terms[:7] if india_wanted else terms[:max_adzuna_terms]
+        for term in adz_terms:
+            tasks.append(lambda t=term, c=country: adzuna.fetch(t, country=c))
     if jsearch.available():
         base = " ".join(terms[:3]) or "software engineer"
         q = (base + " jobs in India") if india_wanted else (base + " remote")
