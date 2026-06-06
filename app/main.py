@@ -50,6 +50,21 @@ def current_user(request: Request):
     return db.get_user_by_id(uid) if uid else None
 
 
+def _seed_matches(user_id):
+    """Background: fill a new subscriber's dashboard with their best ~20 ranked matches (saved)."""
+    try:
+        uobj = db.get_user_by_id(user_id)
+        if not uobj:
+            return
+        for j in db.list_catalog_ranked(uobj, limit=20)[:20]:
+            if j.get("url"):
+                db.log_job(user_id, {"url": j["url"], "title": j.get("title"), "company": j.get("company"),
+                                     "category": j.get("category"), "score": j.get("rec_score"),
+                                     "posted_at": j.get("posted_at")})
+    except Exception as e:
+        print(f"[subscribe] seed matches failed: {e}")
+
+
 def _store_resume_docx(user_id, path):
     """Background: persist the user's resume as a .docx (convert PDF) for in-place tailored exports."""
     try:
@@ -382,21 +397,11 @@ async def subscribe_post(
         cadence=cadence if cadence in ("twice", "daily", "weekly") else "twice",
         experience=experience if experience in ("fresher", "junior", "mid", "senior", "lead") else None,
     )
-    # Seed the dashboard immediately with the user's best ~20 matches (saved), so it's never empty.
-    try:
-        uobj = db.get_user_by_id(user["id"])
-        for j in db.list_catalog_ranked(uobj, limit=20)[:20]:
-            if not j.get("url"):
-                continue
-            db.log_job(user["id"], {"url": j["url"], "title": j.get("title"),
-                                    "company": j.get("company"), "category": j.get("category"),
-                                    "score": j.get("rec_score"), "posted_at": j.get("posted_at")})
-    except Exception as e:
-        print(f"[subscribe] seed matches failed: {e}")
-    # Store the original resume as a .docx (convert PDF best-effort) so exports can keep their format.
+    # Seed the dashboard with ~20 ranked matches + store the docx + send the first digest , ALL in the
+    # background so the subscribe response returns fast (was blocking the single worker -> timeouts).
+    background_tasks.add_task(_seed_matches, user["id"])
     if first_path:
         background_tasks.add_task(_store_resume_docx, user["id"], first_path)
-    # Give the new subscriber their first digest right now, in the background.
     background_tasks.add_task(runner.run_once, False, user["id"])
     from . import schedule as sched_info
     roles = ", ".join(cat_list) if cat_list else "all roles"

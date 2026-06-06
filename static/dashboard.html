@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>JobHunt , my tracker</title>
-  <link rel="stylesheet" href="/static/theme.css?v=4" />
+  <link rel="stylesheet" href="/static/theme.css?v=5" />
   <style>
     /* page-local: table + filter toggles + hero (everything else comes from theme.css) */
     .wrap{padding-top:var(--sp-4)}
@@ -308,13 +308,21 @@
     }
 
     async function load() {
-      const res = await fetch(`/api/jobs?token=${encodeURIComponent(token)}`);
+      document.getElementById('rows').innerHTML = '<tr><td colspan="8"><div class="loading-row"><span class="spinner"></span> Loading your jobs...</div></td></tr>';
+      let res;
+      try { res = await (window.jhFetch ? jhFetch(`/api/jobs?token=${encodeURIComponent(token)}`) : fetch(`/api/jobs?token=${encodeURIComponent(token)}`)); }
+      catch(e){ res = null; }
+      if (!res || (!res.ok && res.status >= 500)) {
+        document.querySelector('.wrap').innerHTML =
+          '<div class="errbox"><b>Server is waking up.</b>Free hosting sleeps when idle, this takes ~30 seconds. <button class="applylink" style="border:0;margin-top:10px" onclick="location.reload()">Reload</button></div>';
+        return;
+      }
       if (!res.ok) {
         document.querySelector('.wrap').innerHTML =
           '<div class="errbox"><b>Invalid or missing dashboard link.</b>Check the private link from your signup confirmation and try again.</div>';
         return;
       }
-      const data = await res.json();
+      const data = (window.jhJson ? await jhJson(res) : await res.json()) || {};
       document.getElementById('hello').textContent = `${data.name}'s JobHunt tracker`;
       renderHero(data.stats);
       renderInsights(data.analytics);
@@ -500,6 +508,6 @@
 
     load();
   </script>
-  <script src="/static/announce.js?v=4"></script>
+  <script src="/static/announce.js?v=5"></script>
 </body>
 </html>

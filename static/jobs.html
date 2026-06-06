@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>JobHunt, browse jobs</title>
-  <link rel="stylesheet" href="/static/theme.css?v=4" />
+  <link rel="stylesheet" href="/static/theme.css?v=5" />
   <style>
     /* legacy var aliases this page still references, mapped onto the shared system */
     :root{ --fresh:var(--c-response); --overlay:rgba(0,0,0,.6);
@@ -240,9 +240,13 @@
       document.getElementById('greetDismiss').onclick=()=>{ localStorage.setItem('jh_roles_greeted','1'); el.style.display='none'; };
     }
     async function load(){
+      const list = document.getElementById('list');
+      list.innerHTML = '<div class="loading-row"><span class="spinner"></span> Loading jobs...</div>';
       try {
-        const r = await fetch('/api/catalog' + (recoMode ? '?sort=recommended' : ''));
-        const data = await r.json();
+        const u = '/api/catalog' + (recoMode ? '?sort=recommended' : '');
+        const r = await (window.jhFetch ? jhFetch(u) : fetch(u));
+        if (!r || !r.ok) { list.innerHTML = '<div class="empty">Server is waking up (free hosting sleeps when idle). <a href="#" onclick="location.reload();return false">Reload</a> in a few seconds.</div>'; return; }
+        const data = (window.jhJson ? await jhJson(r) : await r.json()) || {};
         all = data.jobs || [];
         const cats = data.categories || [];
         const hasMatches = all.some(j => j.matched);
@@ -463,6 +467,6 @@
     checkMe();
     loadReferral();
   </script>
-  <script src="/static/announce.js?v=4"></script>
+  <script src="/static/announce.js?v=5"></script>
 </body>
 </html>

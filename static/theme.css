@@ -202,3 +202,35 @@ label{font-size:var(--fs-sm);color:var(--muted);font-weight:600}
 @media(max-width:900px){.grid-side{grid-template-columns:1fr}.side{position:static}}
 .locked{position:relative}
 .locked .lock-note{font-size:var(--fs-xs);color:var(--muted);margin-top:var(--sp-2)}
+
+/* ---- loading: spinner, top bar, skeleton ---- */
+.spinner{width:18px;height:18px;border:2px solid var(--ring-track);border-top-color:var(--accent);border-radius:50%;display:inline-block;animation:jhspin .6s linear infinite;vertical-align:-3px}
+.spinner.lg{width:34px;height:34px;border-width:3px}
+@keyframes jhspin{to{transform:rotate(360deg)}}
+.loading-row{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:var(--fs-sm);padding:var(--sp-5)}
+#jhbar{position:fixed;top:0;left:0;height:3px;width:0;background:var(--accent);z-index:200;transition:width .3s ease,opacity .3s ease;box-shadow:0 0 8px var(--accent)}
+.skel{background:linear-gradient(90deg,var(--card-2) 25%,var(--seg-bg) 37%,var(--card-2) 63%);background-size:400% 100%;animation:jhshim 1.3s ease infinite;border-radius:var(--r-sm)}
+@keyframes jhshim{0%{background-position:100% 0}100%{background-position:-100% 0}}
+.skel-row{height:48px;margin:8px 0}
+
+/* ---- mobile nav (hamburger injected by announce.js) ---- */
+.nav-toggle{display:none;background:var(--seg-bg);border:1px solid var(--field-border);color:var(--ink);width:34px;height:34px;border-radius:var(--r-sm);cursor:pointer;font-size:1.1rem;line-height:1;align-items:center;justify-content:center}
+@media(max-width:720px){
+  .nav-toggle{display:inline-flex}
+  .nav-inner{flex-wrap:wrap}
+  .nav-inner .nlink{display:none;width:100%;margin:0}
+  .nav-inner .nav-streak{display:none}
+  .nav.open .nlink{display:flex}
+  .nav.open .nav-streak{display:inline-flex}
+  .nav.open .nav-inner{padding-bottom:var(--sp-3)}
+  .nlink .lbl{display:inline}  /* show labels in the open dropdown */
+}
+/* ---- general mobile polish ---- */
+@media(max-width:640px){
+  .wrap{padding-left:var(--sp-4);padding-right:var(--sp-4)}
+  .card{padding:var(--sp-4)}
+  h1{font-size:1.3rem}
+  .ring{width:120px;height:120px} .ring.sm{width:96px;height:96px}
+  .side{position:static}
+}
+html,body{max-width:100%;overflow-x:hidden}

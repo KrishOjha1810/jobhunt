@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>JobHunt, subscribe for matched alerts</title>
-  <link rel="stylesheet" href="/static/theme.css?v=4" />
+  <link rel="stylesheet" href="/static/theme.css?v=5" />
   <style>
     /* legacy var aliases mapped onto the shared system */
     :root{ --ok-bg:var(--score-bg); --ok-border:var(--score-border); --ok-ink:var(--score-ink);
@@ -309,12 +309,17 @@
           return;
         }
       }
-      btn.disabled = true; btn.textContent = 'Setting you up...';
+      btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Setting you up...';
       result.style.display = 'none';
       try {
-        const res = await fetch('/subscribe', { method:'POST', body:new FormData(form) });
-        const data = await res.json();
+        const res = await (window.jhFetch ? jhFetch('/subscribe', { method:'POST', body:new FormData(form) }) : fetch('/subscribe', { method:'POST', body:new FormData(form) }));
+        const data = (window.jhJson ? await jhJson(res) : await res.json().catch(()=>null)) || {};
         result.style.display = 'block';
+        if (!res.ok && !data.ok && !data.error) {
+          result.className = 'err';
+          result.textContent = 'The server is waking up (free hosting sleeps when idle). Give it a few seconds and tap the button again.';
+          btn.disabled = false; btn.textContent = 'Start getting matches'; return;
+        }
         if (res.ok && data.ok) {
           // save GitHub username (enriches matching); best-effort, never blocks
           const gh = (document.getElementById('github_username').value || '').trim();
@@ -338,6 +343,6 @@
       btn.disabled = false; btn.textContent = 'Start getting matches';
     });
   </script>
-  <script src="/static/announce.js?v=4"></script>
+  <script src="/static/announce.js?v=5"></script>
 </body>
 </html>

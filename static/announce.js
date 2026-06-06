@@ -83,7 +83,46 @@
       '<button class="btn btn-ghost" data-close>Look around first</button></div>';
   }
 
+  // ---- top loading bar + resilient fetch (cold-start / 503 tolerant) ----
+  function bar() {
+    var b = document.getElementById("jhbar");
+    if (!b) { b = el("div", { id: "jhbar" }); document.body.appendChild(b); }
+    return b;
+  }
+  function barStart() { var b = bar(); b.style.opacity = "1"; b.style.width = "35%"; setTimeout(function(){ b.style.width = "70%"; }, 300); }
+  function barDone() { var b = bar(); b.style.width = "100%"; setTimeout(function(){ b.style.opacity = "0"; b.style.width = "0"; }, 250); }
+
+  // Retries once on a 5xx / network blip (Render free tier cold-starts ~40s), so a sleeping
+  // instance shows a loader and recovers instead of throwing "Unexpected end of JSON input".
+  window.jhFetch = async function (url, opts, tries) {
+    tries = tries == null ? 2 : tries;
+    barStart();
+    try {
+      for (var i = 0; i < tries; i++) {
+        try {
+          var r = await fetch(url, opts);
+          if (r.status >= 500 && i < tries - 1) { await new Promise(function(s){ setTimeout(s, 2500); }); continue; }
+          return r;
+        } catch (e) {
+          if (i < tries - 1) { await new Promise(function(s){ setTimeout(s, 2500); }); continue; }
+          throw e;
+        }
+      }
+    } finally { barDone(); }
+  };
+  // Safe JSON: never throws on an empty/HTML body (a truncated 503 response).
+  window.jhJson = async function (r) { try { return await r.json(); } catch (e) { return null; } };
+
+  function setupNav() {
+    var inner = document.querySelector(".nav .nav-inner");
+    if (!inner || inner.querySelector(".nav-toggle")) return;
+    var btn = el("button", { class: "nav-toggle", "aria-label": "Menu", type: "button" }, "&#9776;");
+    btn.addEventListener("click", function () { inner.closest(".nav").classList.toggle("open"); });
+    inner.appendChild(btn);
+  }
+
   function run() {
+    setupNav();
     var seenRaw = localStorage.getItem("jh_seen_version");
     var welcomed = localStorage.getItem("jh_welcomed");
     // brand-new user: no prior trace of having used the app
