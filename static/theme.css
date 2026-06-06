@@ -99,7 +99,6 @@ b,strong{font-weight:700}
 .theme-toggle{background:var(--seg-bg);border:1px solid var(--field-border);color:var(--ink);width:34px;height:34px;border-radius:var(--r-sm);cursor:pointer;font-size:1rem;display:grid;place-items:center}
 .theme-toggle:hover{border-color:var(--accent)}
 .theme-toggle svg{width:18px;height:18px}
-@media(max-width:640px){.nlink span.lbl{display:none}.nav-inner{gap:0;padding:var(--sp-2) var(--sp-3)}}
 
 /* ---- card ---- */
 .card{background:var(--card);border:1px solid var(--card-border);border-radius:var(--r-lg);padding:var(--sp-5);box-shadow:var(--card-shadow)}
@@ -213,17 +212,20 @@ label{font-size:var(--fs-sm);color:var(--muted);font-weight:600}
 @keyframes jhshim{0%{background-position:100% 0}100%{background-position:-100% 0}}
 .skel-row{height:48px;margin:8px 0}
 
-/* ---- mobile nav (hamburger injected by announce.js) ---- */
-.nav-toggle{display:none;background:var(--seg-bg);border:1px solid var(--field-border);color:var(--ink);width:34px;height:34px;border-radius:var(--r-sm);cursor:pointer;font-size:1.1rem;line-height:1;align-items:center;justify-content:center}
-@media(max-width:720px){
-  .nav-toggle{display:inline-flex}
-  .nav-inner{flex-wrap:wrap}
-  .nav-inner .nlink{display:none;width:100%;margin:0}
-  .nav-inner .nav-streak{display:none}
-  .nav.open .nlink{display:flex}
-  .nav.open .nav-streak{display:inline-flex}
-  .nav.open .nav-inner{padding-bottom:var(--sp-3)}
-  .nlink .lbl{display:inline}  /* show labels in the open dropdown */
+/* ---- mobile nav: a clean hamburger dropdown (toggle injected by announce.js) ---- */
+.nav-toggle{display:none;background:var(--seg-bg);border:1px solid var(--field-border);color:var(--ink);width:36px;height:36px;border-radius:var(--r-sm);cursor:pointer;font-size:1.15rem;line-height:1;align-items:center;justify-content:center}
+@media(max-width:760px){
+  .nav-toggle{display:inline-flex;order:3}
+  .theme-toggle{order:2}
+  .brand{order:1}
+  .nav-inner{flex-wrap:wrap;gap:var(--sp-2);padding:var(--sp-3) var(--sp-4)}
+  /* collapsed by default: links + streak hidden until the hamburger opens */
+  .nav .nlink,.nav .nav-streak{display:none}
+  .nav.open{border-bottom:1px solid var(--line)}
+  .nav.open .nlink{display:flex !important;order:5;width:100%;margin:0;padding:11px 12px;border-radius:var(--r-sm);background:var(--seg-bg);font-size:.92rem}
+  .nav.open .nlink.active{background:var(--accent-soft)}
+  .nav.open .nlink .lbl{display:inline !important}  /* labels ARE shown in the menu */
+  .nav.open .nav-streak{display:inline-flex;order:5}
 }
 /* ---- general mobile polish ---- */
 @media(max-width:640px){

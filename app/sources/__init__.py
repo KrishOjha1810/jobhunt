@@ -5,7 +5,7 @@ the same as 1; each user is then matched against that shared pool. fetch_all() i
 path kept for tests/compatibility.
 """
 import re as _re
-from . import remotive, remoteok, arbeitnow, adzuna, jsearch, jobicy, himalayas, ats
+from . import remotive, remoteok, arbeitnow, adzuna, jsearch, jobicy, himalayas, ats, telegram_channels
 
 PRIORITY_TERMS = [
     "rust", "solidity", "typescript", "python", "java", "golang", "go",
@@ -100,6 +100,8 @@ def _fetch(terms: list, india_wanted: bool, max_adzuna_terms: int = 3) -> list:
     tasks.append(lambda: jobicy.fetch(""))
     tasks.append(lambda: himalayas.fetch(""))
     tasks.append(_ats_capped)  # Greenhouse/Lever/Ashby niche roles (already concurrent internally)
+    if telegram_channels.channels():  # public Telegram job channels (set TELEGRAM_JOB_CHANNELS)
+        tasks.append(lambda: telegram_channels.fetch(""))
     if adzuna.available():
         # India users need real India jobs (foreign roles get filtered in matching), so pull more
         # India terms; otherwise a global feed.
