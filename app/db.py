@@ -39,6 +39,7 @@ users = Table(
     Column("resume_json", Text), # structured resume for the Resume Studio (sections as JSON)
     Column("resume_versions", Text), # JSON list of saved/tailored resume copies [{name,data}]
     Column("pref_vector", Text),  # online-learned preference weight vector (JSON {feature: weight})
+    Column("resume_docx", Text),  # base64 of the user's original .docx (for in-place tailoring/export)
     Column("github_username", Text),
     Column("github_data", Text),       # cached GitHub enrichment (JSON)
     Column("github_fetched_at", Text), # ISO timestamp of last GitHub fetch
@@ -129,7 +130,7 @@ def init_db():
     with engine.begin() as conn:
         for col in ("email", "dash_token", "password_hash", "ref_code", "embedding", "categories",
                     "cadence", "experience", "resume_json", "resume_versions",
-                    "pref_vector", "github_username", "github_data", "github_fetched_at"):
+                    "pref_vector", "resume_docx", "github_username", "github_data", "github_fetched_at"):
             if col not in existing:
                 conn.execute(text(f"ALTER TABLE users ADD COLUMN {col} TEXT"))
         if "referred_by" not in existing:
@@ -858,6 +859,17 @@ def update_pref_online(user_id, phi: dict, reward: float, lr=0.1, l2=1e-3):
 
 
 # ---- GitHub enrichment storage ----
+
+def set_resume_docx(user_id, b64):
+    with engine.begin() as c:
+        c.execute(update(users).where(users.c.id == user_id).values(resume_docx=b64))
+
+
+def get_resume_docx(user_id):
+    with engine.connect() as c:
+        r = c.execute(select(users.c.resume_docx).where(users.c.id == user_id)).first()
+    return r[0] if r and r[0] else None
+
 
 def set_github(user_id, username=None, data=None):
     vals = {}

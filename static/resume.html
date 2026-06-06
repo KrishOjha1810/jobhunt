@@ -151,7 +151,8 @@
 
         <div class="row" style="margin-top:12px">
           <button id="saveBtn">Save</button>
-          <button id="exportBtn" class="ghost">Export DOCX</button>
+          <button id="exportOrigBtn">Export (keeps your format)</button>
+          <button id="exportBtn" class="ghost">Export (clean template)</button>
           <button id="pdfBtn" class="ghost">Print / PDF</button>
         </div>
         <div id="msg"></div>
@@ -183,6 +184,8 @@
     applyTheme(localStorage.getItem('theme') || 'dark');
     document.getElementById('themeToggle').onclick = ()=>{ const n=document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark'; localStorage.setItem('theme',n); applyTheme(n); };
     let R = { name:"", email:"", phone:"", links:[], summary:"", skills:[], experience:[], education:[] };
+    let ORIGINAL_R = null;  // snapshot of the parsed resume, to diff against for in-place .docx export
+    const snapOriginal = () => { ORIGINAL_R = JSON.parse(JSON.stringify(R)); };
     const esc = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
     function renderExps(){
@@ -254,7 +257,7 @@
 
     async function load(){
       const r = await fetch('/api/resume'); const d = await r.json();
-      if (d.resume) { R = Object.assign(R, d.resume); renderAll(); renderHealth(d.health); }
+      if (d.resume) { R = Object.assign(R, d.resume); renderAll(); renderHealth(d.health); snapOriginal(); }
     }
     async function save(){
       syncTop(); $('msg').innerHTML = 'Saving...';
@@ -287,12 +290,30 @@
       $('preview').innerHTML = h;
     }
 
+    function dlBlob(blob, name){ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click(); }
+    // Diff the original (parsed) resume vs the current edited one -> the changes to apply to their .docx
+    function computeDocxEdits(){
+      const O = ORIGINAL_R || {}; const e = {bullets:[], skills_add:[]};
+      if((R.summary||'') !== (O.summary||'')){ e.summary_old=O.summary||''; e.summary_new=R.summary||''; }
+      const os = new Set((O.skills||[]).map(s=>s.toLowerCase()));
+      e.skills_add = (R.skills||[]).filter(s=>!os.has(s.toLowerCase()));
+      (R.experience||[]).forEach((x,i)=>{ const ox=(O.experience||[])[i]||{}; (x.bullets||[]).forEach((b,j)=>{
+        const ob=(ox.bullets||[])[j]; if(ob && ob!==b) e.bullets.push({old:ob,new:b}); }); });
+      return e;
+    }
+    $('exportOrigBtn').onclick = async ()=>{
+      syncTop(); $('msg').innerHTML='Building your tailored resume...';
+      const r = await fetch('/api/resume/export_original',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({edits:computeDocxEdits()})});
+      if(r.status===409){ $('msg').innerHTML='<span class="sub">No editable original on file (upload a .docx to keep your exact format). Using the clean template.</span>'; $('exportBtn').click(); return; }
+      if(!r.ok){ $('msg').innerHTML='<span class="err">Export failed.</span>'; return; }
+      dlBlob(await r.blob(), (R.name||'resume')+'_tailored.docx');
+      $('msg').innerHTML='<span class="ok">Exported your resume with the changes applied.</span>';
+    };
     $('exportBtn').onclick = async ()=>{
       syncTop();
       const r = await fetch('/api/resume/export',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(R)});
       if(!r.ok) return $('msg').innerHTML='<span class="err">Export failed.</span>';
-      const blob = await r.blob(); const a=document.createElement('a');
-      a.href=URL.createObjectURL(blob); a.download=(R.name||'resume')+'_JobHunt.docx'; a.click();
+      dlBlob(await r.blob(), (R.name||'resume')+'_JobHunt.docx');
       $('msg').innerHTML='<span class="ok">Exported DOCX.</span>';
     };
     $('pdfBtn').onclick = ()=>{ buildPreview(); window.print(); };
@@ -300,7 +321,7 @@
     async function importResume(opts){
       $('msg').innerHTML='Parsing your resume with AI...';
       const r = await fetch('/api/resume/import', opts); const d = await r.json();
-      if (d.ok){ R = Object.assign(BASE(), d.resume); renderAll(); renderHealth(d.health);
+      if (d.ok){ R = Object.assign(BASE(), d.resume); renderAll(); renderHealth(d.health); snapOriginal();
         $('msg').innerHTML='<span class="ok">Imported and parsed , review and edit below.</span>'; }
       else $('msg').innerHTML=`<span class="err">${esc(d.reason||'Import failed.')}</span>`;
     }
@@ -382,7 +403,7 @@
     function renderResult(d, titleText){
       $('jobContext').style.display='block';
       $('jcTitle').textContent = titleText;
-      if(d.resume){ R = Object.assign(BASE(), d.resume); renderAll(); }
+      if(d.resume){ R = Object.assign(BASE(), d.resume); renderAll(); snapOriginal(); }
       renderHealth(d.health);
       renderMatch(d.match);
       if(d.edits){ showEdits(d.edits, titleText); }

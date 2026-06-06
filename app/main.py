@@ -50,6 +50,17 @@ def current_user(request: Request):
     return db.get_user_by_id(uid) if uid else None
 
 
+def _store_resume_docx(user_id, path):
+    """Background: persist the user's resume as a .docx (convert PDF) for in-place tailored exports."""
+    try:
+        from . import docx_edit
+        b64 = docx_edit.to_docx_b64(path)
+        if b64:
+            db.set_resume_docx(user_id, b64)
+    except Exception as e:
+        print(f"[subscribe] store resume docx failed: {e}")
+
+
 import threading
 from datetime import datetime as _dt
 from .config import CATCHUP_HOURS
@@ -382,6 +393,9 @@ async def subscribe_post(
                                     "score": j.get("rec_score"), "posted_at": j.get("posted_at")})
     except Exception as e:
         print(f"[subscribe] seed matches failed: {e}")
+    # Store the original resume as a .docx (convert PDF best-effort) so exports can keep their format.
+    if first_path:
+        background_tasks.add_task(_store_resume_docx, user["id"], first_path)
     # Give the new subscriber their first digest right now, in the background.
     background_tasks.add_task(runner.run_once, False, user["id"])
     from . import schedule as sched_info
@@ -1219,6 +1233,33 @@ async def api_resume_export(request: Request, token: str = ""):
         content=data,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={"Content-Disposition": f'attachment; filename="{safe}_JobHunt.docx"'},
+    )
+
+
+@app.post("/api/resume/export_original")
+async def api_resume_export_original(request: Request, token: str = ""):
+    """Export the user's ORIGINAL resume with the accepted edits applied in place (keeps their exact
+    formatting). 409 when we have no editable .docx on file, so the client falls back to the template."""
+    from . import docx_edit
+    user = _resolve_user(request, token)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    b64 = db.get_resume_docx(user["id"])
+    if not b64:
+        return JSONResponse({"error": "no original on file"}, status_code=409)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    data = docx_edit.apply_edits(b64, body.get("edits") or {})
+    if not data:
+        return JSONResponse({"error": "could not edit original"}, status_code=500)
+    safe = (user.get("name") or "resume").replace(" ", "_")
+    safe = "".join(c for c in safe if c.isalnum() or c in "-_") or "resume"
+    return Response(
+        content=data,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{safe}_tailored.docx"'},
     )
 
 
