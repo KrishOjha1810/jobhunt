@@ -1037,7 +1037,8 @@ def api_resume_get(request: Request, token: str = ""):
         # no resume on file , the page must ask the user to upload one before tailoring
         return {"ok": False, "needs_upload": True,
                 "reason": "Upload your resume to tailor it , we don't build one from scratch."}
-    return {"ok": True, "resume": rj, "health": resume_export.ats_health(rj)}
+    return {"ok": True, "resume": rj, "health": resume_export.ats_health(rj),
+            "keeps_format": bool(db.get_resume_docx(user["id"]))}
 
 
 @app.post("/api/resume")
@@ -1084,6 +1085,7 @@ async def api_resume_import(request: Request, token: str = ""):
     if not user:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     text = ""
+    upload_path = None
     ctype = request.headers.get("content-type", "")
     try:
         if "multipart" in ctype:
@@ -1095,6 +1097,7 @@ async def api_resume_import(request: Request, token: str = ""):
                 dest = RESUME_DIR / f"imp_{user['id']}_{safe}"
                 with open(dest, "wb") as out:
                     shutil.copyfileobj(f.file, out)
+                upload_path = str(dest)
                 text = _resume.extract_text(str(dest))
             if not text:
                 text = (form.get("text") or "")
@@ -1115,7 +1118,21 @@ async def api_resume_import(request: Request, token: str = ""):
         obj = _resume.heuristic_structure(text)
     db.set_resume_json(user["id"], obj)
     db.set_resume_text(user["id"], text[:20000])
+    # store the original as a .docx so "Export (keeps your format)" can edit it in place. This was the
+    # bug: import never stored the docx, so format-preserving export had nothing to edit.
+    docx_ok = False
+    if upload_path:
+        try:
+            from . import docx_edit
+            b64 = docx_edit.to_docx_b64(upload_path)
+            if b64:
+                db.set_resume_docx(user["id"], b64); docx_ok = True
+            else:
+                db.set_resume_docx(user["id"], None)  # PDF (no converter) -> clean-template export only
+        except Exception as e:
+            print(f"[import] docx store failed: {e}")
     return {"ok": True, "resume": obj, "health": resume_export.ats_health(obj),
+            "keeps_format": docx_ok,
             "parsed_by": "ai" if enrich.available() and obj.get("experience") else "basic"}
 
 

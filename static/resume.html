@@ -156,6 +156,7 @@
           <button id="exportBtn" class="ghost">Export (clean template)</button>
           <button id="pdfBtn" class="ghost">Print / PDF</button>
         </div>
+        <div class="sub" id="exportHint" style="margin-top:6px"></div>
         <div id="msg"></div>
       </div>
 
@@ -256,7 +257,15 @@
       $('checks').innerHTML = (h.checks||[]).map(c=>`<div class="chk ${c.ok?'ok':''}"><span class="dot">${c.ok?'✓':'•'}</span><span>${esc(c.label)}</span></div>`).join('');
     }
 
-    let HAS_RESUME = false;
+    let HAS_RESUME = false, HAS_FORMAT = false;
+    function updateExportUI(){
+      const eo=$('exportOrigBtn'), eb=$('exportBtn'), hint=$('exportHint');
+      if(!eo||!eb) return;
+      if(HAS_FORMAT){ eo.style.display=''; eo.className=''; eb.className='ghost'; eb.textContent='Export (clean template)';
+        hint.innerHTML='"Keeps your format" edits your uploaded .docx in place , your exact layout, only the wording changes.'; }
+      else { eo.style.display='none'; eb.className=''; eb.textContent='Download tailored resume';
+        hint.innerHTML='To export in your <b>exact original layout</b>, upload a <b>.docx</b> in "Update your resume" above (PDFs can\'t be edited in place). Otherwise this downloads a clean, ATS-friendly version with all your sections.'; }
+    }
     function showUploadGate(){
       // require a real resume before tailoring; open the import card and tell the user
       const ic = $('importCard'); if (ic) ic.open = true;
@@ -266,7 +275,7 @@
     async function load(){
       const r = await fetch('/api/resume'); const d = await r.json();
       if (d && d.needs_upload) { HAS_RESUME=false; showUploadGate(); return; }
-      if (d.resume) { HAS_RESUME=true; R = Object.assign(R, d.resume); renderAll(); renderHealth(d.health); snapOriginal(); }
+      if (d.resume) { HAS_RESUME=true; HAS_FORMAT=!!d.keeps_format; R = Object.assign(R, d.resume); renderAll(); renderHealth(d.health); snapOriginal(); updateExportUI(); }
     }
     async function save(){
       syncTop(); $('msg').innerHTML = 'Saving...';
@@ -335,8 +344,8 @@
     async function importResume(opts){
       $('msg').innerHTML='Parsing your resume with AI...';
       const r = await fetch('/api/resume/import', opts); const d = await r.json();
-      if (d.ok){ R = Object.assign(BASE(), d.resume); renderAll(); renderHealth(d.health); snapOriginal();
-        $('msg').innerHTML='<span class="ok">Imported and parsed , review and edit below.</span>'; }
+      if (d.ok){ HAS_RESUME=true; HAS_FORMAT=!!d.keeps_format; R = Object.assign(BASE(), d.resume); renderAll(); renderHealth(d.health); snapOriginal(); updateExportUI();
+        $('msg').innerHTML='<span class="ok">Imported and parsed'+(HAS_FORMAT?' , format-preserving export is now on.':' (PDF: use the clean template, or upload a .docx for exact layout).')+'</span>'; }
       else $('msg').innerHTML=`<span class="err">${esc(d.reason||'Import failed.')}</span>`;
     }
     $('impUpload').onclick = ()=>{ const f=$('impFile').files[0];

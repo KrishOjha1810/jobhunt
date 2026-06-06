@@ -16,8 +16,13 @@ _TIME = re.compile(r'<time[^>]+datetime="([^"]+)"')
 _TAG = re.compile(r"<[^>]+>")
 
 
+# Public job channels Krish provided (dev / fullstack / blockchain / fresher-internship centric).
+# Override/extend with the TELEGRAM_JOB_CHANNELS env var (comma-separated usernames).
+DEFAULT_CHANNELS = "internfreak, fresherearth, web3hiring, jobs_and_internships_updates"
+
+
 def channels():
-    raw = os.environ.get("TELEGRAM_JOB_CHANNELS", "") or ""
+    raw = os.environ.get("TELEGRAM_JOB_CHANNELS", "") or DEFAULT_CHANNELS
     out = []
     for c in re.split(r"[,\s]+", raw.strip()):
         c = c.strip().strip("@")
@@ -56,7 +61,12 @@ def fetch_channel(username, limit=25):
         url = links[0] if links else ""
         if not url:
             continue
-        first = next((ln.strip() for ln in body.splitlines() if ln.strip()), "Job post")
+        # title = first real line (skip bare URLs, hashtags, and reshare markers)
+        def _good(ln):
+            s = ln.strip().lstrip("•-*▪◦ ").strip()
+            return s and not s.startswith(("#", "http")) and "t.me/" not in s and len(s) > 4
+        first = next((ln.strip().lstrip("•-*▪◦ ").strip() for ln in body.splitlines() if _good(ln)), None) \
+            or f"Job from {username}"
         posted = times[i] if i < len(times) else ""
         out.append({
             "url": url, "title": first[:140], "company": "", "location": "",
