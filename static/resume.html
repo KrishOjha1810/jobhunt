@@ -57,16 +57,17 @@
 
   <div class="wrap">
     <!-- Job-context mode: shown when opened from a job (/resume?job_id= or ?url=) -->
-    <div class="card" id="jobContext" style="display:none;border-color:var(--accent)">
+    <div class="card card--accent" id="jobContext" style="display:none">
       <div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap">
-        <div style="text-align:center;flex:0 0 auto">
-          <div style="font-size:2.2rem;font-weight:800;color:var(--accent2)" id="jcScore">--</div>
-          <div style="font-size:.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">match for this job</div>
+        <div class="ring sm" id="jcRing" style="--val:0;--col:var(--accent);flex:0 0 auto">
+          <svg viewBox="0 0 120 120"><circle class="ring-track" cx="60" cy="60" r="52"/><circle class="ring-val" cx="60" cy="60" r="52"/></svg>
+          <div class="ring-center"><b id="jcScore">--</b><small>match</small></div>
         </div>
         <div style="flex:1;min-width:200px">
-          <div style="font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Tailoring resume for</div>
+          <div class="card-kicker">Tailoring resume for</div>
           <div style="font-size:1.15rem;font-weight:700" id="jcTitle"></div>
-          <div id="jcMissing" style="margin-top:8px"></div>
+          <div class="sub" id="jcGoal" style="margin:4px 0 0"></div>
+          <div id="jcMissing" style="margin-top:10px"></div>
         </div>
       </div>
       <div id="jcEdits" style="margin-top:12px"></div>
@@ -115,48 +116,37 @@
       </div>
     </details>
 
-    <div class="vbar">
-      <span class="sub" style="margin:0">Profile:</span>
-      <select id="verSel" style="width:auto;min-width:200px"><option value="">Base resume</option></select>
-      <button class="ghost sm" id="loadVer">Load</button>
-      <button class="ghost sm" id="saveVer">Save as new</button>
-      <button class="ghost sm" id="renameVer">Rename</button>
-      <button class="ghost sm" id="delVer">Delete</button>
-    </div>
-
     <div class="grid">
       <div>
-        <div class="card">
-          <h2>Contact</h2>
-          <div class="row">
-            <input id="cName" placeholder="Full name" style="flex:2;min-width:140px" />
-            <input id="cEmail" placeholder="Email" style="flex:1;min-width:120px" />
-            <input id="cPhone" placeholder="Phone" style="flex:1;min-width:110px" />
+        <!-- Your resume is an artifact you already own; editing is the escape hatch, not the hero. -->
+        <details class="card" id="editCard">
+          <summary style="cursor:pointer;font-weight:700;font-family:var(--font-display)">Edit my resume</summary>
+          <div style="margin-top:14px">
+            <h3 style="margin:0 0 8px">Contact</h3>
+            <div class="row">
+              <input id="cName" placeholder="Full name" style="flex:2;min-width:140px" />
+              <input id="cEmail" placeholder="Email" style="flex:1;min-width:120px" />
+              <input id="cPhone" placeholder="Phone" style="flex:1;min-width:110px" />
+            </div>
+            <label>Links (LinkedIn, GitHub, portfolio , one per line)</label>
+            <textarea id="cLinks" style="min-height:48px" placeholder="https://linkedin.com/in/...&#10;https://github.com/..."></textarea>
+
+            <h3 style="margin:18px 0 8px">Summary <button class="ghost sm" id="impSummary" style="float:right">✨ Improve</button></h3>
+            <textarea id="summary" placeholder="A 2-3 line professional summary..."></textarea>
+            <label>Skills (comma separated)</label>
+            <input id="skills" placeholder="python, react, aws..." />
+
+            <h3 style="margin:18px 0 8px">Experience</h3>
+            <div id="exps"></div>
+            <button class="ghost sm" id="addExp">+ Add role</button>
+
+            <h3 style="margin:18px 0 8px">Education</h3>
+            <div id="edus"></div>
+            <button class="ghost sm" id="addEdu">+ Add education</button>
           </div>
-          <label>Links (LinkedIn, GitHub, portfolio , one per line)</label>
-          <textarea id="cLinks" style="min-height:48px" placeholder="https://linkedin.com/in/...&#10;https://github.com/..."></textarea>
-        </div>
+        </details>
 
-        <div class="card">
-          <h2>Summary <button class="ghost sm" id="impSummary" style="float:right">✨ Improve</button></h2>
-          <textarea id="summary" placeholder="A 2-3 line professional summary..."></textarea>
-          <label>Skills (comma separated)</label>
-          <input id="skills" placeholder="python, react, aws..." />
-        </div>
-
-        <div class="card">
-          <h2>Experience</h2>
-          <div id="exps"></div>
-          <button class="ghost sm" id="addExp">+ Add role</button>
-        </div>
-
-        <div class="card">
-          <h2>Education</h2>
-          <div id="edus"></div>
-          <button class="ghost sm" id="addEdu">+ Add education</button>
-        </div>
-
-        <div class="row">
+        <div class="row" style="margin-top:12px">
           <button id="saveBtn">Save</button>
           <button id="exportBtn" class="ghost">Export DOCX</button>
           <button id="pdfBtn" class="ghost">Print / PDF</button>
@@ -274,27 +264,11 @@
     $('addEdu').onclick = ()=>{ R.education.push({degree:'',school:'',dates:''}); renderEdus(); };
     $('impSummary').onclick = async ()=>{ syncTop(); const out = await improve('summary', R.summary); if(out){ R.summary=out; $('summary').value=out; } };
 
-    // ---- named resume profiles (versions) ----
-    let VERSIONS = [], activeVer = '';  // activeVer = name of the loaded profile ('' = base)
-    async function loadVersions(){
-      const r = await fetch('/api/resume/versions'); const d = await r.json(); VERSIONS = d.versions||[];
-      $('verSel').innerHTML = '<option value="">Base resume' + (activeVer===''?' (active)':'') + '</option>' +
-        VERSIONS.map((v,i)=>`<option value="${i}" ${v.name===activeVer?'selected':''}>${esc(v.name)}${v.name===activeVer?' (active)':''}</option>`).join('');
-    }
-    $('loadVer').onclick = async ()=>{ const i=$('verSel').value; if(i==='') { activeVer=''; await load(); await loadVersions(); return; }
-      R = Object.assign(BASE(), VERSIONS[+i].data); activeVer = VERSIONS[+i].name; renderAll(); await loadVersions(); $('msg').innerHTML=`<span class="ok">Loaded profile: ${esc(activeVer)}</span>`; };
+    // Tailored resumes are saved automatically (named after the job) when you "Save & mark applied",
+    // so the user never manages "profiles" by hand.
     async function saveVersion(name){ syncTop();
       const r=await fetch('/api/resume/versions',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'save',name,data:R})});
-      const d=await r.json(); VERSIONS=d.versions||[]; activeVer=name; await loadVersions(); return d; }
-    $('saveVer').onclick = async ()=>{ const name=prompt('Name this resume profile (e.g. "Backend , Acme"):'); if(!name) return;
-      await saveVersion(name); $('msg').innerHTML='<span class="ok">Saved profile.</span>'; };
-    $('renameVer').onclick = async ()=>{ const i=$('verSel').value; if(i==='') return alert('Pick a saved profile to rename.');
-      const old=VERSIONS[+i].name; const nn=prompt('Rename profile:', old); if(!nn||nn===old) return;
-      await fetch('/api/resume/versions',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'rename',name:old,new_name:nn})});
-      if(activeVer===old) activeVer=nn; await loadVersions(); };
-    $('delVer').onclick = async ()=>{ const i=$('verSel').value; if(i==='') return; const name=VERSIONS[+i].name;
-      if(!confirm('Delete profile "'+name+'"?')) return;
-      await fetch('/api/resume/versions',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'delete',name})}); if(activeVer===name) activeVer=''; await loadVersions(); };
+      return await r.json(); }
 
     function buildPreview(){
       syncTop();
@@ -343,15 +317,18 @@
 
     function renderMatch(m){
       if(!m) return;
-      $('jcScore').textContent = m.score + '%';
-      const col = m.score>=75 ? 'var(--ok,#3fb950)' : (m.score>=50 ? 'var(--accent2)' : 'var(--err,#f85149)');
-      $('jcScore').style.color = col;
+      $('jcScore').textContent = m.score;
+      const col = m.score>=80 ? 'var(--ok)' : (m.score>=60 ? 'var(--accent)' : 'var(--c-notfit)');
+      const ring = $('jcRing'); ring.style.setProperty('--val', m.score); ring.style.setProperty('--col', col);
       const miss = (m.missing||[]).slice(0,12);
+      $('jcGoal').innerHTML = m.score>=80
+        ? '<span class="ok">Strong match , you\'re ready to apply.</span>'
+        : `Aim for <b>80+</b> to be competitive. ${miss.length ? miss.length+' skill'+(miss.length===1?'':'s')+' to add:' : ''}`;
       if(!miss.length){
         $('jcMissing').innerHTML = '<span class="ok">Your resume covers the key skills in this job.</span>';
       } else {
-        $('jcMissing').innerHTML = '<div style="font-size:.78rem;color:var(--muted);margin-bottom:4px">Missing keywords from this job , click to add to Skills:</div>' +
-          miss.map(x=>`<button class="sm ghost addkw" data-k="${esc(x.term)}" style="margin:2px;padding:3px 9px;font-size:.8rem">+ ${esc(x.term)}${x.tier==='core'?' ★':''}</button>`).join('');
+        $('jcMissing').innerHTML = '<div style="font-size:.78rem;color:var(--muted);margin-bottom:4px">Add the ones you actually have (we never invent experience):</div>' +
+          miss.map(x=>`<button class="sm ghost addkw" data-k="${esc(x.term)}" style="margin:2px;padding:3px 9px;font-size:.8rem;${x.tier==='core'?'border-color:var(--accent);color:var(--accent)':''}">+ ${esc(x.term)}${x.tier==='core'?' ★':''}</button>`).join('');
         document.querySelectorAll('.addkw').forEach(b=>b.onclick=()=>{
           const k=b.dataset.k; if(!R.skills.includes(k)){ R.skills.push(k); $('skills').value=R.skills.join(', '); }
           b.remove(); save(); rescore();
@@ -366,7 +343,7 @@
         const q = CTX_JOB ? ('?'+ctxQuery()) : '';
         const body = CTX_JOB ? {resume:R} : {resume:R, jd:CTX_JD};
         const r = await fetch('/api/resume/ats'+q,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
-        if(r.ok){ const d=await r.json(); renderMatch(d.match); }
+        if(r.ok){ const d=await r.json(); renderMatch(d.match); if(d.health) renderHealth(d.health); }
       }, 500);
     }
 
@@ -446,7 +423,6 @@
     }
 
     load().then(initJobContext);
-    loadVersions();
   </script>
   <script src="/static/announce.js?v=4"></script>
 </body>

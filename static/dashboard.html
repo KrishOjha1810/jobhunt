@@ -7,17 +7,20 @@
   <link rel="stylesheet" href="/static/theme.css?v=4" />
   <style>
     /* page-local: table + filter toggles + hero (everything else comes from theme.css) */
-    .head{margin-bottom:18px}
-    .head h1{font-size:1.6rem}
+    .wrap{padding-top:var(--sp-4)}
+    .head{margin-bottom:12px}
+    .head h1{font-size:1.5rem}
+    .head .sub{font-size:var(--fs-sm)}
+    #heroCard{padding:var(--sp-4) var(--sp-5)}
     .toggle-group{display:inline-flex;gap:4px;background:var(--seg-bg);padding:4px;border-radius:var(--r-md);border:1px solid var(--field-border);flex-wrap:wrap}
     .toggle-group .btn{padding:6px 13px;border:0;border-radius:var(--r-sm);background:transparent;color:var(--seg-ink);font-size:var(--fs-sm);font-weight:600;cursor:pointer;transition:.15s}
     .toggle-group .btn:hover{color:var(--ink)}
     .toggle-group .btn.active{background:var(--accent-soft);color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
-    .filters{display:flex;flex-wrap:wrap;gap:10px;margin:14px 0 16px;align-items:center}
+    .filters{display:flex;flex-wrap:wrap;gap:10px;margin:0 0 12px;align-items:center}
     .filters select{width:auto;min-width:130px}
     /* hero */
-    .hero{display:flex;gap:var(--sp-6);align-items:center;flex-wrap:wrap}
-    .hero .breakdown{display:flex;gap:var(--sp-5);flex-wrap:wrap;margin:var(--sp-3) 0 var(--sp-4)}
+    .hero{display:flex;gap:var(--sp-5);align-items:center;flex-wrap:wrap}
+    .hero .breakdown{display:flex;gap:var(--sp-4);flex-wrap:wrap;margin:var(--sp-2) 0 var(--sp-3)}
     .goal-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
     .goal-row .edit{cursor:pointer;color:var(--accent);font-size:var(--fs-xs);font-weight:600}
     /* table */
@@ -86,7 +89,7 @@
       <div class="main">
         <!-- HERO: funnel ring + status breakdown + weekly goal -->
         <div class="card card--accent hero" id="heroCard">
-          <div class="ring" id="funnelRing" style="--val:0;--col:var(--accent)">
+          <div class="ring sm" id="funnelRing" style="--val:0;--col:var(--accent)">
             <svg viewBox="0 0 120 120"><circle class="ring-track" cx="60" cy="60" r="52"/><circle class="ring-val" cx="60" cy="60" r="52"/></svg>
             <div class="ring-center"><b id="funnelPct">0<span>%</span></b><small>applied</small></div>
           </div>
@@ -101,7 +104,7 @@
           </div>
         </div>
 
-        <div class="card" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px">
+        <div class="card" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px;padding:10px 14px">
           <span class="sub" style="margin:0;flex:0 0 auto">Applied somewhere else?</span>
           <input id="extUrl" placeholder="Paste the job link to track it , keeps your streak alive" style="flex:1;min-width:200px">
           <button class="applylink" id="extBtn" style="border:0">Track it</button>
@@ -113,7 +116,7 @@
           <div id="insights" style="margin-top:10px;font-size:var(--fs-sm)"></div>
         </details>
 
-        <div class="toggle-group" id="statusGroup" style="margin:14px 0">
+        <div class="toggle-group" id="statusGroup" style="margin:10px 0">
           <button class="btn active" data-status="">All</button>
           <button class="btn" data-status="saved">Saved</button>
           <button class="btn" data-status="applied">Applied</button>

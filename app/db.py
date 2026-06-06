@@ -1023,6 +1023,17 @@ def _row_to_user(r):
     return d
 
 
+def wipe_users():
+    """Delete ALL users and their per-user data (tracker rows, events). Keeps the shared jobs_catalog
+    and meta so Browse still works. Returns how many users were removed. Destructive , admin only."""
+    with engine.begin() as c:
+        n = c.execute(select(func.count()).select_from(users)).scalar() or 0
+        c.execute(delete(events))
+        c.execute(delete(job_log))
+        c.execute(delete(users))
+    return n
+
+
 def get_user_by_id(uid):
     with engine.connect() as c:
         r = c.execute(select(users).where(users.c.id == uid)).mappings().first()

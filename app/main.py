@@ -371,7 +371,18 @@ async def subscribe_post(
         cadence=cadence if cadence in ("twice", "daily", "weekly") else "twice",
         experience=experience if experience in ("fresher", "junior", "mid", "senior", "lead") else None,
     )
-    # Give the new subscriber their first matches right now, in the background.
+    # Seed the dashboard immediately with the user's best ~20 matches (saved), so it's never empty.
+    try:
+        uobj = db.get_user_by_id(user["id"])
+        for j in db.list_catalog_ranked(uobj, limit=20)[:20]:
+            if not j.get("url"):
+                continue
+            db.log_job(user["id"], {"url": j["url"], "title": j.get("title"),
+                                    "company": j.get("company"), "category": j.get("category"),
+                                    "score": j.get("rec_score"), "posted_at": j.get("posted_at")})
+    except Exception as e:
+        print(f"[subscribe] seed matches failed: {e}")
+    # Give the new subscriber their first digest right now, in the background.
     background_tasks.add_task(runner.run_once, False, user["id"])
     from . import schedule as sched_info
     roles = ", ".join(cat_list) if cat_list else "all roles"
@@ -494,6 +505,16 @@ def api_jobs(request: Request, token: str = "", week: int = 0, company: str = ""
             "analytics": db.analytics(user["id"]),
             "resume_names": [v.get("name") for v in db.get_resume_versions(user["id"])],
             "jobs": jobs}
+
+
+@app.api_route("/admin/reset-users", methods=["GET", "POST"])
+def admin_reset_users(token: str = ""):
+    """DESTRUCTIVE: delete every user + their tracker/events (keeps the job catalog). Requires the
+    RUN_TOKEN. Use to start fresh; everyone signs up again."""
+    if not RUN_TOKEN or token != RUN_TOKEN:
+        return JSONResponse({"error": "valid token required (set RUN_TOKEN, pass ?token=...)"}, status_code=403)
+    n = db.wipe_users()
+    return {"ok": True, "deleted_users": n, "message": "All users removed. The job catalog was kept."}
 
 
 @app.get("/api/gamify")
@@ -1077,7 +1098,7 @@ def api_resume_context(request: Request, job_id: int = 0, url: str = "", token: 
 @app.post("/api/resume/ats")
 async def api_resume_ats(request: Request, job_id: int = 0, url: str = "", token: str = ""):
     """Recompute the JD-aware ATS match for the (edited) resume in the body. Deterministic, instant."""
-    from . import resume as _resume
+    from . import resume as _resume, resume_export
     user = _resolve_user(request, token)
     if not user:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
@@ -1093,7 +1114,7 @@ async def api_resume_ats(request: Request, job_id: int = 0, url: str = "", token
             jobs = db.list_jobs(user["id"]); job = next((j for j in jobs if j.get("url") == url), None)
         if job:
             jd = db.catalog_description(job.get("url")) or (job.get("title") or "")
-    return {"ok": True, "match": _resume.ats_job_match(rj, jd)}
+    return {"ok": True, "match": _resume.ats_job_match(rj, jd), "health": resume_export.ats_health(rj)}
 
 
 @app.post("/api/resume/tailor_adhoc")
