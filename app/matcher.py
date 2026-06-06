@@ -77,21 +77,49 @@ def years_required(text: str) -> int:
     return max((int(n) for n in nums), default=0)
 
 
+# Ordered most-specific -> most-generic (first match wins). Title is weighted: a term in the title
+# decides the tag even if a more-generic term appears in the body. Keep tags granular (LeetCode-style)
+# so "Other" is rare.
 CATEGORY_RULES = [
-    ("Blockchain", ["solidity", "smart contract", "blockchain", "web3", "defi", "protocol", "evm", "crypto"]),
-    ("Full-Stack", ["full stack", "full-stack", "fullstack"]),
-    ("Frontend", ["frontend", "front-end", "front end", "react", "next.js", "ui engineer"]),
-    ("Data", ["data engineer", "data scientist", "machine learning", "ml engineer", "analytics"]),
-    ("DevOps", ["devops", "sre", "site reliability", "infrastructure", "platform engineer"]),
-    ("Backend", ["backend", "back-end", "back end", "api", "server", "rust", "golang", "node"]),
+    ("Blockchain", ["solidity", "smart contract", "blockchain", "web3", "defi", "evm", "ethereum",
+                    "crypto", "protocol engineer", "zero knowledge", "zk-rollup", "smart contracts"]),
+    ("AI / ML", ["machine learning", "ml engineer", "deep learning", "computer vision", "llm",
+                 "mlops", "ai engineer", "generative ai", "nlp engineer", "applied scientist"]),
+    ("Data Science", ["data scientist", "data science", "quantitative researcher", "statistician"]),
+    ("Data Engineering", ["data engineer", "data engineering", "etl developer", "data platform",
+                          "data pipeline", "analytics engineer"]),
+    ("Data Analyst", ["data analyst", "business analyst", "bi analyst", "business intelligence"]),
+    ("Mobile", ["mobile developer", "mobile engineer", "android developer", "ios developer",
+                "react native", "flutter developer", "swiftui", "jetpack compose"]),
+    ("DevOps / SRE", ["devops", "sre", "site reliability", "platform engineer", "infrastructure engineer",
+                      "release engineer"]),
+    ("Cloud", ["cloud engineer", "cloud architect", "solutions architect", "cloud infrastructure"]),
+    ("Security", ["security engineer", "appsec", "penetration test", "pentest", "infosec",
+                  "cybersecurity", "security analyst", "soc analyst"]),
+    ("QA / Test", ["qa engineer", "sdet", "quality assurance", "test engineer", "automation tester"]),
+    ("Engineering Manager", ["engineering manager", "tech lead", "team lead", "staff engineer",
+                             "principal engineer", "director of engineering", "head of engineering"]),
+    ("Product", ["product manager", "product owner", "program manager", "associate product"]),
+    ("Design", ["ux designer", "ui designer", "ui/ux", "product designer", "graphic designer",
+                "ux researcher"]),
+    ("Embedded", ["embedded", "firmware", "rtos", "fpga", "verilog", "device driver"]),
+    ("Game Dev", ["game developer", "game engineer", "unity developer", "unreal engine", "gameplay"]),
+    ("Full-Stack", ["full stack", "full-stack", "fullstack", "mern", "mean stack"]),
+    ("Frontend", ["frontend", "front-end", "front end", "react developer", "next.js", "vue.js",
+                  "angular developer", "ui engineer", "ui developer", "web developer"]),
+    ("Backend", ["backend", "back-end", "back end", "api developer", "server-side", "golang",
+                 "node.js", "django", "spring boot", "microservices", "ruby on rails"]),
 ]
 
 
 def categorize(job: dict) -> str:
-    text = (job.get("title", "") + " " + job.get("description", "")).lower()
-    for label, terms in CATEGORY_RULES:
-        if any(t in text for t in terms):
-            return label
+    title = job.get("title", "").lower()
+    body = (title + " " + job.get("description", "")).lower()
+    # prefer a tag whose term appears in the TITLE (stronger signal), else fall back to the body
+    for source in (title, body):
+        for label, terms in CATEGORY_RULES:
+            if any(t in source for t in terms):
+                return label
     return "Other"
 
 

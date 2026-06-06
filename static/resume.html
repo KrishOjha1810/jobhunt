@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Resume Studio , JobHunt</title>
-  <link rel="stylesheet" href="/static/theme.css?v=2" />
+  <link rel="stylesheet" href="/static/theme.css?v=3" />
   <style>
     /* page-local: resume editor + paper preview (everything else from theme.css) */
     .grid { display:grid; grid-template-columns:1fr 320px; gap:var(--sp-5); align-items:start; }
@@ -72,22 +72,48 @@
       <div id="jcEdits" style="margin-top:12px"></div>
     </div>
 
-    <h1>Resume Studio</h1>
-    <p class="sub">Import or edit your resume, tailor it to a job with one click, see it render live, and export an ATS-safe file , without leaving JobHunt.</p>
+    <h1 id="pageTitle">Tailor your resume for a job</h1>
+    <p class="sub" id="pageSub">You already have a resume , we don't rebuild it. Tell us the job and we suggest exactly what to change and what to add (only if you have the experience). Accept what you like, reject the rest, export, and apply.</p>
 
-    <div class="card" id="importCard">
-      <h2>Import a resume</h2>
+    <!-- No-job intake: shown only when NOT launched from a specific job -->
+    <div class="card card--accent" id="jobIntake" style="display:none">
+      <h2>Which job are you tailoring for?</h2>
+      <p class="sub" style="margin:-2px 0 10px">Open this from a job in your Tracker or Browse and it fills in automatically. Otherwise, paste the role and its description and we'll tailor to it.</p>
       <div class="row">
-        <input type="file" id="impFile" accept=".pdf,.docx,.doc,.txt" style="flex:1;min-width:160px" />
-        <button class="sm" id="impUpload">Upload &amp; parse</button>
+        <input id="inRole" placeholder="Role you're applying to (e.g. Backend Engineer)" style="flex:2;min-width:180px" />
+        <select id="inYears" style="flex:1;min-width:150px">
+          <option value="">Years of experience</option>
+          <option value="0">Fresher / student</option>
+          <option value="1">0-2 years</option>
+          <option value="3">2-5 years</option>
+          <option value="7">5-10 years</option>
+          <option value="11">10+ years</option>
+        </select>
       </div>
-      <label>...or paste resume text</label>
-      <textarea id="impText" placeholder="Paste your full resume text here, then click Parse..."></textarea>
-      <div class="row" style="margin-top:6px;align-items:center">
-        <button class="sm ghost" id="impPaste">Paste &amp; parse</button>
-        <span class="sub" style="margin:0">Or just edit the resume below , it's already loaded from your account.</span>
+      <label>Paste the job description</label>
+      <textarea id="inJD" style="min-height:120px" placeholder="Paste the full job description here..."></textarea>
+      <div class="row" style="margin-top:8px;align-items:center">
+        <button id="inTailor">Tailor my resume for this</button>
+        <span class="sub" style="margin:0" id="inHint">Using the resume on your account.</span>
       </div>
+      <div id="inMsg" class="sub" style="margin-top:6px"></div>
     </div>
+
+    <details class="card" id="importCard">
+      <summary style="cursor:pointer;font-weight:700;font-family:var(--font-display)">Update your resume (upload or paste)</summary>
+      <div style="margin-top:12px">
+        <div class="row">
+          <input type="file" id="impFile" accept=".pdf,.docx,.doc,.txt" style="flex:1;min-width:160px" />
+          <button class="sm" id="impUpload">Upload &amp; parse</button>
+        </div>
+        <label>...or paste resume text</label>
+        <textarea id="impText" placeholder="Paste your full resume text here, then click Parse..."></textarea>
+        <div class="row" style="margin-top:6px;align-items:center">
+          <button class="sm ghost" id="impPaste">Paste &amp; parse</button>
+          <span class="sub" style="margin:0">Or edit the resume below , it's already loaded from your account.</span>
+        </div>
+      </div>
+    </details>
 
     <div class="vbar">
       <span class="sub" style="margin:0">Profile:</span>
@@ -109,15 +135,6 @@
           </div>
           <label>Links (LinkedIn, GitHub, portfolio , one per line)</label>
           <textarea id="cLinks" style="min-height:48px" placeholder="https://linkedin.com/in/...&#10;https://github.com/..."></textarea>
-        </div>
-
-        <div class="card" id="tailorCard">
-          <h2>Tailor for a job</h2>
-          <div class="row">
-            <select id="jobSel" style="flex:1"><option value="">Pick a matched job...</option></select>
-            <button id="tailorBtn" class="sm">Tailor</button>
-          </div>
-          <div id="edits"></div>
         </div>
 
         <div class="card">
@@ -204,7 +221,7 @@
       });
     }
     async function improve(field, text){
-      const jid = $('jobSel').value || '';
+      const jid = (CTX_JOB && CTX_JOB.id) || '';
       $('msg').innerHTML='Improving with AI...';
       const r = await fetch('/api/resume/improve',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({field,text,job_id:jid})});
       const d = await r.json(); $('msg').innerHTML = d.ok?'<span class="ok">Improved.</span>':`<span class="err">${esc(d.reason||'failed')}</span>`;
@@ -245,10 +262,6 @@
     async function load(){
       const r = await fetch('/api/resume'); const d = await r.json();
       if (d.resume) { R = Object.assign(R, d.resume); renderAll(); renderHealth(d.health); }
-      const jr = await fetch('/api/jobs'); if (jr.ok){ const jd = await jr.json();
-        $('jobSel').innerHTML = '<option value="">Pick a matched job...</option>' +
-          (jd.jobs||[]).slice(0,80).map(j=>`<option value="${j.id}">${esc((j.company||'')+' , '+(j.title||''))}</option>`).join('');
-      }
     }
     async function save(){
       syncTop(); $('msg').innerHTML = 'Saving...';
@@ -297,45 +310,6 @@
       $('preview').innerHTML = h;
     }
 
-    $('tailorBtn').onclick = async ()=>{
-      const id = $('jobSel').value; if(!id) return $('msg').innerHTML='<span class="err">Pick a job first.</span>';
-      $('edits').innerHTML = '<p class="sub">Generating tailored edits...</p>';
-      const r = await fetch('/api/resume/tailor?job_id='+id); const d = await r.json();
-      if(!d.ok){ $('edits').innerHTML = `<p class="err">${esc(d.reason||'Could not generate.')}</p>`; return; }
-      const e = d.edits;
-      let html = '';
-      try { const ar = await fetch('/ats?job_id='+id); const ad = await ar.json();
-        if (ad.ok) html += `<div class="edit"><span class="pill">ATS match for this job</span> <b>${ad.score}/100</b></div>`; } catch {}
-      if (e.summary) html += `<div class="edit"><span class="pill">Summary</span><div class="after">${esc(e.summary)}</div><label><input type="checkbox" class="appr" data-t="summary" checked style="width:auto"> apply</label></div>`;
-      (e.add_skills||[]).forEach((s,i)=>{ html += `<div class="edit"><span class="pill">+ Skill</span> ${esc(s)} <label><input type="checkbox" class="appr" data-t="skill" data-v="${esc(s)}" checked style="width:auto"> add</label></div>`; });
-      (e.bullets||[]).forEach((b,i)=>{ html += `<div class="edit"><span class="pill">Bullet</span><div class="before">${esc(b.original)}</div><div class="after">${esc(b.improved)}</div><label><input type="checkbox" class="appr" data-t="bullet" data-i="${i}" checked style="width:auto"> apply</label></div>`; });
-      const jobName = [d.job&&d.job.company, d.job&&d.job.title].filter(Boolean).join(' , ').slice(0,60) || 'Tailored';
-      html += '<div class="row" style="margin-top:8px"><button class="sm" id="applyBtn">Apply approved changes</button>'
-            + `<button class="sm ghost" id="stampBtn">Save as "${esc(jobName)}" &amp; mark used for this job</button></div>`;
-      $('edits').innerHTML = html;
-      const norm = s => (s||'').toLowerCase().replace(/\s+/g,' ').replace(/[.,;:]+$/,'').trim();
-      function applyApproved(){
-        syncTop(); let changed = 0;
-        document.querySelectorAll('.appr:checked').forEach(c=>{
-          if(c.dataset.t==='summary'){ R.summary = e.summary; changed++; }
-          else if(c.dataset.t==='skill'){ if(!R.skills.includes(c.dataset.v)){ R.skills.push(c.dataset.v); changed++; } }
-          else if(c.dataset.t==='bullet'){ const bb=e.bullets[+c.dataset.i]; const tgt=norm(bb.original); let hit=false;
-            R.experience.forEach(x=>{ x.bullets=(x.bullets||[]).map(t=>{ if(!hit && tgt && norm(t)===tgt){ hit=true; changed++; return bb.improved; } return t; }); });
-            if(!hit && bb.improved){ if(!R.experience.length) R.experience.push({title:'',company:'',dates:'',bullets:[]});
-              R.experience[0].bullets.push(bb.improved); changed++; }  // couldn't match -> add as a new bullet, never silently drop
-          }
-        });
-        renderAll(); return changed;
-      }
-      $('applyBtn').onclick = ()=>{ const n=applyApproved(); save(); $('edits').innerHTML=`<p class="ok">Applied ${n} change${n===1?'':'s'}. Review above, then Export.</p>`; };
-      $('stampBtn').onclick = async ()=>{
-        applyApproved();
-        await saveVersion(jobName);                       // save this tailored resume as a named profile
-        await fetch('/api/jobs/'+id+'?resume_used='+encodeURIComponent(jobName)+'&status=applied', {method:'POST'}); // stamp the application
-        $('edits').innerHTML = `<p class="ok">Saved profile "${esc(jobName)}" and marked it used for this job in your tracker.</p>`;
-      };
-    };
-
     $('exportBtn').onclick = async ()=>{
       syncTop();
       const r = await fetch('/api/resume/export',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(R)});
@@ -363,7 +337,7 @@
     // ---- job-context mode: builder opened directly for a specific job ----
     const QS = new URLSearchParams(location.search);
     const JOB_ID = QS.get('job_id') || 0, JOB_URL = QS.get('url') || '';
-    let CTX_JOB = null, rescoreT;
+    let CTX_JOB = null, CTX_JD = '', rescoreT;
 
     function ctxQuery(){ return JOB_ID ? ('job_id='+encodeURIComponent(JOB_ID)) : ('url='+encodeURIComponent(JOB_URL)); }
 
@@ -385,11 +359,13 @@
       }
     }
     async function rescore(){
-      if(!CTX_JOB) return;
+      if(!CTX_JOB && !CTX_JD) return;
       clearTimeout(rescoreT);
       rescoreT = setTimeout(async ()=>{
         syncTop();
-        const r = await fetch('/api/resume/ats?'+ctxQuery(),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({resume:R})});
+        const q = CTX_JOB ? ('?'+ctxQuery()) : '';
+        const body = CTX_JOB ? {resume:R} : {resume:R, jd:CTX_JD};
+        const r = await fetch('/api/resume/ats'+q,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
         if(r.ok){ const d=await r.json(); renderMatch(d.match); }
       }, 500);
     }
@@ -423,27 +399,55 @@
         $('jcEdits').innerHTML=`<p class="ok">Applied ${n} change${n===1?'':'s'}, saved this version, and marked the job applied in your tracker.</p>`; };
     }
 
-    async function initJobContext(){
-      if(!JOB_ID && !JOB_URL) return;
+    function renderResult(d, titleText){
       $('jobContext').style.display='block';
-      $('jcTitle').textContent = 'Loading job...';
-      const r = await fetch('/api/resume/context?'+ctxQuery());
-      if(!r.ok){ $('jcTitle').textContent='Could not load this job.'; return; }
-      const d = await r.json();
-      if(!d.ok){ $('jcTitle').textContent = d.reason||'Job not found.'; return; }
-      CTX_JOB = d.job;
-      $('jcTitle').textContent = [d.job.company, d.job.title].filter(Boolean).join(' , ') || 'This job';
+      $('jcTitle').textContent = titleText;
       if(d.resume){ R = Object.assign(BASE(), d.resume); renderAll(); }
       renderHealth(d.health);
       renderMatch(d.match);
-      // surface Groq tailor edits inline (reuse the existing approve UI), or a deterministic hint
-      if(d.edits){ showEdits(d.edits, d.job.title || 'this job'); }
-      else if(d.llm===false){ $('jcEdits').innerHTML='<p class="sub">AI rewrite is offline (no key). Add the missing keywords above, then export , the match score updates live.</p>'; }
+      if(d.edits){ showEdits(d.edits, titleText); }
+      else if(d.llm===false){ $('jcEdits').innerHTML='<p class="sub">AI rewrite is offline right now. Add the missing keywords above, then export , the match score updates live.</p>'; }
+      else { $('jcEdits').innerHTML=''; }
       document.addEventListener('input', rescore);
+      $('jobContext').scrollIntoView({behavior:'smooth', block:'start'});
+    }
+
+    async function initJobContext(){
+      if(JOB_ID || JOB_URL){
+        // launched from a specific job , JD auto-loaded, no picking
+        $('jobIntake').style.display='none';
+        $('jobContext').style.display='block';
+        $('jcTitle').textContent = 'Loading job...';
+        const r = await fetch('/api/resume/context?'+ctxQuery());
+        if(!r.ok){ $('jcTitle').textContent='Could not load this job.'; return; }
+        const d = await r.json();
+        if(!d.ok){ $('jcTitle').textContent = d.reason||'Job not found.'; return; }
+        CTX_JOB = d.job;
+        renderResult(d, [d.job.company, d.job.title].filter(Boolean).join(' , ') || 'This job');
+        return;
+      }
+      // direct visit , show the intake (upload resume + paste JD + role + years)
+      $('pageTitle').textContent = 'Tailor your resume for a job';
+      $('jobIntake').style.display='block';
+      $('inTailor').onclick = async ()=>{
+        const jd = $('inJD').value.trim(), role = $('inRole').value.trim(), years = $('inYears').value;
+        if(jd.length < 40){ $('inMsg').innerHTML='<span class="err">Paste the job description first (a sentence or two minimum).</span>'; return; }
+        $('inMsg').textContent='Tailoring your resume for this job...'; $('inTailor').disabled=true;
+        syncTop();
+        const r = await fetch('/api/resume/tailor_adhoc',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({jd,role,years})});
+        $('inTailor').disabled=false;
+        if(!r.ok){ $('inMsg').innerHTML='<span class="err">Could not tailor. Try again.</span>'; return; }
+        const d = await r.json();
+        if(!d.ok){ $('inMsg').innerHTML=`<span class="err">${esc(d.reason||'Could not tailor.')}</span>`; return; }
+        $('inMsg').textContent='';
+        CTX_JD = jd;
+        renderResult(d, role || 'This job');
+      };
     }
 
     load().then(initJobContext);
     loadVersions();
   </script>
+  <script src="/static/announce.js?v=3"></script>
 </body>
 </html>

@@ -1,6 +1,7 @@
 """Storage for users, the job log (tracker), and dedup. SQLAlchemy Core so the same code runs
 on local SQLite and cloud Postgres (Neon)."""
 import json
+import re
 import secrets
 import hashlib
 from datetime import datetime, timedelta
@@ -251,6 +252,15 @@ def prune_catalog(max_age_days=14, per_category=120, total=1000):
     removed = 0
     with engine.begin() as c:
         removed += c.execute(delete(jobs_catalog).where(jobs_catalog.c.first_seen_at < cutoff)).rowcount or 0
+        # drop confidently-stale postings by their posted date (e.g. 2yr/6yr-old listings)
+        stale = []
+        for url, pa in c.execute(select(jobs_catalog.c.url, jobs_catalog.c.posted_at)).all():
+            age = posted_age_days(pa)
+            if age is not None and age > MAX_POSTED_AGE_DAYS:
+                stale.append(url)
+        for i in range(0, len(stale), 400):
+            removed += c.execute(delete(jobs_catalog).where(
+                jobs_catalog.c.url.in_(stale[i:i + 400]))).rowcount or 0
         cats = [r[0] for r in c.execute(select(jobs_catalog.c.category).distinct()).all()]
         for cat in cats:
             th = c.execute(
@@ -300,6 +310,37 @@ def upsert_jobs(jobs):
     return len(new)
 
 
+_REL_AGE = re.compile(r"(\d+)\s*\+?\s*(day|week|month|year)s?\s*ago")
+
+
+def posted_age_days(s):
+    """Best-effort age in days from a job's posted_at string (handles ISO dates + 'N days ago').
+    Returns None when it can't tell , callers should KEEP unknown-age jobs (don't over-prune)."""
+    if not s:
+        return None
+    s = str(s).strip().lower()
+    m = _REL_AGE.search(s)
+    if m:
+        return int(m.group(1)) * {"day": 1, "week": 7, "month": 30, "year": 365}[m.group(2)]
+    if "year" in s and "ago" in s:
+        return 400
+    if "month" in s and "ago" in s:
+        return 60
+    if any(w in s for w in ("today", "hour", "just posted", "minute", "moments ago")):
+        return 0
+    m = re.search(r"(\d{4})-(\d{2})-(\d{2})", s)
+    if m:
+        try:
+            d = datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+            return (datetime.utcnow() - d).days
+        except Exception:
+            return None
+    return None
+
+
+MAX_POSTED_AGE_DAYS = 40  # browse only shows jobs posted within ~the last month or so
+
+
 def list_catalog(category=None, q=None, limit=200):
     sel = select(jobs_catalog)
     if category:
@@ -309,13 +350,21 @@ def list_catalog(category=None, q=None, limit=200):
         sel = sel.where(
             func.lower(jobs_catalog.c.title).like(like) | func.lower(jobs_catalog.c.company).like(like)
         )
-    sel = sel.order_by(jobs_catalog.c.first_seen_at.desc()).limit(limit)
+    # over-fetch, then drop confidently-stale postings (6yr/2yr-old listings) by their posted date
+    sel = sel.order_by(jobs_catalog.c.first_seen_at.desc()).limit(limit * 3)
     with engine.connect() as conn:
         rows = [dict(r) for r in conn.execute(sel).mappings().all()]
+    fresh = []
     for r in rows:
+        age = posted_age_days(r.get("posted_at"))
+        if age is not None and age > MAX_POSTED_AGE_DAYS:
+            continue
         if r.get("first_seen_at"):
             r["first_seen_at"] = str(r["first_seen_at"])[:16]
-    return rows
+        fresh.append(r)
+        if len(fresh) >= limit:
+            break
+    return fresh
 
 
 def catalog_categories():

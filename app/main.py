@@ -1005,6 +1005,41 @@ async def api_resume_ats(request: Request, job_id: int = 0, url: str = "", token
     return {"ok": True, "match": _resume.ats_job_match(rj, jd)}
 
 
+@app.post("/api/resume/tailor_adhoc")
+async def api_resume_tailor_adhoc(request: Request, token: str = ""):
+    """Tailor against a pasted JD when there's no tracked job (the direct-visit intake). Same engine
+    as the job-bound flow: deterministic match + best-effort Groq edits. Body: {jd, role, years}."""
+    from . import enrich, resume as _resume, resume_export
+    user = _resolve_user(request, token)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    jd = (body.get("jd") or "").strip()
+    role = (body.get("role") or "").strip() or "this role"
+    years = body.get("years")
+    if len(jd) < 40:
+        return {"ok": False, "reason": "Paste the job description (a sentence or two minimum) so we can tailor to it."}
+    rj = db.get_resume_json(user["id"])
+    if rj is None:
+        txt = user.get("resume_text") or ""
+        if txt:
+            rj = (enrich.parse_resume_structured(txt)[0] if enrich.available() else None) or _resume.heuristic_structure(txt)
+            if rj:
+                db.set_resume_json(user["id"], rj)
+    if rj is None:
+        return {"ok": False, "reason": "Upload your resume first, then paste the job description."}
+    context = jd if not years else f"Candidate has about {years} years of experience.\n\n{jd}"
+    edits = None
+    if enrich.available():
+        edits, _err = enrich.tailor_edits(rj, role, context)
+    return {"ok": True, "role": role, "resume": rj,
+            "match": _resume.ats_job_match(rj, jd),
+            "health": resume_export.ats_health(rj), "edits": edits, "llm": enrich.available()}
+
+
 @app.post("/api/resume/improve")
 async def api_resume_improve(request: Request, token: str = ""):
     """Rewrite one field (summary or a bullet) with AI. Body: {field, text, job_id?}."""

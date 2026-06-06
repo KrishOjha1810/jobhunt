@@ -16,8 +16,11 @@ PRIORITY_TERMS = [
 # Common roles we always poll so the browse catalog stays broad + useful to non-subscribers,
 # not just whatever current subscribers happen to search for.
 COMMON_ROLE_TERMS = [
-    "data engineer", "devops", "machine learning", "blockchain", "full stack",
-    "backend", "frontend", "security engineer", "mobile developer", "product manager",
+    "backend developer", "frontend developer", "full stack developer", "data engineer",
+    "data scientist", "data analyst", "machine learning engineer", "devops engineer",
+    "site reliability engineer", "cloud engineer", "blockchain developer", "security engineer",
+    "mobile developer", "android developer", "ios developer", "qa engineer",
+    "product manager", "ui ux designer",
 ]
 
 
@@ -136,8 +139,9 @@ def fetch_pool(users: list) -> list:
                 terms.append(t)
         if any("india" in (l or "").lower() for l in u.get("locations", [])):
             india = True
-    # always include the common roles (capped); subscriber terms first so they're prioritized
+    # keep subscriber terms prioritized, but guarantee broad role coverage for browse by always
+    # appending the common roles; widen the cap so many roles get polled each run
     for t in COMMON_ROLE_TERMS:
         if t not in terms:
             terms.append(t)
-    return _fetch(terms[:16], india)
+    return _fetch(terms[:24], india)

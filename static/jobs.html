@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>JobHunt, browse jobs</title>
-  <link rel="stylesheet" href="/static/theme.css?v=2" />
+  <link rel="stylesheet" href="/static/theme.css?v=3" />
   <style>
     /* legacy var aliases this page still references, mapped onto the shared system */
     :root{ --fresh:var(--c-response); --overlay:rgba(0,0,0,.6);
@@ -44,7 +44,7 @@
     .chipbtn { padding:7px 13px; border:1px solid var(--field-border); border-radius:999px; background:var(--seg-bg);
       color:var(--seg-ink); font-size:.82rem; font-weight:600; cursor:pointer; transition:.15s; }
     .chipbtn:hover { border-color:var(--accent); }
-    .chipbtn.active { background:var(--accent); color:var(--accent-ink); border-color:transparent; }
+    .chipbtn.active { background:var(--accent-soft); color:var(--accent); border-color:var(--accent); }
     input.search { width:100%; padding:11px 14px; border:1px solid var(--field-border); border-radius:12px; margin-bottom:18px;
       background:var(--field); color:var(--ink); font-size:.92rem; font-family:inherit; transition:border .15s, box-shadow .15s; }
     input.search::placeholder { color:var(--muted); opacity:.7; }
@@ -406,5 +406,6 @@
     checkMe();
     loadReferral();
   </script>
+  <script src="/static/announce.js?v=3"></script>
 </body>
 </html>
