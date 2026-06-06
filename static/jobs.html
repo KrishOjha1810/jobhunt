@@ -4,62 +4,27 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>JobHunt, browse jobs</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/theme.css?v=2" />
   <style>
-    :root { --accent:#6366f1; --accent2:#8b5cf6; --accent-soft:rgba(99,102,241,.14); --grad:linear-gradient(135deg,#6366f1,#8b5cf6); }
-    html[data-theme="light"] {
-      --bg:#f4f5fb; --bg-glow:rgba(99,102,241,.12);
-      --card:#ffffff; --card-border:rgba(15,23,42,.07); --card-shadow:0 1px 3px rgba(15,23,42,.06);
-      --ink:#0f172a; --muted:#64748b; --field:#f8fafc; --field-border:#e2e6ef;
-      --seg-bg:#f1f2f9; --seg-ink:#475569; --fresh:#059669;
-      --nav-bg:rgba(255,255,255,.8); --nav-border:rgba(15,23,42,.07);
-      --banner-bg:#eef0fb; --banner-border:rgba(99,102,241,.2);
-      --toggle-bg:#ffffff; --toggle-border:rgba(15,23,42,.1);
-      --overlay:rgba(15,23,42,.45);
-    }
-    html[data-theme="dark"] {
-      --bg:#0a0a14; --bg-glow:rgba(99,102,241,.18);
-      --card:rgba(22,23,38,.72); --card-border:rgba(255,255,255,.08); --card-shadow:0 20px 50px rgba(0,0,0,.4);
-      --ink:#f1f3f9; --muted:#9499b0; --field:rgba(255,255,255,.05); --field-border:rgba(255,255,255,.12);
-      --seg-bg:rgba(255,255,255,.04); --seg-ink:#c2c6da; --fresh:#34d399;
-      --nav-bg:rgba(14,15,26,.72); --nav-border:rgba(255,255,255,.07);
-      --banner-bg:rgba(99,102,241,.12); --banner-border:rgba(99,102,241,.3);
-      --toggle-bg:rgba(255,255,255,.06); --toggle-border:rgba(255,255,255,.12);
-      --overlay:rgba(0,0,0,.6);
-    }
-    * { box-sizing:border-box; }
-    body { margin:0; font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif; color:var(--ink); background:var(--bg);
-      padding:0 0 60px; min-height:100vh; position:relative; transition:background .35s ease, color .35s ease; }
-    body::before { content:""; position:fixed; top:-200px; left:50%; transform:translateX(-50%); width:900px; height:500px;
-      background:var(--bg-glow); filter:blur(110px); border-radius:50%; z-index:0; pointer-events:none; }
-
-    /* Top nav */
-    .nav { position:sticky; top:0; z-index:20; background:var(--nav-bg); border-bottom:1px solid var(--nav-border); backdrop-filter:blur(16px); }
-    .nav-inner { max-width:1040px; margin:0 auto; padding:12px 18px; display:flex; align-items:center; gap:14px; }
-    .nav-brand { display:flex; align-items:center; gap:10px; font-weight:800; font-size:1.05rem; letter-spacing:-.02em; text-decoration:none; color:var(--ink); margin-right:auto; }
-    .nav-logo { width:32px; height:32px; border-radius:10px; background:var(--grad); display:flex; align-items:center; justify-content:center; box-shadow:0 6px 18px var(--accent-soft); }
-    .nav-logo svg { width:17px; height:17px; color:#fff; }
-    .nav-links { display:flex; align-items:center; gap:4px; }
-    .nav-link { padding:8px 13px; border-radius:10px; font-size:.86rem; font-weight:600; text-decoration:none; color:var(--seg-ink); white-space:nowrap; transition:background .15s, color .15s; }
-    .nav-link:hover { color:var(--ink); background:var(--seg-bg); }
-    .nav-link.active { color:#fff; background:var(--grad); }
-    .theme-toggle { flex:0 0 auto; width:38px; height:38px; border-radius:11px; border:1px solid var(--toggle-border);
-      background:var(--toggle-bg); color:var(--ink); cursor:pointer; display:flex; align-items:center; justify-content:center; transition:transform .15s, border-color .2s; }
-    .theme-toggle:hover { transform:translateY(-1px); border-color:var(--accent); }
-    .theme-toggle svg { width:18px; height:18px; }
-    .menu-btn { display:none; flex:0 0 auto; width:38px; height:38px; border-radius:11px; border:1px solid var(--toggle-border);
-      background:var(--toggle-bg); color:var(--ink); cursor:pointer; align-items:center; justify-content:center; }
-    .menu-btn svg { width:20px; height:20px; }
-
-    .wrap { max-width:1040px; margin:0 auto; padding:28px 18px; position:relative; z-index:1; }
+    /* legacy var aliases this page still references, mapped onto the shared system */
+    :root{ --fresh:var(--c-response); --overlay:rgba(0,0,0,.6);
+      --banner-bg:var(--accent-soft); --banner-border:rgba(245,158,11,.3); }
+    html[data-theme="light"]{ --overlay:rgba(15,23,42,.45); --banner-border:rgba(245,158,11,.25); }
+    body{ padding-bottom:60px; }
+    .wrap{ max-width:1040px; }
+    .cattiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:12px;margin:18px 0}
+    .cattile{background:var(--card);border:1px solid var(--card-border);border-radius:var(--r-lg);padding:14px;cursor:pointer;transition:.15s;box-shadow:var(--card-shadow)}
+    .cattile:hover{transform:translateY(-2px);border-color:var(--accent)}
+    .cattile.active{border-color:var(--accent);background:var(--accent-soft)}
+    .cattile .ic{width:42px;height:42px;border-radius:13px;display:grid;place-items:center;font-size:1.3rem;margin-bottom:10px;color:#fff}
+    .cattile .nm{font-weight:700;font-size:.9rem;letter-spacing:-.01em}
+    .cattile .ct{color:var(--muted);font-size:var(--fs-xs);font-weight:600}
 
     /* Subscribe banner (slim, persistent after dismiss) */
     .sbanner { display:none; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap;
       background:var(--banner-bg); border:1px solid var(--banner-border); border-radius:14px; padding:13px 18px; margin-bottom:22px; }
     .sbanner p { margin:0; font-size:.9rem; color:var(--ink); }
-    .sbanner a { background:var(--grad); color:#fff; font-weight:700; text-decoration:none; padding:8px 16px; border-radius:10px; font-size:.85rem; white-space:nowrap; }
+    .sbanner a { background:var(--grad); color:var(--accent-ink); font-weight:700; text-decoration:none; padding:8px 16px; border-radius:10px; font-size:.85rem; white-space:nowrap; }
 
     /* Subscribed note */
     .subnote { display:none; align-items:center; gap:8px; font-size:.88rem; color:var(--fresh); font-weight:600; margin-bottom:16px; }
@@ -70,7 +35,7 @@
     .invite-text b { font-size:.95rem; } .invite-text p { margin:2px 0 0; color:var(--muted); font-size:.82rem; }
     .invite-row { display:flex; gap:8px; flex:1; min-width:240px; max-width:480px; }
     .invite-row input { flex:1; padding:9px 12px; border:1px solid var(--field-border); border-radius:10px; background:var(--field); color:var(--ink); font-size:.82rem; }
-    .invite-row button { padding:9px 16px; border:0; border-radius:10px; background:var(--grad); color:#fff; font-weight:700; font-size:.82rem; cursor:pointer; white-space:nowrap; }
+    .invite-row button { padding:9px 16px; border:0; border-radius:10px; background:var(--grad); color:var(--accent-ink); font-weight:700; font-size:.82rem; cursor:pointer; white-space:nowrap; }
     .sal { color:var(--fresh); font-weight:600; }
 
     h1 { font-size:1.5rem; margin:0 0 4px; font-weight:800; letter-spacing:-.02em; }
@@ -79,7 +44,7 @@
     .chipbtn { padding:7px 13px; border:1px solid var(--field-border); border-radius:999px; background:var(--seg-bg);
       color:var(--seg-ink); font-size:.82rem; font-weight:600; cursor:pointer; transition:.15s; }
     .chipbtn:hover { border-color:var(--accent); }
-    .chipbtn.active { background:var(--grad); color:#fff; border-color:transparent; }
+    .chipbtn.active { background:var(--accent); color:var(--accent-ink); border-color:transparent; }
     input.search { width:100%; padding:11px 14px; border:1px solid var(--field-border); border-radius:12px; margin-bottom:18px;
       background:var(--field); color:var(--ink); font-size:.92rem; font-family:inherit; transition:border .15s, box-shadow .15s; }
     input.search::placeholder { color:var(--muted); opacity:.7; }
@@ -93,7 +58,7 @@
     .tag { padding:2px 9px; border-radius:999px; font-size:.7rem; font-weight:600; background:var(--accent-soft); color:var(--accent2); }
     .tag.matched { background:linear-gradient(135deg,#22c55e22,#16a34a22); color:#22c55e; border:1px solid #22c55e55; }
     .ago { color:var(--fresh); font-weight:600; }
-    .apply { background:var(--grad); color:#fff; text-decoration:none; font-weight:700; font-size:.85rem; padding:9px 16px;
+    .apply { background:var(--grad); color:var(--accent-ink); text-decoration:none; font-weight:700; font-size:.85rem; padding:9px 16px;
       border-radius:11px; white-space:nowrap; transition:transform .1s, box-shadow .2s; }
     .apply:hover { transform:translateY(-1px); box-shadow:0 10px 24px var(--accent-soft); }
     .empty { text-align:center; color:var(--muted); padding:50px; }
@@ -127,39 +92,26 @@
     #tourBody h2 { margin:0 0 8px; font-size:1.3rem; font-weight:800; letter-spacing:-.02em; }
     #tourBody .mlead { color:var(--muted); margin:0; font-size:.95rem; line-height:1.55; }
     .btn-primary { width:100%; padding:13px; border:0; border-radius:13px; cursor:pointer; font-size:.97rem; font-weight:700;
-      font-family:inherit; color:#fff; background:var(--grad); box-shadow:0 12px 30px var(--accent-soft); text-decoration:none; text-align:center;
+      font-family:inherit; color:var(--accent-ink); background:var(--grad); box-shadow:0 12px 30px var(--accent-soft); text-decoration:none; text-align:center;
       transition:transform .1s, box-shadow .2s; }
     .btn-primary:hover { transform:translateY(-2px); box-shadow:0 16px 38px var(--accent-soft); }
     .btn-ghost { width:100%; padding:11px; border:0; border-radius:13px; cursor:pointer; font-size:.9rem; font-weight:600;
       font-family:inherit; color:var(--muted); background:transparent; }
     .btn-ghost:hover { color:var(--ink); }
 
-    @media (max-width:600px) {
-      .nav-links { display:none; position:absolute; top:62px; right:14px; left:14px; flex-direction:column; align-items:stretch; gap:6px;
-        background:var(--nav-bg); border:1px solid var(--nav-border); border-radius:14px; padding:10px; backdrop-filter:blur(16px); box-shadow:0 20px 50px rgba(0,0,0,.3); }
-      .nav-links.open { display:flex; }
-      .menu-btn { display:flex; }
-    }
     @media (max-width:560px){ .job{flex-direction:column} .apply{align-self:flex-start} }
   </style>
 </head>
 <body>
   <nav class="nav">
     <div class="nav-inner">
-      <a class="nav-brand" href="/jobs">
-        <span class="nav-logo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/><circle cx="11" cy="11" r="2.5"/></svg></span>
-        JobHunt
-      </a>
-      <div class="nav-links" id="navLinks">
-        <a class="nav-link active" href="/jobs">Browse</a>
-        <a class="nav-link" href="/dashboard">My matches</a>
-        <a class="nav-link" href="/resume">Resume</a>
-        <a class="nav-link" href="/subscribe">Subscribe</a>
-        <a class="nav-link" id="howLink" href="#">How it works</a>
-        <a class="nav-link" href="/logout">Log out</a>
-      </div>
+      <a class="brand" href="/jobs"><span class="brand-mark">JH</span> JobHunt</a>
+      <a class="nlink active" href="/jobs">⌕ <span class="lbl">Browse</span></a>
+      <a class="nlink" href="/dashboard">◎ <span class="lbl">Tracker</span></a>
+      <a class="nlink" href="/resume">▤ <span class="lbl">Resume</span></a>
+      <a class="nlink" href="/subscribe">⚑ <span class="lbl">Alerts</span></a>
+      <a class="nlink" id="howLink" href="#">? <span class="lbl">How</span></a>
       <button class="theme-toggle" id="themeToggle" aria-label="Toggle theme" title="Toggle theme"></button>
-      <button class="menu-btn" id="menuBtn" aria-label="Menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
     </div>
   </nav>
 
@@ -185,11 +137,12 @@
     <h1>Latest jobs we found</h1>
     <p class="sub">Browse everything we have pulled in. Subscribe to get the ones matched to you.</p>
 
+    <div class="cattiles" id="catTiles"></div>
     <div class="filters" id="filters"></div>
     <input class="search" id="search" placeholder="Search title or company..." />
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
       <p class="count" id="count"></p>
-      <button id="triageBtn" type="button" style="display:none;padding:7px 14px;border:0;border-radius:8px;cursor:pointer;font-weight:700;font-size:.85rem;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;">⚡ Triage my matches</button>
+      <button id="triageBtn" type="button" style="display:none;padding:7px 14px;border:0;border-radius:8px;cursor:pointer;font-weight:700;font-size:.85rem;background:var(--accent);color:var(--accent-ink);">⚡ Triage my matches</button>
     </div>
 
     <div id="list"></div>
@@ -240,11 +193,12 @@
       localStorage.setItem('theme', next); applyTheme(next);
     });
 
-    // ----- Mobile menu -----
-    document.getElementById('menuBtn').addEventListener('click', () => document.getElementById('navLinks').classList.toggle('open'));
-
     // ----- Helpers -----
     function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+    const CAT_ICONS={backend:'⚙',frontend:'▤','full-stack':'⬡',fullstack:'⬡',blockchain:'◆',web3:'◆',devops:'☁',data:'▦','data science':'▦','machine learning':'✦','ai':'✦',mobile:'▢',security:'⛨',design:'✎','ui/ux':'✎',qa:'✓',product:'◎'};
+    const CAT_GRADS=['linear-gradient(135deg,#f59e0b,#fb923c)','linear-gradient(135deg,#34d399,#059669)','linear-gradient(135deg,#60a5fa,#2563eb)','linear-gradient(135deg,#c084fc,#7c3aed)','linear-gradient(135deg,#f472b6,#db2777)','linear-gradient(135deg,#38bdf8,#0891b2)'];
+    function catIcon(c){ return CAT_ICONS[String(c||'').toLowerCase()]||'▣'; }
+    function catGrad(c){ let h=0; const s=String(c||''); for(let i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))>>>0; return CAT_GRADS[h%CAT_GRADS.length]; }
     function safeUrl(u){ u=String(u||''); return /^https?:\/\//i.test(u)?u:''; }
     function ago(iso, seen){
       const d = Date.parse(iso) || Date.parse(String(seen||'').replace(' ','T'));
@@ -269,10 +223,18 @@
           '<button class="chipbtn active" data-c="">All</button>' +
           (hasMatches ? '<button class="chipbtn" data-c="__matched__">★ My matches</button>' : '') +
           cats.map(c=>`<button class="chipbtn" data-c="${esc(c)}">${esc(c)}</button>`).join('');
-        document.querySelectorAll('.chipbtn').forEach(b=>b.onclick=()=>{
-          cat=b.dataset.c; document.querySelectorAll('.chipbtn').forEach(x=>x.classList.remove('active'));
-          b.classList.add('active'); render();
-        });
+        // TUF-style category tiles (gradient icon + live count), act as filters
+        const counts={}; all.forEach(j=>{ if(j.category) counts[j.category]=(counts[j.category]||0)+1; });
+        document.getElementById('catTiles').innerHTML = cats.map(c=>
+          `<div class="cattile" data-c="${esc(c)}"><div class="ic" style="background:${catGrad(c)}">${catIcon(c)}</div>
+           <div class="nm">${esc(c)}</div><div class="ct">${counts[c]||0} jobs</div></div>`).join('');
+        function setCat(c){ cat=c;
+          document.querySelectorAll('.chipbtn').forEach(x=>x.classList.toggle('active', x.dataset.c===c));
+          document.querySelectorAll('.cattile').forEach(x=>x.classList.toggle('active', x.dataset.c===c));
+          render();
+        }
+        document.querySelectorAll('.chipbtn').forEach(b=>b.onclick=()=>setCat(b.dataset.c));
+        document.querySelectorAll('.cattile').forEach(b=>b.onclick=()=>setCat(b.dataset.c===cat?'':b.dataset.c));
         render();
         setupTriage();
       } catch (e) {

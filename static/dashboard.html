@@ -3,233 +3,190 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>JobHunt, my tracker</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <title>JobHunt , my tracker</title>
+  <link rel="stylesheet" href="/static/theme.css?v=2" />
   <style>
-    :root {
-      --accent:#6366f1; --accent2:#8b5cf6; --accent-soft:rgba(99,102,241,.14);
-      --grad:linear-gradient(135deg,#6366f1,#8b5cf6);
+    /* page-local: table + filter toggles + hero (everything else comes from theme.css) */
+    .head{margin-bottom:18px}
+    .head h1{font-size:1.6rem}
+    .toggle-group{display:inline-flex;gap:4px;background:var(--seg-bg);padding:4px;border-radius:var(--r-md);border:1px solid var(--field-border);flex-wrap:wrap}
+    .toggle-group .btn{padding:6px 13px;border:0;border-radius:var(--r-sm);background:transparent;color:var(--seg-ink);font-size:var(--fs-sm);font-weight:600;cursor:pointer;transition:.15s}
+    .toggle-group .btn:hover{color:var(--ink)}
+    .toggle-group .btn.active{background:var(--accent);color:var(--accent-ink)}
+    .filters{display:flex;flex-wrap:wrap;gap:10px;margin:14px 0 16px;align-items:center}
+    .filters select{width:auto;min-width:130px}
+    /* hero */
+    .hero{display:flex;gap:var(--sp-6);align-items:center;flex-wrap:wrap}
+    .hero .breakdown{display:flex;gap:var(--sp-5);flex-wrap:wrap;margin:var(--sp-3) 0 var(--sp-4)}
+    .goal-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+    .goal-row .edit{cursor:pointer;color:var(--accent);font-size:var(--fs-xs);font-weight:600}
+    /* table */
+    .table-wrap{background:var(--card);border:1px solid var(--card-border);border-radius:var(--r-lg);overflow:hidden;box-shadow:var(--card-shadow);margin-top:var(--sp-4)}
+    .scroll{overflow-x:auto}
+    table{width:100%;border-collapse:collapse;min-width:900px}
+    th,td{text-align:left;padding:13px 14px;border-bottom:1px solid var(--line);font-size:var(--fs-sm);vertical-align:middle}
+    th{background:var(--thead);color:var(--muted);font-weight:600;font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.05em;position:sticky;top:0;z-index:2}
+    th.sortable{cursor:pointer;user-select:none}th.sortable:hover{color:var(--ink)}
+    .caret{font-size:.6rem;opacity:.7}
+    tbody tr{transition:background .12s}tbody tr:hover{background:var(--row-hover)}
+    tr:last-child td{border-bottom:0}
+    .company{font-weight:600}
+    .date{color:var(--muted);font-size:var(--fs-xs);white-space:nowrap}
+    .tag{display:inline-block;padding:3px 10px;border-radius:var(--r-pill);font-size:var(--fs-xs);font-weight:600;border:1px solid transparent}
+    .actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+    .applylink,.tailorbtn{display:inline-flex;align-items:center;justify-content:center;gap:5px;height:32px;padding:0 13px;border-radius:var(--r-sm);font-weight:600;font-size:var(--fs-sm);cursor:pointer;white-space:nowrap;transition:.15s;line-height:1;font-family:inherit;border:0;text-decoration:none}
+    .applylink{color:var(--accent-ink);background:var(--accent)}
+    .applylink:hover{background:var(--accent-2);transform:translateY(-1px)}
+    .applylink svg{width:13px;height:13px}
+    .tailorbtn{border:1px solid var(--field-border);background:var(--field);color:var(--accent)}
+    .tailorbtn:hover{border-color:var(--accent);background:var(--accent-soft)}
+    .statussel{padding:6px 24px 6px 11px;border-radius:var(--r-pill);border:1px solid var(--field-border);font-size:var(--fs-xs);font-weight:600;cursor:pointer;width:auto}
+    .notes{width:150px;padding:6px 9px;font-size:var(--fs-xs)}
+    .res{width:auto;min-width:120px;padding:6px 9px;font-size:var(--fs-xs)}
+    .score{display:inline-flex;align-items:center;justify-content:center;min-width:38px;padding:4px 9px;border-radius:var(--r-sm);font-weight:700;font-size:var(--fs-sm);background:var(--score-bg);color:var(--score-ink);border:1px solid var(--score-border);font-family:var(--font-mono)}
+    .empty{text-align:center;color:var(--muted);padding:56px 20px}
+    .errbox{background:var(--card);border:1px solid var(--card-border);border-radius:var(--r-lg);padding:48px 28px;text-align:center;color:var(--muted);box-shadow:var(--card-shadow)}
+    .errbox b{color:var(--ink);display:block;font-size:1.1rem;margin-bottom:6px}
+    .aiopt{text-align:left;padding:11px 13px;border:1px solid var(--field-border);border-radius:var(--r-sm);background:var(--field);color:var(--ink);cursor:pointer;width:100%}
+    .aiopt:hover{border-color:var(--accent)}
+    @media(max-width:600px){
+      .table-wrap{background:transparent;border:0;box-shadow:none}
+      .scroll{overflow:visible}
+      table,tbody,tr,td{display:block;width:100%}table{min-width:0}thead{display:none}
+      tr{background:var(--card);border:1px solid var(--card-border);border-radius:var(--r-md);margin-bottom:12px;padding:6px 2px}
+      td{border:0;padding:8px 14px;display:flex;justify-content:space-between;align-items:center;gap:12px;text-align:right}
+      td::before{content:attr(data-label);color:var(--muted);font-size:var(--fs-xs);font-weight:600;text-transform:uppercase;letter-spacing:.05em;text-align:left;flex-shrink:0}
+      td.title{font-weight:600;text-align:right}
+      td .actions{justify-content:flex-end}
+      .notes,.res,.statussel{width:auto;max-width:62%}
     }
-    html[data-theme="light"] {
-      --bg:#f4f5fb; --bg-glow:rgba(99,102,241,.12);
-      --card:#ffffff; --card-border:rgba(15,23,42,.07); --card-shadow:0 1px 3px rgba(15,23,42,.06);
-      --ink:#0f172a; --muted:#64748b; --line:#eceef5; --field:#f8fafc; --field-border:#e2e6ef;
-      --thead:#f8fafc; --row-hover:#f8faff; --seg-bg:#f1f2f9; --seg-ink:#475569;
-      --ok:#059669; --score-bg:rgba(5,150,105,.1); --score-ink:#059669; --score-border:rgba(5,150,105,.25);
-      --toggle-bg:#ffffff; --toggle-border:rgba(15,23,42,.1);
-    }
-    html[data-theme="dark"] {
-      --bg:#0a0a14; --bg-glow:rgba(99,102,241,.18);
-      --card:rgba(22,23,38,.7); --card-border:rgba(255,255,255,.07); --card-shadow:0 20px 50px rgba(0,0,0,.4);
-      --ink:#f1f3f9; --muted:#9499b0; --line:rgba(255,255,255,.07); --field:rgba(255,255,255,.05); --field-border:rgba(255,255,255,.12);
-      --thead:rgba(255,255,255,.03); --row-hover:rgba(255,255,255,.03); --seg-bg:rgba(255,255,255,.04); --seg-ink:#c2c6da;
-      --ok:#34d399; --score-bg:rgba(52,211,153,.12); --score-ink:#6ee7b7; --score-border:rgba(52,211,153,.3);
-      --toggle-bg:rgba(255,255,255,.06); --toggle-border:rgba(255,255,255,.12);
-    }
-    * { box-sizing:border-box; }
-    body { margin:0; font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
-      color:var(--ink); background:var(--bg); padding:28px 18px 60px; position:relative; min-height:100vh;
-      transition:background .35s ease, color .35s ease; }
-    body::before { content:""; position:fixed; top:-200px; left:50%; transform:translateX(-50%);
-      width:900px; height:500px; background:var(--bg-glow); filter:blur(110px); border-radius:50%; z-index:0; pointer-events:none; }
-    .wrap { max-width:1140px; margin:0 auto; position:relative; z-index:1; }
-    .head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:22px; animation:rise .5s ease; }
-    h1 { font-size:1.55rem; margin:0 0 4px; letter-spacing:-.03em; font-weight:800; }
-    .sub { color:var(--muted); margin:0; font-size:.92rem; line-height:1.5; }
-    .theme-toggle { flex:0 0 auto; width:42px; height:42px; border-radius:12px; border:1px solid var(--toggle-border);
-      background:var(--toggle-bg); color:var(--ink); cursor:pointer; backdrop-filter:blur(12px);
-      display:flex; align-items:center; justify-content:center; transition:transform .15s, border-color .2s; }
-    .theme-toggle:hover { transform:translateY(-1px); border-color:var(--accent); }
-    .theme-toggle svg { width:20px; height:20px; }
-    .stats { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:22px; }
-    .stat { background:var(--card); border:1px solid var(--card-border); border-radius:16px; padding:18px 20px;
-      backdrop-filter:blur(16px); box-shadow:var(--card-shadow); animation:rise .5s ease both; transition:transform .15s, border-color .2s; }
-    .stat:hover { transform:translateY(-2px); border-color:var(--accent); }
-    .stat:nth-child(2){animation-delay:.04s} .stat:nth-child(3){animation-delay:.08s} .stat:nth-child(4){animation-delay:.12s}
-    .stat b { font-size:2rem; display:block; font-weight:800; letter-spacing:-.02em;
-      background:var(--grad); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; }
-    .stat span { color:var(--muted); font-size:.78rem; font-weight:500; }
-    @keyframes rise { from{opacity:0; transform:translateY(12px)} to{opacity:1; transform:none} }
-    .filters { display:flex; flex-wrap:wrap; gap:10px; margin-bottom:16px; align-items:center; }
-    .toggle-group { display:flex; gap:4px; background:var(--seg-bg); padding:4px; border-radius:11px; border:1px solid var(--field-border); }
-    .btn { padding:7px 14px; border:0; border-radius:8px; background:transparent; color:var(--seg-ink);
-      font-size:.84rem; font-weight:600; font-family:inherit; cursor:pointer; transition:.2s; }
-    .btn.active { background:var(--grad); color:#fff; box-shadow:0 6px 16px var(--accent-soft); }
-    select { padding:9px 13px; border:1px solid var(--field-border); border-radius:10px; background:var(--field);
-      color:var(--ink); font-size:.84rem; font-family:inherit; cursor:pointer; transition:border .15s, box-shadow .15s; }
-    select:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
-    select option { background:var(--field); color:var(--ink); }  /* fix white dropdowns in dark mode */
-    .table-wrap { background:var(--card); border:1px solid var(--card-border); border-radius:18px; overflow:hidden;
-      box-shadow:var(--card-shadow); backdrop-filter:blur(16px); animation:rise .5s ease .1s both; }
-    .scroll { overflow-x:auto; }
-    table { width:100%; border-collapse:collapse; min-width:920px; }
-    th,td { text-align:left; padding:13px 14px; border-bottom:1px solid var(--line); font-size:.86rem; vertical-align:middle; }
-    th { background:var(--thead); color:var(--muted); font-weight:600; font-size:.7rem; text-transform:uppercase; letter-spacing:.05em;
-      position:sticky; top:0; z-index:2; backdrop-filter:blur(10px); }
-    th.sortable { cursor:pointer; user-select:none; } th.sortable:hover { color:var(--ink); }
-    .caret { font-size:.6rem; opacity:.7; }
-    .statussel { padding:6px 26px 6px 11px; border-radius:999px; border:1px solid var(--field-border); font-size:.76rem;
-      font-weight:600; cursor:pointer; font-family:inherit; }
-    tbody tr { transition:background .12s; }
-    tbody tr:hover { background:var(--row-hover); }
-    tr:last-child td { border-bottom:0; }
-    .company { font-weight:600; }
-    .title { color:var(--ink); }
-    .date { color:var(--muted); font-size:.8rem; white-space:nowrap; }
-    .tag { display:inline-block; padding:3px 10px; border-radius:999px; font-size:.7rem; font-weight:600; border:1px solid transparent; }
-    .actions { display:flex; align-items:center; gap:7px; flex-wrap:wrap; }
-    .applylink, .tailorbtn { display:inline-flex; align-items:center; justify-content:center; gap:5px; height:32px;
-      padding:0 13px; border-radius:9px; font-weight:600; font-size:.82rem; cursor:pointer; white-space:nowrap;
-      box-sizing:border-box; transition:.15s; line-height:1; font-family:inherit; }
-    .applylink { color:#fff; text-decoration:none; border:0; background:var(--grad); box-shadow:0 4px 12px var(--accent-soft); }
-    .applylink:hover { filter:brightness(1.07); transform:translateY(-1px); }
-    .applylink svg { width:13px; height:13px; }
-    input[type=checkbox] { -webkit-appearance:none; appearance:none; width:20px; height:20px; border:1.5px solid var(--field-border);
-      border-radius:6px; background:var(--field); cursor:pointer; position:relative; transition:.15s; vertical-align:middle; }
-    input[type=checkbox]:checked { background:var(--grad); border-color:transparent; }
-    input[type=checkbox]:checked::after { content:""; position:absolute; left:6px; top:2px; width:5px; height:10px;
-      border:solid #fff; border-width:0 2px 2px 0; transform:rotate(45deg); }
-    input[type=checkbox]:focus { outline:none; box-shadow:0 0 0 3px var(--accent-soft); }
-    .notes { width:150px; border:1px solid var(--field-border); border-radius:8px; padding:6px 9px; font-size:.8rem;
-      font-family:inherit; background:var(--field); color:var(--ink); transition:border .15s, box-shadow .15s; }
-    .notes:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
-    .res { font-size:.8rem; padding:6px 9px; }
-    .tailorbtn { border:1px solid var(--field-border); background:var(--field); color:var(--accent); }
-    .tailorbtn:hover { border-color:var(--accent); background:var(--accent-soft); }
-    .tov { display:none; position:fixed; inset:0; z-index:60; background:rgba(0,0,0,.6); backdrop-filter:blur(4px); align-items:center; justify-content:center; padding:20px; }
-    .tov.show { display:flex; }
-    .tmodal { position:relative; width:100%; max-width:560px; max-height:80vh; overflow:auto; background:var(--card); border:1px solid var(--card-border);
-      border-radius:18px; padding:26px 28px; box-shadow:0 30px 80px rgba(0,0,0,.5); backdrop-filter:blur(20px); }
-    .tclose { position:absolute; top:14px; right:16px; background:none; border:0; color:var(--muted); font-size:1.5rem; cursor:pointer; line-height:1; }
-    #tbody { white-space:pre-wrap; font-family:inherit; font-size:.9rem; line-height:1.6; color:var(--ink); margin:0; }
-    .empty { text-align:center; color:var(--muted); padding:56px 20px; font-size:.92rem; }
-    .score { display:inline-flex; align-items:center; justify-content:center; min-width:38px; padding:4px 9px;
-      border-radius:9px; font-weight:700; font-size:.82rem; background:var(--score-bg); color:var(--score-ink); border:1px solid var(--score-border); }
-    .errbox { background:var(--card); border:1px solid var(--card-border); border-radius:18px; padding:48px 28px; text-align:center;
-      color:var(--muted); box-shadow:var(--card-shadow); backdrop-filter:blur(16px); }
-    .errbox b { color:var(--ink); display:block; font-size:1.1rem; margin-bottom:6px; }
-    @media (max-width:600px) {
-      .stats { grid-template-columns:repeat(2,1fr); }
-      .stat b { font-size:1.6rem; }
-      h1 { font-size:1.3rem; }
-      .filters { gap:8px; }
-      select { flex:1; min-width:0; }
-      /* Collapse the wide table into stacked cards (one card per job). */
-      .table-wrap { background:transparent; border:0; }
-      .scroll { overflow:visible; }
-      table, tbody, tr, td { display:block; width:100%; }
-      table { min-width:0; }
-      thead { display:none; }
-      tr { background:var(--card); border:1px solid var(--card-border); border-radius:14px; margin-bottom:12px; padding:6px 2px; }
-      td { border:0; padding:8px 14px; display:flex; justify-content:space-between; align-items:center; gap:12px; text-align:right; }
-      td::before { content:attr(data-label); color:var(--muted); font-size:.66rem; font-weight:600; text-transform:uppercase; letter-spacing:.05em; text-align:left; flex-shrink:0; }
-      td.title { font-weight:600; text-align:right; }
-      td .actions { justify-content:flex-end; flex-wrap:wrap; }
-      .notes, .res, .statussel { width:auto; max-width:62%; }
-    }
-    .nav { position:sticky; top:0; z-index:30; background:var(--card); border-bottom:1px solid var(--card-border); backdrop-filter:blur(14px); }
-    .nav-inner { max-width:1140px; margin:0 auto; display:flex; align-items:center; gap:6px; padding:12px 20px; }
-    .nav-brand { font-weight:800; color:var(--ink); text-decoration:none; font-size:1.05rem; margin-right:auto; }
-    .nav a.nlink { color:var(--muted); text-decoration:none; font-size:.9rem; font-weight:600; padding:6px 11px; border-radius:8px; }
-    .nav a.nlink:hover { color:var(--ink); }
-    .nav a.nlink.active { color:var(--ink); background:var(--accent-soft); }
-    @media (max-width:600px) { .nav-inner { gap:2px; padding:10px 10px; } .nav a.nlink { padding:5px 7px; font-size:.8rem; } .nav-brand { font-size:.95rem; } }
   </style>
 </head>
 <body>
   <nav class="nav">
     <div class="nav-inner">
-      <a class="nav-brand" href="/jobs">JobHunt</a>
-      <a class="nlink" href="/jobs">Browse</a>
-      <a class="nlink active" href="/dashboard">My matches</a>
-      <a class="nlink" href="/resume">Resume</a>
-      <a class="nlink" href="/subscribe">Subscribe</a>
-      <a class="nlink" href="/logout">Log out</a>
-    </div>
-  </nav>
-  <div class="wrap">
-    <div class="head">
-      <div>
-        <h1 id="hello">My JobHunt tracker</h1>
-        <p class="sub">Every job we sent you. Tick what you applied to, mark replies, note which resume you used.</p>
-        <p class="sub" id="schedNote" style="display:none;margin-top:-6px"></p>
-      </div>
+      <a class="brand" href="/jobs"><span class="brand-mark">JH</span> JobHunt</a>
+      <a class="nlink" href="/jobs">⌕ <span class="lbl">Browse</span></a>
+      <a class="nlink active" href="/dashboard">◎ <span class="lbl">Tracker</span></a>
+      <a class="nlink" href="/resume">▤ <span class="lbl">Resume</span></a>
+      <a class="nlink" href="/subscribe">⚑ <span class="lbl">Alerts</span></a>
+      <span class="nav-streak" id="navStreak">🔥 <b>0</b></span>
       <button class="theme-toggle" id="themeToggle" aria-label="Toggle theme" title="Toggle theme"></button>
     </div>
+  </nav>
 
-    <div class="stats" id="stats"></div>
-
-    <details id="insightsBox" style="margin-bottom:18px;display:none">
-      <summary style="cursor:pointer;color:var(--muted);font-size:.85rem;font-weight:600">Insights , what you pursue + which resume you use</summary>
-      <div id="insights" style="margin-top:10px;font-size:.85rem"></div>
-    </details>
-
-    <div class="toggle-group" id="statusGroup" style="margin-bottom:14px;flex-wrap:wrap">
-      <button class="btn active" data-status="">All</button>
-      <button class="btn" data-status="saved">Saved</button>
-      <button class="btn" data-status="applied">Applied</button>
-      <button class="btn" data-status="not_interested">Not a fit</button>
-      <button class="btn" data-status="rejected">Rejected</button>
+  <div class="wrap">
+    <div class="head">
+      <h1 id="hello">My JobHunt tracker</h1>
+      <p class="sub">Every job we matched you. Mark what you applied to, keep your streak alive, climb the friends board.</p>
+      <p class="sub" id="schedNote" style="display:none;margin-top:4px"></p>
     </div>
 
-    <div class="filters">
-      <div class="toggle-group" id="dateGroup">
-        <button class="btn active" data-days="0">All time</button>
-        <button class="btn" data-days="1">24h</button>
-        <button class="btn" data-days="7">1 week</button>
-        <button class="btn" data-days="30">1 month</button>
-      </div>
-      <div class="toggle-group" id="scoreGroup">
-        <button class="btn active" data-min="0">All scores</button>
-        <button class="btn" data-min="60">60+</button>
-        <button class="btn" data-min="80">80+</button>
-      </div>
-      <select id="companyFilter"><option value="">All companies</option></select>
-      <select id="categoryFilter"><option value="">All roles</option></select>
-      <select id="sortSelect">
-        <option value="score-desc">Best fit first</option>
-        <option value="score-asc">Lowest fit first</option>
-        <option value="date-desc">Newest first</option>
-        <option value="date-asc">Oldest first</option>
-      </select>
-    </div>
+    <div class="grid-side">
+      <div class="main">
+        <!-- HERO: funnel ring + status breakdown + weekly goal -->
+        <div class="card card--accent hero" id="heroCard">
+          <div class="ring" id="funnelRing" style="--val:0;--col:var(--accent)">
+            <svg viewBox="0 0 120 120"><circle class="ring-track" cx="60" cy="60" r="52"/><circle class="ring-val" cx="60" cy="60" r="52"/></svg>
+            <div class="ring-center"><b id="funnelPct">0<span>%</span></b><small>applied</small></div>
+          </div>
+          <div style="flex:1;min-width:220px">
+            <div class="card-kicker">your hunt</div>
+            <div class="breakdown" id="breakdown"></div>
+            <div class="goal-row">
+              <span class="sub">Weekly goal <span class="edit" id="goalEdit">edit</span></span>
+              <span class="sub" id="goalTxt">0 / 10 this week</span>
+            </div>
+            <div class="bar"><span id="goalBar" style="width:0%"></span></div>
+          </div>
+        </div>
 
-    <div class="table-wrap">
-      <div class="scroll">
-        <table>
-          <thead>
-            <tr>
-              <th>Company</th><th>Role</th><th>Job</th>
-              <th class="sortable" data-key="date">Date <span class="caret"></span></th>
-              <th class="sortable" data-key="score">Match <span class="caret"></span></th>
-              <th>Apply &amp; status</th><th>Resume</th><th>Notes</th>
-            </tr>
-          </thead>
-          <tbody id="rows"></tbody>
-        </table>
+        <details id="insightsBox" style="margin:14px 0;display:none">
+          <summary style="cursor:pointer;color:var(--muted);font-size:var(--fs-sm);font-weight:600">Insights , what you pursue + which resume you use</summary>
+          <div id="insights" style="margin-top:10px;font-size:var(--fs-sm)"></div>
+        </details>
+
+        <div class="toggle-group" id="statusGroup" style="margin:14px 0">
+          <button class="btn active" data-status="">All</button>
+          <button class="btn" data-status="saved">Saved</button>
+          <button class="btn" data-status="applied">Applied</button>
+          <button class="btn" data-status="not_interested">Not a fit</button>
+          <button class="btn" data-status="rejected">Rejected</button>
+        </div>
+
+        <div class="filters">
+          <div class="toggle-group" id="dateGroup">
+            <button class="btn active" data-days="0">All time</button>
+            <button class="btn" data-days="1">24h</button>
+            <button class="btn" data-days="7">1 week</button>
+            <button class="btn" data-days="30">1 month</button>
+          </div>
+          <div class="toggle-group" id="scoreGroup">
+            <button class="btn active" data-min="0">All scores</button>
+            <button class="btn" data-min="60">60+</button>
+            <button class="btn" data-min="80">80+</button>
+          </div>
+          <select id="companyFilter"><option value="">All companies</option></select>
+          <select id="categoryFilter"><option value="">All roles</option></select>
+          <select id="sortSelect">
+            <option value="score-desc">Best fit first</option>
+            <option value="score-asc">Lowest fit first</option>
+            <option value="date-desc">Newest first</option>
+            <option value="date-asc">Oldest first</option>
+          </select>
+        </div>
+
+        <div class="table-wrap">
+          <div class="scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Company</th><th>Role</th><th>Job</th>
+                  <th class="sortable" data-key="date">Date <span class="caret"></span></th>
+                  <th class="sortable" data-key="score">Match <span class="caret"></span></th>
+                  <th>Apply &amp; status</th><th>Resume</th><th>Notes</th>
+                </tr>
+              </thead>
+              <tbody id="rows"></tbody>
+            </table>
+          </div>
+          <div class="empty" id="empty" style="display:none;">No jobs yet. They'll appear here after the next run.</div>
+        </div>
       </div>
-      <div class="empty" id="empty" style="display:none;">No jobs yet. They'll appear here after the next run.</div>
+
+      <!-- gamified sidebar -->
+      <aside class="side">
+        <div class="card">
+          <div class="card-kicker">apply streak</div>
+          <div class="streaks">
+            <div class="s"><b id="curStreak">0</b><span>current</span></div>
+            <div class="s"><b id="maxStreak">0</b><span>best</span></div>
+          </div>
+          <div class="cal-head"><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span></div>
+          <div class="cal" id="cal"></div>
+          <div class="sub" id="calMonth" style="margin-top:8px;text-align:center"></div>
+        </div>
+        <div class="card">
+          <div class="card-kicker">friends leaderboard , this week</div>
+          <div id="lb" style="margin-top:8px"><div class="sub">Loading...</div></div>
+        </div>
+      </aside>
     </div>
   </div>
 
   <div class="tov" id="tov">
     <div class="tmodal">
-      <button class="tclose" id="tclose" aria-label="Close">&times;</button>
+      <button class="btn-quiet" id="tclose" aria-label="Close" style="position:absolute;top:14px;right:16px;font-size:1.5rem;line-height:1;padding:0;background:none;border:0;cursor:pointer">&times;</button>
       <h3 style="margin:0 0 12px;" id="ttitle">Tailored for this job</h3>
-      <pre id="tbody"></pre>
+      <pre id="tbody" style="white-space:pre-wrap;font-family:inherit;font-size:var(--fs-body);line-height:1.6;color:var(--ink);margin:0"></pre>
     </div>
   </div>
 
   <script>
-    // Theme toggle (default dark, remembered in localStorage)
-    const sunIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>';
-    const moonIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>';
+    const sunIcon = '☼', moonIcon = '☾';
     function setupToggle() {
       const toggle = document.getElementById('themeToggle');
-      if (!toggle) return;
-      const apply = t => { document.documentElement.setAttribute('data-theme', t); toggle.innerHTML = t === 'dark' ? sunIcon : moonIcon; };
+      const apply = t => { document.documentElement.setAttribute('data-theme', t); toggle.textContent = t === 'dark' ? sunIcon : moonIcon; };
       apply(localStorage.getItem('theme') || 'dark');
       toggle.addEventListener('click', () => {
         const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
@@ -238,14 +195,13 @@
     }
     setupToggle();
 
-    // Category tag colors (deterministic by name, falls back gracefully)
     const tagColors = [
-      ['rgba(99,102,241,.14)','#818cf8','rgba(99,102,241,.3)'],
-      ['rgba(16,185,129,.14)','#34d399','rgba(16,185,129,.3)'],
-      ['rgba(236,72,153,.14)','#f472b6','rgba(236,72,153,.3)'],
       ['rgba(245,158,11,.14)','#fbbf24','rgba(245,158,11,.3)'],
-      ['rgba(14,165,233,.14)','#38bdf8','rgba(14,165,233,.3)'],
-      ['rgba(168,85,247,.14)','#c084fc','rgba(168,85,247,.3)'],
+      ['rgba(52,211,153,.14)','#34d399','rgba(52,211,153,.3)'],
+      ['rgba(96,165,250,.14)','#60a5fa','rgba(96,165,250,.3)'],
+      ['rgba(244,114,182,.14)','#f472b6','rgba(244,114,182,.3)'],
+      ['rgba(56,189,248,.14)','#38bdf8','rgba(56,189,248,.3)'],
+      ['rgba(192,132,252,.14)','#c084fc','rgba(192,132,252,.3)'],
     ];
     function tagStyle(cat) {
       let h = 0; const s = String(cat || 'Other');
@@ -257,11 +213,9 @@
     function safeUrl(u) { u = String(u || ''); return /^https?:\/\//i.test(u) ? u : ''; }
 
     const token = new URLSearchParams(location.search).get('token') || '';
-    let all = [];
-    let RESUME_NAMES = [];
+    let all = [], RESUME_NAMES = [];
     let state = { days: 0, minScore: 0, sortKey: 'score', sortDir: 'desc', status: '' };
-    // Build the "resume used" options from the user's actual saved resume profiles (+ keep any
-    // legacy/stored value so it isn't lost). Falls back to a hint when no profiles exist yet.
+
     function resumeOpts(current){
       const opts = ['', ...RESUME_NAMES];
       if (!RESUME_NAMES.length) opts.push('Base resume');
@@ -274,22 +228,74 @@
       {v:'saved',label:'Saved'},{v:'applied',label:'Applied'},
       {v:'not_interested',label:'Not a fit'},{v:'rejected',label:'Rejected'}
     ];
-    const STATUS_COLORS = {
-      saved:         ['rgba(148,163,184,.16)','#94a3b8','rgba(148,163,184,.35)'],
-      applied:       ['rgba(99,102,241,.16)','#818cf8','rgba(99,102,241,.4)'],
-      not_interested:['rgba(120,120,140,.14)','#9499b0','rgba(120,120,140,.3)'],
-      rejected:      ['rgba(239,68,68,.16)','#f87171','rgba(239,68,68,.4)']
-    };
-    function statusStyle(s){ const c=STATUS_COLORS[s||'saved']||STATUS_COLORS.saved; return `background:${c[0]};color:${c[1]};border-color:${c[2]}`; }
-    function recomputeStats(){
-      const c = { total: all.length, applied_total: 0, not_interested: 0, rejected: 0 };
-      all.forEach(j => { const s = j.status || 'saved';
-        if (s === 'applied' || s === 'rejected') c.applied_total++;
-        if (s === 'not_interested') c.not_interested++;
-        if (s === 'rejected') c.rejected++; });
-      renderStats(c);
+    const STATUS_TOKEN = { saved:'--c-saved', applied:'--c-applied', not_interested:'--c-notfit', rejected:'--c-rejected' };
+    function statusStyle(s){ const v=`var(${STATUS_TOKEN[s||'saved']||'--c-saved'})`;
+      return `color:${v};border-color:${v};background:color-mix(in srgb, ${v} 15%, transparent)`; }
+
+    // ---- hero ----
+    function renderHero(s){
+      const total = s.total||0, applied = s.applied_total||0;
+      const pct = total ? Math.round(100*applied/total) : 0;
+      document.getElementById('funnelRing').style.setProperty('--val', pct);
+      document.getElementById('funnelPct').innerHTML = pct + '<span>%</span>';
+      const by = s.by_status || {};
+      const items = [
+        ['saved','Saved',by.saved||0],['applied','Applied',applied],
+        ['response','Replies',s.responses||0],['rejected','Rejected',by.rejected||0],
+      ];
+      document.getElementById('breakdown').innerHTML = items.map(([k,label,n])=>
+        `<span class="dotcount"><i style="background:var(--c-${k})"></i><b>${n}</b> ${label}</span>`).join('');
+      const goal = +(localStorage.getItem('jh_weekly_goal')||10);
+      const wk = s.applied_week||0, gp = Math.min(100, Math.round(100*wk/goal));
+      document.getElementById('goalTxt').textContent = `${wk} / ${goal} this week`;
+      const gb = document.getElementById('goalBar');
+      gb.style.width = gp+'%'; gb.style.background = gp>=100 ? 'var(--ok)' : 'var(--accent)';
     }
-    async function updStatus(id, el){ el.setAttribute('style', statusStyle(el.value)); await upd(id,'status',el.value); updateStatusCounts(); recomputeStats(); render(); }
+    document.getElementById('goalEdit').onclick = ()=>{
+      const cur = +(localStorage.getItem('jh_weekly_goal')||10);
+      const n = prompt('Applications goal per week:', cur);
+      if(n && +n>0){ localStorage.setItem('jh_weekly_goal', Math.round(+n)); loadGamify(); }
+    };
+
+    // ---- gamify sidebar ----
+    const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    function renderStreak(st, cal, year, month){
+      document.getElementById('curStreak').textContent = st.current||0;
+      document.getElementById('maxStreak').textContent = st.max||0;
+      document.getElementById('navStreak').innerHTML = `🔥 <b>${st.current||0}</b>`;
+      const first = new Date(year, month-1, 1);
+      let lead = (first.getDay()+6)%7; // Mon=0
+      const days = new Date(year, month, 0).getDate();
+      const now = new Date(), todayD = (now.getFullYear()===year && now.getMonth()+1===month) ? now.getDate() : -1;
+      let html='';
+      for(let i=0;i<lead;i++) html+='<div class="cal-cell off"></div>';
+      for(let d=1;d<=days;d++){ const c=cal[d]||0;
+        const cls = c>=2?'hit hit2':(c>=1?'hit':'') ; const today = d===todayD?'today':'';
+        html += `<div class="cal-cell ${cls} ${today}" title="${c} applied">${c>0?'🔥':d}</div>`;
+      }
+      document.getElementById('cal').innerHTML = html;
+      document.getElementById('calMonth').textContent = `${MONTHS[month-1]} ${year}`;
+    }
+    function renderLeaderboard(lb){
+      if(!lb || !lb.length){ document.getElementById('lb').innerHTML='<div class="sub">No applications yet this week. Be the first.</div>'; return; }
+      const max = Math.max(1, ...lb.map(r=>r.applied_week));
+      document.getElementById('lb').innerHTML = lb.map((r,i)=>{
+        const rk = i<3?`rank-${i+1}`:'';
+        const w = Math.round(100*r.applied_week/max);
+        return `<div class="lb-row ${r.is_me?'me':''}">
+          <span class="rank ${rk}">${i+1}</span>
+          <span class="lb-name">${esc(r.name)}${r.is_me?' (you)':''}</span>
+          <div class="bar" style="flex:1"><span style="width:${w}%"></span></div>
+          <b class="lb-val">${r.applied_week}</b></div>`;
+      }).join('');
+    }
+    async function loadGamify(){
+      try{
+        const r = await fetch(`/api/gamify?token=${encodeURIComponent(token)}`);
+        if(!r.ok) return; const d = await r.json();
+        renderHero(d.stats); renderStreak(d.streak, d.calendar, d.year, d.month); renderLeaderboard(d.leaderboard);
+      }catch(e){}
+    }
 
     async function load() {
       const res = await fetch(`/api/jobs?token=${encodeURIComponent(token)}`);
@@ -300,16 +306,16 @@
       }
       const data = await res.json();
       document.getElementById('hello').textContent = `${data.name}'s JobHunt tracker`;
-      renderStats(data.stats);
+      renderHero(data.stats);
       renderInsights(data.analytics);
       RESUME_NAMES = data.resume_names || [];
       all = data.jobs;
       buildFilterOptions();
       updateStatusCounts();
       render();
+      loadGamify();
     }
 
-    // Show the run schedule so users know when the next batch arrives (public /status).
     fetch('/status').then(r => r.ok ? r.json() : null).then(s => {
       if (s && (s.next_run || s.schedule)) {
         const el = document.getElementById('schedNote');
@@ -318,14 +324,6 @@
       }
     }).catch(() => {});
 
-    function renderStats(s) {
-      document.getElementById('stats').innerHTML = `
-        <div class="stat"><b>${s.total ?? 0}</b><span>total jobs</span></div>
-        <div class="stat"><b>${s.applied_total ?? 0}</b><span>applied</span></div>
-        <div class="stat"><b>${s.not_interested ?? 0}</b><span>not a fit</span></div>
-        <div class="stat"><b>${s.rejected ?? 0}</b><span>rejected</span></div>`;
-    }
-
     function renderInsights(a) {
       if (!a || (!a.by_category || !a.by_category.length)) return;
       const box = document.getElementById('insightsBox');
@@ -333,7 +331,7 @@
         `<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--line)">
           <span>${esc(c.category)}</span><span style="color:var(--muted)">${c.applied} applied / ${c.saved} saved</span></div>`).join('');
       const res = (a.by_resume || []).map(r =>
-        `<span class="tag" style="margin-right:6px">${esc(r.resume)}: ${r.applied}</span>`).join('');
+        `<span class="tag" style="${tagStyle(r.resume)};margin-right:6px">${esc(r.resume)}: ${r.applied}</span>`).join('');
       document.getElementById('insights').innerHTML =
         `<div style="margin-bottom:8px"><b>By role</b>${cats || '<div style="color:var(--muted)">No data yet</div>'}</div>` +
         (res ? `<div><b>Resume used (applied)</b><br>${res}</div>` : '');
@@ -390,6 +388,7 @@
       await fetch(`/api/jobs/${id}?${p.toString()}`, { method:'POST' });
       const j = all.find(x => x.id === id); if (j) j[field] = value;
     }
+    async function updStatus(id, el){ el.setAttribute('style', statusStyle(el.value)); await upd(id,'status',el.value); updateStatusCounts(); render(); loadGamify(); }
 
     const tov = document.getElementById('tov');
     document.getElementById('tclose').onclick = () => tov.classList.remove('show');
@@ -405,12 +404,10 @@
         document.getElementById('tbody').textContent = d.ok ? d[key] : (d.reason || d.error || 'Could not generate.');
       } catch (e) { document.getElementById('tbody').textContent = 'Error: ' + e; }
     }
-    const tailor = id => aiTool(id, 'tailor', 'tailoring', 'Tailored for this job', 'Generating your tailored resume tips...');
     const boost = id => aiTool(id, 'booster', 'booster', 'Boost this application', 'Drafting your outreach (connection note, recruiter email, checklist)...');
     const prep = id => aiTool(id, 'interview', 'interview', 'Interview prep', 'Generating likely questions + your angles...');
     const fit = id => aiTool(id, 'gap', 'gap', 'Fit & gaps', 'Analyzing your fit and gaps for this role...');
     const ats = id => aiTool(id, 'ats', 'ats', 'ATS match score', 'Checking your ATS keyword match...');
-    // One AI menu per row (instead of 5 buttons): opens the modal with the choices.
     function aiMenu(id){
       tov.classList.add('show');
       document.getElementById('ttitle').textContent = 'AI tools for this job';
@@ -420,8 +417,7 @@
         ['ATS match','Keyword match score',ats]];
       const b = document.getElementById('tbody');
       b.innerHTML = '<div style="display:flex;flex-direction:column;gap:8px">' + opts.map((o,i)=>
-        `<button class="aiopt" data-i="${i}" style="text-align:left;padding:11px 13px;border:1px solid var(--field-border);border-radius:10px;background:var(--field);color:var(--ink);cursor:pointer">
-           <b>${o[0]}</b><div style="color:var(--muted);font-size:.8rem">${o[1]}</div></button>`).join('') + '</div>';
+        `<button class="aiopt" data-i="${i}"><b>${o[0]}</b><div style="color:var(--muted);font-size:.8rem">${o[1]}</div></button>`).join('') + '</div>';
       b.querySelectorAll('.aiopt').forEach(btn=>btn.onclick=()=>opts[+btn.dataset.i][2](id));
     }
 

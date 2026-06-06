@@ -56,6 +56,7 @@ job_log = Table(
     Column("posted_at", Text),
     Column("status", Text, default="saved"),
     Column("sent_at", DateTime, default=datetime.utcnow),
+    Column("applied_at", DateTime),  # set when the row first enters an applied state (streaks/leaderboard)
 )
 
 # Speeds up the per-job dedup lookups (is_seen / log_job) as the log grows.
@@ -111,6 +112,8 @@ def init_db():
         status_is_new = "status" not in jl_cols
         if status_is_new:
             conn.execute(text("ALTER TABLE job_log ADD COLUMN status TEXT"))
+        if "applied_at" not in jl_cols:
+            conn.execute(text("ALTER TABLE job_log ADD COLUMN applied_at TIMESTAMP"))
         # jobs_catalog.salary for older DBs
         if insp.has_table("jobs_catalog"):
             cat_cols = {c["name"] for c in insp.get_columns("jobs_catalog")}
@@ -124,6 +127,8 @@ def init_db():
         conn.execute(text("UPDATE job_log SET status='applied' WHERE (status IS NULL OR status='') AND applied=1"))
         conn.execute(text("UPDATE job_log SET status='saved' WHERE status IS NULL OR status=''"))
         conn.execute(text("UPDATE job_log SET status='applied' WHERE status IN ('screening','interview','offer','ghosted')"))
+        # seed applied_at for legacy applied rows so streaks/calendar have history (approx from sent_at)
+        conn.execute(text("UPDATE job_log SET applied_at=sent_at WHERE applied_at IS NULL AND applied=1"))
     # backfill dashboard tokens + referral codes for any user missing them
     with engine.begin() as conn:
         for (uid,) in conn.execute(select(users.c.id).where(users.c.dash_token.is_(None))).all():
@@ -396,6 +401,11 @@ def update_job(job_id, user_id, **fields):
         conn.execute(
             update(job_log).where(job_log.c.id == job_id, job_log.c.user_id == user_id).values(**allowed)
         )
+        # stamp the first time this row becomes applied (powers streaks/leaderboard)
+        if allowed.get("applied") == 1:
+            conn.execute(update(job_log).where(
+                job_log.c.id == job_id, job_log.c.user_id == user_id, job_log.c.applied_at.is_(None)
+            ).values(applied_at=datetime.utcnow()))
 
 
 def stats(user_id):
@@ -514,7 +524,80 @@ def set_status_by_url(user_id, url, status):
         r = c.execute(
             update(job_log).where(job_log.c.user_id == user_id, job_log.c.url == url).values(**vals)
         )
+        if status in APPLIED_STATES:
+            c.execute(update(job_log).where(
+                job_log.c.user_id == user_id, job_log.c.url == url, job_log.c.applied_at.is_(None)
+            ).values(applied_at=datetime.utcnow()))
     return (r.rowcount or 0) > 0
+
+
+def _applied_days(user_id):
+    """Set of date objects on which the user applied to >=1 job."""
+    with engine.connect() as c:
+        rows = c.execute(
+            select(job_log.c.applied_at).where(
+                job_log.c.user_id == user_id, job_log.c.applied_at.isnot(None))
+        ).all()
+    return {r[0].date() for r in rows if r[0]}
+
+
+def streak(user_id):
+    """Current + max consecutive-day apply streak. A 1-day grace (yesterday counts) keeps it forgiving."""
+    days = _applied_days(user_id)
+    if not days:
+        return {"current": 0, "max": 0, "applied_days": 0}
+    today = datetime.utcnow().date()
+    # current: walk back from today (or yesterday if nothing today yet)
+    cur = 0
+    anchor = today if today in days else (today - timedelta(days=1))
+    d = anchor
+    while d in days:
+        cur += 1
+        d -= timedelta(days=1)
+    # max over all history
+    best = run = 0
+    prev = None
+    for d in sorted(days):
+        run = run + 1 if (prev and (d - prev).days == 1) else 1
+        best = max(best, run)
+        prev = d
+    return {"current": cur, "max": best, "applied_days": len(days)}
+
+
+def applied_calendar(user_id, year, month):
+    """Map of day-of-month -> count of jobs applied that day, for the given month."""
+    start = datetime(year, month, 1)
+    end = datetime(year + (month == 12), (month % 12) + 1, 1)
+    with engine.connect() as c:
+        rows = c.execute(
+            select(job_log.c.applied_at).where(
+                job_log.c.user_id == user_id,
+                job_log.c.applied_at >= start, job_log.c.applied_at < end)
+        ).all()
+    out = {}
+    for (ts,) in rows:
+        if ts:
+            out[ts.day] = out.get(ts.day, 0) + 1
+    return out
+
+
+def leaderboard(user_id=None):
+    """Rank all active users by applications this week / total / current streak (friends board).
+    Small group, so we compute streaks per user in Python; fine at this scale."""
+    wk = datetime.utcnow() - timedelta(days=7)
+    with engine.connect() as c:
+        urows = c.execute(select(users.c.id, users.c.name).where(users.c.active == 1)).all()
+        out = []
+        for uid, name in urows:
+            total = c.execute(select(func.count()).select_from(job_log).where(
+                job_log.c.user_id == uid, job_log.c.applied == 1)).scalar() or 0
+            week = c.execute(select(func.count()).select_from(job_log).where(
+                job_log.c.user_id == uid, job_log.c.applied == 1, job_log.c.applied_at >= wk)).scalar() or 0
+            out.append({"name": name or "Someone", "applied_total": total,
+                        "applied_week": week, "current_streak": streak(uid)["current"],
+                        "is_me": uid == user_id})
+    out.sort(key=lambda r: (r["applied_week"], r["applied_total"], r["current_streak"]), reverse=True)
+    return out[:20]
 
 
 def analytics(user_id):

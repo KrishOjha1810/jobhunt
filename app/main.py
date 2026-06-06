@@ -491,6 +491,21 @@ def api_jobs(request: Request, token: str = "", week: int = 0, company: str = ""
             "jobs": jobs}
 
 
+@app.get("/api/gamify")
+def api_gamify(request: Request, token: str = "", year: int = 0, month: int = 0):
+    """Everything the gamified tracker sidebar needs: funnel stats, apply streak, this month's
+    apply calendar, and the friends leaderboard. All free, derived from existing data."""
+    user = _resolve_user(request, token)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=403)
+    now = _dt.utcnow()
+    y, m = (year or now.year), (month or now.month)
+    return {"ok": True, "name": user["name"], "stats": db.stats(user["id"]),
+            "streak": db.streak(user["id"]),
+            "calendar": db.applied_calendar(user["id"], y, m), "year": y, "month": m,
+            "leaderboard": db.leaderboard(user["id"])}
+
+
 @app.post("/api/jobs/{job_id}")
 def api_update_job(request: Request, job_id: int, token: str = "", applied: int = None,
                    responded: int = None, resume_used: str = None, notes: str = None,

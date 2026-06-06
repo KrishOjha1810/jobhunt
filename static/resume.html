@@ -1,51 +1,33 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Resume Studio , JobHunt</title>
+  <link rel="stylesheet" href="/static/theme.css?v=2" />
   <style>
-    :root { --bg:#0f1117; --card:#171a23; --card-border:#262a36; --ink:#e8eaf0; --muted:#9aa0ad;
-      --line:#222633; --field:#0c0e14; --field-border:#2b3040; --accent:#818cf8; --accent2:#a5b4fc;
-      --accent-soft:rgba(99,102,241,.16); --grad:linear-gradient(135deg,#6366f1,#8b5cf6); }
-    html[data-theme="light"] { --bg:#f7f8fb; --card:#ffffff; --card-border:#e5e7ef; --ink:#1a1d27;
-      --muted:#5b6173; --line:#eceef4; --field:#ffffff; --field-border:#d3d7e3; --accent:#6366f1;
-      --accent2:#4f46e5; --accent-soft:rgba(99,102,241,.10); }
-    .theme-toggle { width:36px; height:36px; border-radius:10px; border:1px solid var(--field-border);
-      background:transparent; color:var(--ink); cursor:pointer; display:inline-flex; align-items:center; justify-content:center; }
-    .theme-toggle svg { width:17px; height:17px; }
-    * { box-sizing:border-box; font-family:-apple-system,Inter,Segoe UI,sans-serif; }
-    body { margin:0; background:var(--bg); color:var(--ink); }
-    .nav { position:sticky; top:0; z-index:30; background:var(--card); border-bottom:1px solid var(--card-border); backdrop-filter:blur(14px); }
-    .nav-inner { max-width:1040px; margin:0 auto; display:flex; align-items:center; gap:6px; padding:12px 20px; }
-    .nav-brand { font-weight:800; color:var(--ink); text-decoration:none; font-size:1.05rem; margin-right:auto; }
-    .nav a.nlink { color:var(--muted); text-decoration:none; font-size:.9rem; font-weight:600; padding:6px 11px; border-radius:8px; }
-    .nav a.nlink:hover { color:var(--ink); } .nav a.nlink.active { color:var(--ink); background:var(--accent-soft); }
-    .wrap { max-width:1040px; margin:0 auto; padding:24px 20px 60px; }
-    h1 { font-size:1.5rem; margin:0 0 4px; } .sub { color:var(--muted); margin:0 0 20px; font-size:.92rem; }
-    .grid { display:grid; grid-template-columns:1fr 300px; gap:20px; align-items:start; }
+    /* page-local: resume editor + paper preview (everything else from theme.css) */
+    .grid { display:grid; grid-template-columns:1fr 320px; gap:var(--sp-5); align-items:start; }
     @media (max-width:760px){ .grid { grid-template-columns:1fr; } }
-    .card { background:var(--card); border:1px solid var(--card-border); border-radius:16px; padding:18px; margin-bottom:16px; }
-    .card h2 { font-size:1rem; margin:0 0 10px; }
-    label { display:block; font-size:.75rem; color:var(--muted); margin:10px 0 4px; text-transform:uppercase; letter-spacing:.04em; }
-    input, textarea, select { width:100%; padding:9px 11px; border-radius:9px; border:1px solid var(--field-border); background:var(--field); color:var(--ink); font-size:.9rem; font-family:inherit; }
-    select option { background:var(--field); color:var(--ink); }
+    .card{margin-bottom:var(--sp-4)}
+    .card h2 { font-size:var(--fs-h3); margin:0 0 10px; }
+    label { display:block; margin:10px 0 4px; text-transform:uppercase; letter-spacing:.04em; font-size:var(--fs-xs); }
     textarea { resize:vertical; min-height:64px; }
-    button { padding:10px 15px; border:0; border-radius:10px; font-weight:700; font-size:.9rem; cursor:pointer; background:var(--grad); color:#fff; }
-    button.ghost { background:transparent; border:1px solid var(--field-border); color:var(--ink); font-weight:600; }
-    button.sm { padding:6px 10px; font-size:.8rem; }
-    .row { display:flex; gap:8px; flex-wrap:wrap; }
-    .exp { border:1px solid var(--line); border-radius:10px; padding:12px; margin-bottom:10px; }
+    button { padding:9px 15px; border:0; border-radius:var(--r-sm); font-weight:600; font-size:var(--fs-sm); cursor:pointer; background:var(--accent); color:var(--accent-ink); font-family:inherit; transition:.15s; }
+    button:hover{ background:var(--accent-2); }
+    button.ghost { background:var(--field); border:1px solid var(--field-border); color:var(--ink); }
+    button.ghost:hover{ border-color:var(--accent); color:var(--accent); background:var(--field); }
+    button.sm { padding:6px 11px; font-size:var(--fs-xs); }
+    .exp { border:1px solid var(--line); border-radius:var(--r-sm); padding:12px; margin-bottom:10px; }
     .exp .row input { flex:1; min-width:120px; }
-    .score-ring { font-size:2.4rem; font-weight:800; }
-    .chk { display:flex; gap:8px; align-items:flex-start; font-size:.82rem; padding:5px 0; color:var(--muted); }
-    .chk.ok { color:var(--ink); } .chk .dot { flex:0 0 auto; width:16px; }
-    .edit { border:1px solid var(--line); border-radius:10px; padding:10px; margin-bottom:8px; font-size:.85rem; }
+    .score-ring { font-size:2.4rem; font-weight:800; font-family:var(--font-display); }
+    .chk { display:flex; gap:8px; align-items:flex-start; font-size:var(--fs-sm); padding:5px 0; color:var(--muted); }
+    .chk.ok { color:var(--ink); } .chk .dot { flex:0 0 auto; width:16px; color:var(--ok); }
+    .edit { border:1px solid var(--line); border-radius:var(--r-sm); padding:10px; margin-bottom:8px; font-size:var(--fs-sm); }
     .edit .before { color:var(--muted); text-decoration:line-through; opacity:.7; }
-    .edit .after { color:#34d399; margin-top:3px; }
-    .pill { font-size:.7rem; padding:2px 8px; border-radius:999px; background:var(--accent-soft); color:var(--accent2); }
-    #msg { font-size:.85rem; margin-top:8px; min-height:16px; } .ok{color:#22c55e}.err{color:#f59e0b}
-    .skillchips span { display:inline-block; background:var(--accent-soft); color:var(--accent2); border-radius:999px; padding:3px 9px; font-size:.78rem; margin:0 5px 5px 0; }
+    .edit .after { color:var(--ok); margin-top:3px; }
+    #msg { font-size:var(--fs-sm); margin-top:8px; min-height:16px; }
+    .skillchips span { display:inline-block; background:var(--accent-soft); color:var(--accent); border-radius:var(--r-pill); padding:3px 9px; font-size:.78rem; margin:0 5px 5px 0; }
     .vbar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:16px; }
     /* Live preview , a paper-look resume on screen; the only thing shown when printing. */
     #preview { background:#fff; color:#111; border-radius:8px; padding:16px; font-family:Calibri,Arial,sans-serif;
@@ -55,9 +37,9 @@
     #preview h2 { font-size:11px; text-transform:uppercase; border-bottom:1px solid #ccc; margin:11px 0 4px; padding-bottom:2px; color:#111; }
     #preview .role { font-weight:bold; margin-top:6px; } #preview ul { margin:3px 0 0 16px; } #preview li { margin:2px 0; }
     @media print {
-      .nav, .wrap > h1, .wrap > .sub, .grid > div:first-child, #importCard, .vbar, #msg, .score-ring, #checks, .card h2 { display:none !important; }
-      body { background:#fff; color:#000; } .wrap { max-width:none; padding:0; }
-      .grid { display:block; } .card { border:0; background:#fff; padding:0; margin:0; }
+      .nav, .wrap > h1, .wrap > .sub, #jobContext, .grid > div:first-child, #importCard, .vbar, #msg, .score-ring, #checks, .card h2 { display:none !important; }
+      body { background:#fff; color:#000; } body::before{ display:none; } .wrap { max-width:none; padding:0; }
+      .grid { display:block; } .card { border:0; background:#fff; padding:0; margin:0; box-shadow:none; }
       #preview { max-height:none; overflow:visible; font-size:12px; padding:0; }
       #preview .nm { font-size:22px; } #preview h2 { font-size:13px; border-bottom:1px solid #999; }
     }
@@ -65,12 +47,11 @@
 </head>
 <body>
   <nav class="nav"><div class="nav-inner">
-    <a class="nav-brand" href="/jobs">JobHunt</a>
-    <a class="nlink" href="/jobs">Browse</a>
-    <a class="nlink" href="/dashboard">My matches</a>
-    <a class="nlink active" href="/resume">Resume</a>
-    <a class="nlink" href="/subscribe">Subscribe</a>
-    <a class="nlink" href="/logout">Log out</a>
+    <a class="brand" href="/jobs"><span class="brand-mark">JH</span> JobHunt</a>
+    <a class="nlink" href="/jobs">⌕ <span class="lbl">Browse</span></a>
+    <a class="nlink" href="/dashboard">◎ <span class="lbl">Tracker</span></a>
+    <a class="nlink active" href="/resume">▤ <span class="lbl">Resume</span></a>
+    <a class="nlink" href="/subscribe">⚑ <span class="lbl">Alerts</span></a>
     <button class="theme-toggle" id="themeToggle" title="Toggle theme"></button>
   </div></nav>
 
@@ -169,7 +150,12 @@
       <div>
         <div class="card" style="position:sticky;top:80px">
           <h2>ATS health</h2>
-          <div class="score-ring"><span id="score">--</span><span style="font-size:1rem;color:var(--muted)">/100</span></div>
+          <div style="display:flex;justify-content:center;margin:6px 0 14px">
+            <div class="ring sm" id="atsRing" style="--val:0;--col:var(--accent)">
+              <svg viewBox="0 0 120 120"><circle class="ring-track" cx="60" cy="60" r="52"/><circle class="ring-val" cx="60" cy="60" r="52"/></svg>
+              <div class="ring-center"><b id="score">--</b><small>/ 100</small></div>
+            </div>
+          </div>
           <div id="checks"></div>
           <h2 style="margin-top:18px">Live preview</h2>
           <div id="preview"></div>
@@ -251,6 +237,8 @@
     function renderHealth(h){
       if(!h) return;
       $('score').textContent = h.score;
+      const col = h.score>=80?'var(--ok)':(h.score>=60?'var(--accent)':'var(--c-notfit)');
+      const ring = $('atsRing'); ring.style.setProperty('--val', h.score); ring.style.setProperty('--col', col);
       $('checks').innerHTML = (h.checks||[]).map(c=>`<div class="chk ${c.ok?'ok':''}"><span class="dot">${c.ok?'✓':'•'}</span><span>${esc(c.label)}</span></div>`).join('');
     }
 
