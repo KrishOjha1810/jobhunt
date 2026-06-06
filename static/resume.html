@@ -77,6 +77,17 @@
       <div id="jcEdits" style="margin-top:12px"></div>
     </div>
 
+    <!-- Upload gate: blocks tailoring until the user uploads the .docx they're applying with -->
+    <div class="card card--accent" id="gateCard" style="display:none">
+      <h2>Which resume are you applying with?</h2>
+      <p class="sub" id="gateMsg" style="margin:2px 0 12px"></p>
+      <div class="row" style="align-items:center">
+        <input type="file" id="gateFile" accept=".docx,.doc" style="flex:1;min-width:200px" />
+        <button id="gateUpload">Upload &amp; tailor</button>
+      </div>
+      <div id="gateOut" class="sub" style="margin-top:8px"></div>
+    </div>
+
     <h1 id="pageTitle">Tailor your resume for a job</h1>
     <p class="sub" id="pageSub">You already have a resume , we don't rebuild it. Tell us the job and we suggest exactly what to change and what to add (only if you have the experience). Accept what you like, reject the rest, export, and apply.</p>
 
@@ -266,14 +277,24 @@
       else { eo.style.display='none'; eb.className=''; eb.textContent='Download tailored resume';
         hint.innerHTML='To export in your <b>exact original layout</b>, upload a <b>.docx</b> in "Update your resume" above (PDFs can\'t be edited in place). Otherwise this downloads a clean, ATS-friendly version with all your sections.'; }
     }
-    function showUploadGate(msg){
-      // require an uploaded resume (.docx preferred) before tailoring; open the import card
-      const ic = $('importCard'); if (ic) ic.open = true;
-      $('jobContext').style.display='none'; $('jobIntake').style.display='none';
-      $('pageSub').innerHTML = msg || '<b style="color:var(--accent)">Upload the resume you\'re applying with (.docx)</b> , we tailor your exact file and keep its format. Add it below to begin.';
-      if (ic) ic.scrollIntoView({behavior:'smooth', block:'center'});
+    const DOCX_GATE_MSG = 'Upload it as a <b>.docx</b> , we tailor that exact file and keep its formatting. (PDFs can\'t be edited in place, so upload a Word/Google-Docs .docx.)';
+    // Toggle between the blocking upload gate and the normal builder
+    function setView(v){
+      const gate = v === 'gate';
+      $('gateCard').style.display = gate ? 'block' : 'none';
+      const grid = document.querySelector('.grid'); if (grid) grid.style.display = gate ? 'none' : '';
+      const ic = $('importCard'); if (ic) ic.style.display = gate ? 'none' : '';
+      $('pageSub').style.display = gate ? 'none' : '';
+      if (gate) { $('jobContext').style.display='none'; $('jobIntake').style.display='none'; }
     }
-    const DOCX_GATE_MSG = '<b style="color:var(--accent)">Which resume are you applying with?</b> Upload it as a <b>.docx</b> below , we tailor that exact file and keep its formatting. (PDFs can\'t be edited in place.)';
+    function showUploadGate(msg){ $('gateMsg').innerHTML = msg || DOCX_GATE_MSG; setView('gate');
+      window.scrollTo({top:0, behavior:'smooth'}); }
+    // gate's own uploader -> stores the .docx, then continues the tailor automatically
+    $('gateUpload').onclick = ()=>{ const f = $('gateFile').files[0];
+      if (!f) { $('gateOut').innerHTML='<span class="err">Choose your .docx file first.</span>'; return; }
+      if (!/\.docx?$/i.test(f.name)) { $('gateOut').innerHTML='<span class="err">Please upload a .docx (not a PDF) to keep your exact format.</span>'; return; }
+      $('gateOut').innerHTML='<span class="spinner"></span> Uploading and tailoring...';
+      const fd=new FormData(); fd.append('file', f); importResume({method:'POST', body:fd}); };
     async function load(){
       const r = await fetch('/api/resume'); const d = await r.json();
       if (d && d.needs_upload) { HAS_RESUME=false; showUploadGate(); return; }
@@ -347,9 +368,13 @@
       $('msg').innerHTML='Parsing your resume with AI...';
       const r = await fetch('/api/resume/import', opts); const d = await r.json();
       if (d.ok){ HAS_RESUME=true; HAS_FORMAT=!!d.keeps_format; R = Object.assign(BASE(), d.resume); renderAll(); renderHealth(d.health); snapOriginal(); updateExportUI();
-        $('msg').innerHTML='<span class="ok">Imported and parsed'+(HAS_FORMAT?' , format-preserving export is now on.':' (PDF: use the clean template, or upload a .docx for exact layout).')+'</span>';
-        // if we were gated waiting for a .docx to tailor a specific job, continue automatically
-        if (HAS_FORMAT && (JOB_ID || JOB_URL)) { $('importCard').open=false; $('pageSub').textContent='Tailoring your uploaded resume to this job...'; initJobContext(); }
+        const note = HAS_FORMAT?'Imported , format-preserving export is on.':'Imported. That was a PDF , upload a .docx to keep your exact layout, or use the clean template.';
+        $('msg').innerHTML='<span class="ok">'+note+'</span>'; if($('gateOut')) $('gateOut').innerHTML='<span class="ok">'+note+'</span>';
+        if (HAS_FORMAT){
+          setView('normal');
+          if (JOB_ID || JOB_URL){ initJobContext(); }              // continue tailoring this job
+          else { $('jobIntake').style.display='block'; window.scrollTo({top:0,behavior:'smooth'}); }  // adhoc: paste the JD now
+        }
       }
       else $('msg').innerHTML=`<span class="err">${esc(d.reason||'Import failed.')}</span>`;
     }
@@ -480,6 +505,7 @@
     }
 
     function renderResult(d, titleText){
+      setView('normal');
       $('jobContext').style.display='block';
       $('jcTitle').textContent = titleText;
       if(d.resume){ R = Object.assign(BASE(), d.resume); renderAll(); snapOriginal(); }
