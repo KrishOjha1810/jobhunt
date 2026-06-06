@@ -1,4 +1,4 @@
-"""ATS / company career-page feeds: Greenhouse, Lever, Ashby, SmartRecruiters public job boards.
+"""ATS / company career-page feeds: Greenhouse, Lever, Ashby, SmartRecruiters, Workday public boards.
 
 These are free, need NO API key, and are served straight from each company's careers page (e.g.
 boards-api.greenhouse.io/coinbase IS Coinbase's careers backend). This is the no-aggregator way to
@@ -23,21 +23,37 @@ GREENHOUSE = [
     # verified-live additions (strong tech employers, high volume)
     "figma", "brex", "scaleai", "samsara", "instacart", "asana", "flexport", "discord",
     "gusto", "faire", "airtable", "webflow",
+    # batch 2 (verified live): infra/dev-tools + fintech, incl. India fintech (slice/phonepe/groww)
+    "okta", "cloudflare", "elastic", "reddit", "lyft", "sofi", "fivetran", "slice", "phonepe",
+    "newrelic", "chime", "duolingo", "fastly", "pagerduty", "marqeta", "cockroachlabs", "druva",
+    "calendly", "groww", "lattice", "coursera",
 ]
 LEVER = [
     "blockchain", "ledger", "chainlink", "kraken", "nethermind", "blockdaemon", "fireblocks",
     "gnosis", "status", "netlify", "spotify", "kucoin", "voiceflow", "palantir",
+    "kavak", "tala", "highspot",  # verified live
 ]
 ASHBY = [
     "openai", "vercel", "mercury", "replit", "uniswap-labs", "wintermute", "gauntlet",
     "flashbots", "phantom", "zora", "eigenlabs", "succinct", "deel", "supabase", "render",
     "neon", "modal", "baseten", "perplexity-ai", "ramp", "linear", "cursor",
     "notion", "sardine", "watershed",
+    "harvey", "sierra", "decagon", "abridge", "warp", "browserbase",  # verified live (AI-heavy)
 ]
 # SmartRecruiters: keyless public board (api.smartrecruiters.com/v1/companies/<slug>/postings).
 # Big enterprises with real India presence live here. Slugs are case-sensitive.
 SMARTRECRUITERS = [
-    "Visa", "BoschGroup", "NielsenIQ", "WeWork",
+    "Visa", "BoschGroup", "NielsenIQ", "WeWork", "Experian", "McDonaldsCorporation",
+]
+# Workday: keyless per-tenant JSON (POST .../wday/cxs/<tenant>/<site>/jobs). Big MNCs with heavy
+# India hiring live here. Each entry is (tenant, datacenter, site) read off the careers URL
+# <tenant>.<dc>.myworkdayjobs.com/<site>; verify it returns jobs before adding (wrong site -> 422).
+WORKDAY = [
+    ("nvidia", "wd5", "NVIDIAExternalCareerSite"),
+    ("adobe", "wd5", "external_experienced"),
+    ("salesforce", "wd12", "External_Career_Site"),
+    ("redhat", "wd5", "Jobs"),
+    ("workday", "wd5", "Workday"),
 ]
 
 # Keep only technical roles, these feeds list every department (HR, legal, sales...).
@@ -137,6 +153,30 @@ def _smartrecruiters(slug):
         return []
 
 
+def _workday(entry):
+    tenant, dc, site = entry
+    base = f"https://{tenant}.{dc}.myworkdayjobs.com"
+    try:
+        r = requests.post(
+            f"{base}/wday/cxs/{tenant}/{site}/jobs",
+            headers={"Content-Type": "application/json", "Accept": "application/json",
+                     "User-Agent": "Mozilla/5.0 (compatible; JobHunt/1.0)"},
+            json={"appliedFacets": {}, "limit": 20, "offset": 0, "searchText": ""}, timeout=15)
+        if not r.ok:
+            return []
+        out = []
+        for j in r.json().get("jobPostings", []):
+            path = j.get("externalPath") or ""
+            url = f"{base}/en-US/{site}{path}" if path else base
+            # the list omits the JD body; use title + location + bulletFields (id/category) as light text
+            desc = " ".join(j.get("bulletFields") or [])
+            out.append(_norm(j.get("title"), tenant, j.get("locationsText", ""), url,
+                             desc, j.get("postedOn", ""), f"workday:{tenant}"))
+        return out
+    except Exception:
+        return []
+
+
 def fetch(limit_companies: int = 0) -> list:
     """Fetch all curated boards concurrently. limit_companies>0 caps how many per provider."""
     tasks = []
@@ -144,10 +184,12 @@ def fetch(limit_companies: int = 0) -> list:
     lv = LEVER[:limit_companies] if limit_companies else LEVER
     ab = ASHBY[:limit_companies] if limit_companies else ASHBY
     sr = SMARTRECRUITERS[:limit_companies] if limit_companies else SMARTRECRUITERS
+    wd = WORKDAY[:limit_companies] if limit_companies else WORKDAY
     tasks += [(_greenhouse, s) for s in gh]
     tasks += [(_lever, s) for s in lv]
     tasks += [(_ashby, s) for s in ab]
     tasks += [(_smartrecruiters, s) for s in sr]
+    tasks += [(_workday, e) for e in wd]
     jobs = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=24) as ex:
         futures = [ex.submit(fn, slug) for fn, slug in tasks]
