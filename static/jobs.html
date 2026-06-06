@@ -413,8 +413,10 @@
         appVersion = me.version || '';
         dashToken = me.dash_token || '';
         document.getElementById(subscribed ? 'subnote' : 'sbanner').style.display = 'flex';
-        // show the walkthrough once per deployed version, to everyone
-        if (localStorage.getItem(TOUR_VER_KEY) !== appVersion) startTour();
+        // auto-show the walkthrough once per version, but only to users who haven't subscribed yet
+        // (don't interrupt established users on every deploy; they can replay via "How it works")
+        if (!subscribed && localStorage.getItem(TOUR_VER_KEY) !== appVersion) startTour();
+        localStorage.setItem(TOUR_VER_KEY, appVersion);
       } catch (e) { /* ignore */ }
     }
 

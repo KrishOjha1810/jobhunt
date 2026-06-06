@@ -266,8 +266,9 @@
       const opts = ['', ...RESUME_NAMES];
       if (!RESUME_NAMES.length) opts.push('Base resume');
       if (current && !opts.includes(current)) opts.push(current);
-      return opts;
+      return [...new Set(opts)];
     }
+    const resumeLabel = v => v === '' ? '— not set —' : v;
 
     const STATUS_OPTS = [
       {v:'saved',label:'Saved'},{v:'applied',label:'Applied'},
@@ -319,7 +320,7 @@
 
     function renderStats(s) {
       document.getElementById('stats').innerHTML = `
-        <div class="stat"><b>${s.total ?? 0}</b><span>jobs saved</span></div>
+        <div class="stat"><b>${s.total ?? 0}</b><span>total jobs</span></div>
         <div class="stat"><b>${s.applied_total ?? 0}</b><span>applied</span></div>
         <div class="stat"><b>${s.not_interested ?? 0}</b><span>not a fit</span></div>
         <div class="stat"><b>${s.rejected ?? 0}</b><span>rejected</span></div>`;
@@ -357,7 +358,7 @@
         (!co || j.company === co) && (!ca || j.category === ca) &&
         ((j.score || 0) >= state.minScore) &&
         (!state.status || (j.status || 'saved') === state.status) &&
-        (!cutoff || (j.sent_at && ts(j) >= cutoff))
+        (!cutoff || !j.sent_at || ts(j) >= cutoff)
       ).sort((a, b) => {
         let d = state.sortKey === 'date' ? ts(a) - ts(b) : (a.score || 0) - (b.score || 0);
         if (d === 0) d = ts(a) - ts(b);
@@ -375,12 +376,12 @@
           <td data-label="Apply & status"><div class="actions">
             ${safeUrl(j.url)?`<a class="applylink" href="${esc(safeUrl(j.url))}" target="_blank" rel="noopener">Apply <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8"/></svg></a>`:''}
             <select class="statussel" style="${statusStyle(j.status)}" onchange="updStatus(${j.id}, this)">${STATUS_OPTS.map(o=>`<option value="${o.v}" ${ (j.status||'saved')===o.v ? 'selected':''}>${o.label}</option>`).join('')}</select>
-            <button class="tailorbtn" onclick="tailor(${j.id})">Tailor</button><button class="tailorbtn" onclick="boost(${j.id})">Outreach</button><button class="tailorbtn" onclick="prep(${j.id})">Interview</button><button class="tailorbtn" onclick="fit(${j.id})">Fit</button><button class="tailorbtn" onclick="ats(${j.id})">ATS</button>
+            <button class="tailorbtn" onclick="aiMenu(${j.id})">✨ AI tools</button>
           </div></td>
           <td data-label="Resume"><select class="res" onchange="upd(${j.id},'resume_used',this.value)">
-            ${resumeOpts(j.resume_used).map(r=>`<option ${ (j.resume_used||'')===r ? 'selected':''}>${esc(r)}</option>`).join('')}
+            ${resumeOpts(j.resume_used).map(r=>`<option value="${esc(r)}" ${ (j.resume_used||'')===r ? 'selected':''}>${esc(resumeLabel(r))}</option>`).join('')}
           </select></td>
-          <td data-label="Notes"><input class="notes" value="${(j.notes||'').replace(/"/g,'&quot;')}" onblur="upd(${j.id},'notes',this.value)" placeholder="notes..."></td>
+          <td data-label="Notes"><input class="notes" value="${esc(j.notes)}" onblur="upd(${j.id},'notes',this.value)" placeholder="notes..."></td>
         </tr>`).join('');
     }
 
@@ -409,6 +410,19 @@
     const prep = id => aiTool(id, 'interview', 'interview', 'Interview prep', 'Generating likely questions + your angles...');
     const fit = id => aiTool(id, 'gap', 'gap', 'Fit & gaps', 'Analyzing your fit and gaps for this role...');
     const ats = id => aiTool(id, 'ats', 'ats', 'ATS match score', 'Checking your ATS keyword match...');
+    // One AI menu per row (instead of 5 buttons): opens the modal with the choices.
+    function aiMenu(id){
+      tov.classList.add('show');
+      document.getElementById('ttitle').textContent = 'AI tools for this job';
+      const opts = [['Tailor','Rewrite resume bullets for this job',tailor],['Outreach','Connection note + recruiter email',boost],
+        ['Interview prep','Likely questions + your angles',prep],['Fit & gaps','Honest fit + how to close gaps',fit],
+        ['ATS match','Keyword match score',ats]];
+      const b = document.getElementById('tbody');
+      b.innerHTML = '<div style="display:flex;flex-direction:column;gap:8px">' + opts.map((o,i)=>
+        `<button class="aiopt" data-i="${i}" style="text-align:left;padding:11px 13px;border:1px solid var(--field-border);border-radius:10px;background:var(--field);color:var(--ink);cursor:pointer">
+           <b>${o[0]}</b><div style="color:var(--muted);font-size:.8rem">${o[1]}</div></button>`).join('') + '</div>';
+      b.querySelectorAll('.aiopt').forEach(btn=>btn.onclick=()=>opts[+btn.dataset.i][2](id));
+    }
 
     function wireChips(groupId, attr, apply) {
       const g = document.getElementById(groupId);

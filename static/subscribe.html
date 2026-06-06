@@ -174,7 +174,7 @@
               <li>Come back here and tap <b>I pressed Start</b>.</li>
             </ol>
             <a id="tgOpenBtn" href="#" target="_blank" rel="noopener" class="submit" style="display:inline-block;text-decoration:none;margin:0 0 8px;padding:10px 16px;width:auto">Open our Telegram bot</a>
-            <button type="button" id="tgConnectBtn" class="submit" style="margin:0 0 6px;padding:10px 16px;width:auto;background:transparent;border:1px solid var(--border)">I pressed Start, connect me</button>
+            <button type="button" id="tgConnectBtn" class="submit" style="margin:0 0 6px;padding:10px 16px;width:auto;background:transparent;border:1px solid var(--field-border);color:var(--ink)">I pressed Start, connect me</button>
             <div id="tgStatus" style="font-size:14px;margin-top:6px"></div>
           </div>
           <input type="hidden" name="telegram_chat_id" id="tgChatId" value="" />
@@ -315,12 +315,14 @@
     document.getElementById('tgConnectBtn').addEventListener('click', async () => {
       tgStatus.innerHTML = '<span style="color:var(--muted)">Checking, give it a sec...</span>';
       let found = null;
-      for (let i = 0; i < 4 && !found; i++) {
+      // poll ~24s (switching to the Telegram app + pressing START easily takes >6s)
+      for (let i = 0; i < 16 && !found; i++) {
         try {
           const r = await fetch('/telegram/detect?code=' + encodeURIComponent(tgCode));
           const d = await r.json();
           if (d.found) { found = d; break; }
         } catch (e) {}
+        if (i === 2) tgStatus.innerHTML = '<span style="color:var(--muted)">Waiting for you to press START in Telegram...</span>';
         await new Promise(res => setTimeout(res, 1500));
       }
       if (found) {
