@@ -22,7 +22,7 @@ _TAG = re.compile(r"<[^>]+>")
 # Public job channels Krish provided (dev / fullstack / blockchain / fresher-internship centric).
 # Override/extend with the TELEGRAM_JOB_CHANNELS env var (comma-separated usernames).
 DEFAULT_CHANNELS = ("internfreak, fresherearth, web3hiring, jobs_and_internships_updates, "
-                    "offcampusjobs4u, jobs_sql, AiIndiaJobs, fresheroffcampus")
+                    "offcampusjobs4u, jobs_sql, AiIndiaJobs, fresheroffcampus, freshershunt")
 
 
 def channels():
@@ -68,9 +68,12 @@ def fetch_channel(username, limit=25):
         page = r.text
     except Exception:
         return out
-    texts = _MSG.findall(page)[-limit:]
-    times = _TIME.findall(page)[-limit:]  # align tails so dates line up with messages
-    for i, raw in enumerate(texts):
+    # Pair each message with the <time> that FOLLOWS its text (Telegram renders the text div, then
+    # the meta/time in the same message block). findall+zip-by-index misaligns whenever the page has
+    # a different count of <time> tags vs message divs (e.g. a pinned post or service message), which
+    # silently stamped fresh posts with old dates and dropped them. finditer + a forward search fixes it.
+    for m in list(_MSG.finditer(page))[-limit:]:
+        raw = m.group(1)
         body = _clean(raw)
         if len(body) < 25:
             continue
@@ -79,7 +82,8 @@ def fetch_channel(username, limit=25):
         url = links[0] if links else ""
         if not url:
             continue
-        posted = times[i] if i < len(times) else ""
+        tm = _TIME.search(page, m.end())  # this message's own meta <time>, just after its text
+        posted = tm.group(1) if tm else ""
         if _too_old(posted):
             continue  # skip stale posts (older than ~2 days)
         # title = first real line (skip bare URLs, hashtags, and reshare markers)

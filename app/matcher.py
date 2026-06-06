@@ -6,6 +6,36 @@ def _contains(text: str, term: str) -> bool:
     return re.search(r"(?<![a-z0-9])" + re.escape(term) + r"(?![a-z0-9])", text) is not None
 
 
+# Synonym-aware matching: a resume keyword should match its real-world spellings in a JD
+# ("node" <-> "node.js", "react" <-> "reactjs", "postgres" <-> "postgresql", "ml" <-> "machine
+# learning", "k8s" <-> "kubernetes"). We reuse the synonym table already maintained in resume.py
+# (cached per term so the hot matching loop stays cheap).
+_VARIANT_CACHE = {}
+
+
+def _variants_of(term: str) -> tuple:
+    v = _VARIANT_CACHE.get(term)
+    if v is None:
+        try:
+            from .resume import _variants
+            v = tuple(_variants(term))
+        except Exception:
+            v = (term,)
+        _VARIANT_CACHE[term] = v
+    return v
+
+
+def _matches(text: str, term: str) -> bool:
+    return any(_contains(text, v) for v in _variants_of(term))
+
+
+def _occurrences(text: str, term: str) -> int:
+    n = 0
+    for v in _variants_of(term):
+        n += len(re.findall(r"(?<![a-z0-9])" + re.escape(v) + r"(?![a-z0-9])", text))
+    return n
+
+
 REMOTE_TERMS = ("remote", "anywhere", "worldwide", "global", "distributed")
 
 # So "india" as a preference also matches jobs listed in Indian cities / "IN".
@@ -137,13 +167,25 @@ def categorize(job: dict) -> str:
 
 
 def score_job(job: dict, keywords: list) -> tuple:
-    """Return (score, matched_keywords). Skill overlap, with title hits weighted heavily, a role in
-    the title is a far stronger fit signal than a keyword buried in the description."""
-    text = (job.get("title", "") + " " + job.get("description", "")).lower()
-    matched = [k for k in keywords if _contains(text, k)]
-    title = job.get("title", "").lower()
-    title_bonus = sum(1 for k in keywords if _contains(title, k))
-    return len(matched) + 2 * title_bonus, matched
+    """Return (score, matched_keywords). Synonym-aware skill overlap, with two emphases:
+    - title hits weighted heavily (a role in the title is a far stronger fit signal than a keyword
+      buried in the description), and
+    - a "core" bonus for skills the JD mentions repeatedly (2+ times), so a job built around your
+      primary stack outranks one that merely brushes a couple of incidental tags.
+    Matching expands each keyword to its variants (node<->node.js, react<->reactjs, etc.)."""
+    title = (job.get("title", "") or "").lower()
+    text = title + " " + (job.get("description", "") or "").lower()
+    matched, title_bonus, core = [], 0, 0
+    for k in keywords:
+        vs = _variants_of(k)
+        if any(_contains(text, v) for v in vs):
+            matched.append(k)
+            if any(_contains(title, v) for v in vs):
+                title_bonus += 1  # in the title: strongest signal
+            elif sum(len(re.findall(r"(?<![a-z0-9])" + re.escape(v) + r"(?![a-z0-9])", text)) for v in vs) >= 2:
+                core += 1  # repeated in the body: central to the role
+    core_bonus = min(3, core)  # cap so the score scale stays compatible with MIN_SCORE / cutoffs
+    return len(matched) + 2 * title_bonus + core_bonus, matched
 
 
 import math as _math
@@ -151,7 +193,7 @@ import math as _math
 # Blended selection-score weights (the prior, before any per-user learning). Content dominates so a
 # brand-new user's ranking ~= the old keyword behaviour; learned/global signals only re-sort within.
 SCORE_WEIGHTS = {"content": 3.0, "pref": 1.4, "seniority": 1.2, "location": 1.0,
-                 "recency": 0.5, "collab": 0.7, "trending": 0.5}
+                 "recency": 0.5, "collab": 0.7, "trending": 0.5, "semantic": 1.3}
 
 
 def pref_update(theta: dict, phi: dict, reward: float, lr=0.1, l2=1e-3) -> dict:
@@ -227,11 +269,20 @@ def blended_score(job: dict, ctx: dict) -> tuple:
         Co = max(vals) if vals else 0.0
     # trending
     Tr = (ctx.get("trending") or {}).get("cat", {}).get(cat, 0.0)
+    # semantic: resume<->JD embedding similarity, zero-centered on the batch baseline (cosine sims
+    # sit in a narrow high band, so we subtract the candidate-set median and amplify) so it re-orders
+    # WITHIN a user's candidates instead of inflating everyone. Neutral (0) if the job isn't embedded.
+    sem = job.get("_sem")
+    base = ctx.get("sem_baseline")
+    Sem = 0.0
+    if isinstance(sem, float) and base is not None:
+        Sem = max(-1.0, min(1.0, (sem - base) * 4.0))
 
     w = SCORE_WEIGHTS
     contrib = {"content": w["content"] * C, "pref": w["pref"] * Pf, "seniority": w["seniority"] * S,
                "location": w["location"] * L, "recency": w["recency"] * R,
-               "collab": w["collab"] * Co, "trending": w["trending"] * Tr}
+               "collab": w["collab"] * Co, "trending": w["trending"] * Tr,
+               "semantic": w["semantic"] * Sem}
     z = sum(contrib.values())
     score = int(round(100 / (1 + _math.exp(-max(-30, min(30, z))))))
     score = max(15, min(100, score))
@@ -240,7 +291,7 @@ def blended_score(job: dict, ctx: dict) -> tuple:
 
 _CONTRIB_LABEL = {"content": "skills match", "pref": "roles you favour", "seniority": "seniority fit",
                   "location": "location fit", "recency": "freshly posted", "collab": "popular with similar users",
-                  "trending": "trending role"}
+                  "trending": "trending role", "semantic": "matches your resume"}
 
 
 def blended_reason(job: dict, score: int, contrib: dict) -> str:
@@ -273,7 +324,7 @@ def rank_matches(jobs: list, keywords: list, locations: list, min_score: int,
             continue
         score, matched = score_job(job, keywords)
         title_l = (job.get("title", "") or "").lower()
-        title_bonus = sum(1 for k in keywords if _contains(title_l, k))
+        title_bonus = sum(1 for k in keywords if _matches(title_l, k))
         # overlap floor: drop jobs that merely brushed one incidental keyword (the source of the
         # "20 matched, none worth applying to" noise). Need real overlap or a title-role hit.
         if score >= min_score and (len(matched) >= 2 or title_bonus >= 1):

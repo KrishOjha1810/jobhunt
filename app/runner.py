@@ -66,12 +66,13 @@ def _semantic_rerank(user, ranked, verbose=False):
                 j["_sem"] = embeddings.cosine(uvec, jvec)
                 scored += 1
             else:
-                j["_sem"] = 0.0
+                j["_sem"] = None  # not embedded yet -> stays neutral in the blended scorer
         if not scored:
             return ranked
 
+        # legacy (SCORE_V2 off) ordering: keyword fit lives in j["score"], not "fit"
         def blended(j):
-            return j.get("fit", 0) * 0.6 + j.get("_sem", 0.0) * 100 * 0.4
+            return (j.get("score", 0) or 0) * 0.6 + (j.get("_sem") or 0.0) * 100 * 0.4
 
         out = sorted(ranked, key=blended, reverse=True)
         if verbose:
@@ -224,8 +225,12 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
                         print(f"[runner] pref learn skipped for {user.get('id')}: {e}")
                 top_cats = sorted([(w, k.split(":", 1)[1]) for k, w in theta.items()
                                    if k.startswith("cat:") and w > 0], reverse=True)
+                # median semantic similarity across embedded candidates -> zero-center for the scorer
+                sems = sorted(j["_sem"] for j in ranked if isinstance(j.get("_sem"), float))
+                sem_baseline = sems[len(sems) // 2] if sems else None
                 ctx = {"theta": theta, "trending": g_trending, "collab": g_collab,
                        "user_top_cats": [c for _, c in top_cats[:3]], "uyears": uyears,
+                       "sem_baseline": sem_baseline,
                        "india_user": any((l or "").lower() in ("india",) or "india" in (l or "").lower()
                                          for l in (user.get("locations") or []))}
                 try:
