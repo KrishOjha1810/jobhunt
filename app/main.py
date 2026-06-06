@@ -1167,6 +1167,11 @@ def api_resume_context(request: Request, job_id: int = 0, url: str = "", token: 
     job = _resolve_job_for_context(user, job_id, url)
     if not job:
         return {"ok": False, "reason": "job not found"}
+    jobinfo = {"id": job["id"], "title": job.get("title"), "company": job.get("company"), "url": job.get("url")}
+    # tailoring edits the user's actual document, so require an uploaded .docx for THIS application first
+    if not db.get_resume_docx(user["id"]):
+        return {"ok": False, "needs_docx": True, "job": jobinfo,
+                "reason": "Which resume are you applying with? Upload it as a .docx to tailor that exact file."}
     jd = db.catalog_description(job.get("url")) or (job.get("title") or "")
     rj = db.get_resume_json(user["id"])
     if rj is None:
@@ -1182,8 +1187,7 @@ def api_resume_context(request: Request, job_id: int = 0, url: str = "", token: 
     edits = None
     if enrich.available():
         edits, _err = enrich.tailor_edits(rj, job.get("title") or "", jd)
-    return {"ok": True,
-            "job": {"id": job["id"], "title": job.get("title"), "company": job.get("company"), "url": job.get("url")},
+    return {"ok": True, "job": jobinfo, "keeps_format": True,
             "resume": rj, "match": _resume.ats_job_match(rj, jd),
             "health": resume_export.ats_health(rj), "edits": edits, "llm": enrich.available()}
 
@@ -1227,6 +1231,9 @@ async def api_resume_tailor_adhoc(request: Request, token: str = ""):
     years = body.get("years")
     if len(jd) < 40:
         return {"ok": False, "reason": "Paste the job description (a sentence or two minimum) so we can tailor to it."}
+    if not db.get_resume_docx(user["id"]):
+        return {"ok": False, "needs_docx": True,
+                "reason": "Upload the resume you're applying with as a .docx, then tailor it to this job."}
     rj = db.get_resume_json(user["id"])
     if rj is None:
         txt = user.get("resume_text") or ""
@@ -1240,7 +1247,7 @@ async def api_resume_tailor_adhoc(request: Request, token: str = ""):
     edits = None
     if enrich.available():
         edits, _err = enrich.tailor_edits(rj, role, context)
-    return {"ok": True, "role": role, "resume": rj,
+    return {"ok": True, "role": role, "resume": rj, "keeps_format": True,
             "match": _resume.ats_job_match(rj, jd),
             "health": resume_export.ats_health(rj), "edits": edits, "llm": enrich.available()}
 

@@ -18,7 +18,7 @@ _TAG = re.compile(r"<[^>]+>")
 
 # Public job channels Krish provided (dev / fullstack / blockchain / fresher-internship centric).
 # Override/extend with the TELEGRAM_JOB_CHANNELS env var (comma-separated usernames).
-DEFAULT_CHANNELS = "internfreak, fresherearth, web3hiring, jobs_and_internships_updates"
+DEFAULT_CHANNELS = "internfreak, fresherearth, web3hiring, jobs_and_internships_updates, offcampusjobs4u"
 
 
 def channels():

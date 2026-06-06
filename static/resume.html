@@ -266,12 +266,14 @@
       else { eo.style.display='none'; eb.className=''; eb.textContent='Download tailored resume';
         hint.innerHTML='To export in your <b>exact original layout</b>, upload a <b>.docx</b> in "Update your resume" above (PDFs can\'t be edited in place). Otherwise this downloads a clean, ATS-friendly version with all your sections.'; }
     }
-    function showUploadGate(){
-      // require a real resume before tailoring; open the import card and tell the user
+    function showUploadGate(msg){
+      // require an uploaded resume (.docx preferred) before tailoring; open the import card
       const ic = $('importCard'); if (ic) ic.open = true;
       $('jobContext').style.display='none'; $('jobIntake').style.display='none';
-      $('pageSub').innerHTML = '<b style="color:var(--accent)">Upload your resume to begin</b> , we tailor your real resume (we don\'t build one from scratch). Add it below, then tailor it to any job.';
+      $('pageSub').innerHTML = msg || '<b style="color:var(--accent)">Upload the resume you\'re applying with (.docx)</b> , we tailor your exact file and keep its format. Add it below to begin.';
+      if (ic) ic.scrollIntoView({behavior:'smooth', block:'center'});
     }
+    const DOCX_GATE_MSG = '<b style="color:var(--accent)">Which resume are you applying with?</b> Upload it as a <b>.docx</b> below , we tailor that exact file and keep its formatting. (PDFs can\'t be edited in place.)';
     async function load(){
       const r = await fetch('/api/resume'); const d = await r.json();
       if (d && d.needs_upload) { HAS_RESUME=false; showUploadGate(); return; }
@@ -345,7 +347,10 @@
       $('msg').innerHTML='Parsing your resume with AI...';
       const r = await fetch('/api/resume/import', opts); const d = await r.json();
       if (d.ok){ HAS_RESUME=true; HAS_FORMAT=!!d.keeps_format; R = Object.assign(BASE(), d.resume); renderAll(); renderHealth(d.health); snapOriginal(); updateExportUI();
-        $('msg').innerHTML='<span class="ok">Imported and parsed'+(HAS_FORMAT?' , format-preserving export is now on.':' (PDF: use the clean template, or upload a .docx for exact layout).')+'</span>'; }
+        $('msg').innerHTML='<span class="ok">Imported and parsed'+(HAS_FORMAT?' , format-preserving export is now on.':' (PDF: use the clean template, or upload a .docx for exact layout).')+'</span>';
+        // if we were gated waiting for a .docx to tailor a specific job, continue automatically
+        if (HAS_FORMAT && (JOB_ID || JOB_URL)) { $('importCard').open=false; $('pageSub').textContent='Tailoring your uploaded resume to this job...'; initJobContext(); }
+      }
       else $('msg').innerHTML=`<span class="err">${esc(d.reason||'Import failed.')}</span>`;
     }
     $('impUpload').onclick = ()=>{ const f=$('impFile').files[0];
@@ -496,6 +501,7 @@
         const r = await fetch('/api/resume/context?'+ctxQuery());
         if(!r.ok){ $('jcTitle').textContent='Could not load this job.'; return; }
         const d = await r.json();
+        if(d.needs_docx){ CTX_JOB=d.job||null; showUploadGate(DOCX_GATE_MSG); return; }
         if(d.needs_upload){ showUploadGate(); return; }
         if(!d.ok){ $('jcTitle').textContent = d.reason||'Job not found.'; return; }
         CTX_JOB = d.job;
@@ -514,6 +520,7 @@
         $('inTailor').disabled=false;
         if(!r.ok){ $('inMsg').innerHTML='<span class="err">Could not tailor. Try again.</span>'; return; }
         const d = await r.json();
+        if(d.needs_docx){ showUploadGate(DOCX_GATE_MSG); return; }
         if(d.needs_upload){ showUploadGate(); return; }
         if(!d.ok){ $('inMsg').innerHTML=`<span class="err">${esc(d.reason||'Could not tailor.')}</span>`; return; }
         $('inMsg').textContent='';
