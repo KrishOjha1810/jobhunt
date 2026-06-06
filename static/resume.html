@@ -75,6 +75,22 @@
   </div></nav>
 
   <div class="wrap">
+    <!-- Job-context mode: shown when opened from a job (/resume?job_id= or ?url=) -->
+    <div class="card" id="jobContext" style="display:none;border-color:var(--accent)">
+      <div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap">
+        <div style="text-align:center;flex:0 0 auto">
+          <div style="font-size:2.2rem;font-weight:800;color:var(--accent2)" id="jcScore">--</div>
+          <div style="font-size:.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">match for this job</div>
+        </div>
+        <div style="flex:1;min-width:200px">
+          <div style="font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Tailoring resume for</div>
+          <div style="font-size:1.15rem;font-weight:700" id="jcTitle"></div>
+          <div id="jcMissing" style="margin-top:8px"></div>
+        </div>
+      </div>
+      <div id="jcEdits" style="margin-top:12px"></div>
+    </div>
+
     <h1>Resume Studio</h1>
     <p class="sub">Import or edit your resume, tailor it to a job with one click, see it render live, and export an ATS-safe file , without leaving JobHunt.</p>
 
@@ -356,7 +372,89 @@
       if(t.length<40) return $('msg').innerHTML='<span class="err">Paste your full resume text first.</span>';
       importResume({method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({text:t})}); };
 
-    load();
+    // ---- job-context mode: builder opened directly for a specific job ----
+    const QS = new URLSearchParams(location.search);
+    const JOB_ID = QS.get('job_id') || 0, JOB_URL = QS.get('url') || '';
+    let CTX_JOB = null, rescoreT;
+
+    function ctxQuery(){ return JOB_ID ? ('job_id='+encodeURIComponent(JOB_ID)) : ('url='+encodeURIComponent(JOB_URL)); }
+
+    function renderMatch(m){
+      if(!m) return;
+      $('jcScore').textContent = m.score + '%';
+      const col = m.score>=75 ? 'var(--ok,#3fb950)' : (m.score>=50 ? 'var(--accent2)' : 'var(--err,#f85149)');
+      $('jcScore').style.color = col;
+      const miss = (m.missing||[]).slice(0,12);
+      if(!miss.length){
+        $('jcMissing').innerHTML = '<span class="ok">Your resume covers the key skills in this job.</span>';
+      } else {
+        $('jcMissing').innerHTML = '<div style="font-size:.78rem;color:var(--muted);margin-bottom:4px">Missing keywords from this job , click to add to Skills:</div>' +
+          miss.map(x=>`<button class="sm ghost addkw" data-k="${esc(x.term)}" style="margin:2px;padding:3px 9px;font-size:.8rem">+ ${esc(x.term)}${x.tier==='core'?' ★':''}</button>`).join('');
+        document.querySelectorAll('.addkw').forEach(b=>b.onclick=()=>{
+          const k=b.dataset.k; if(!R.skills.includes(k)){ R.skills.push(k); $('skills').value=R.skills.join(', '); }
+          b.remove(); save(); rescore();
+        });
+      }
+    }
+    async function rescore(){
+      if(!CTX_JOB) return;
+      clearTimeout(rescoreT);
+      rescoreT = setTimeout(async ()=>{
+        syncTop();
+        const r = await fetch('/api/resume/ats?'+ctxQuery(),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({resume:R})});
+        if(r.ok){ const d=await r.json(); renderMatch(d.match); }
+      }, 500);
+    }
+
+    function showEdits(e, jobName){
+      const norm = s => (s||'').toLowerCase().replace(/\s+/g,' ').replace(/[.,;:]+$/,'').trim();
+      let html = '<div style="font-size:.78rem;color:var(--muted);margin-bottom:4px">One-click rewrites tuned to this job:</div>';
+      if(e.summary) html += `<div class="edit"><span class="pill">Summary</span><div class="after">${esc(e.summary)}</div><label><input type="checkbox" class="appr2" data-t="summary" checked style="width:auto"> apply</label></div>`;
+      (e.add_skills||[]).forEach(s=>{ html += `<div class="edit"><span class="pill">+ Skill</span> ${esc(s)} <label><input type="checkbox" class="appr2" data-t="skill" data-v="${esc(s)}" checked style="width:auto"> add</label></div>`; });
+      (e.bullets||[]).forEach((b,i)=>{ html += `<div class="edit"><span class="pill">Bullet</span><div class="before">${esc(b.original)}</div><div class="after">${esc(b.improved)}</div><label><input type="checkbox" class="appr2" data-t="bullet" data-i="${i}" checked style="width:auto"> apply</label></div>`; });
+      if(!e.summary && !(e.add_skills||[]).length && !(e.bullets||[]).length){ $('jcEdits').innerHTML=''; return; }
+      html += '<div class="row" style="margin-top:8px"><button class="sm" id="jcApply">Apply approved changes</button>'
+            + `<button class="sm ghost" id="jcStamp">Save &amp; mark applied for this job</button></div>`;
+      $('jcEdits').innerHTML = html;
+      function applyApproved(){
+        syncTop(); let changed=0;
+        document.querySelectorAll('.appr2:checked').forEach(c=>{
+          if(c.dataset.t==='summary'){ R.summary=e.summary; changed++; }
+          else if(c.dataset.t==='skill'){ if(!R.skills.includes(c.dataset.v)){ R.skills.push(c.dataset.v); changed++; } }
+          else if(c.dataset.t==='bullet'){ const bb=e.bullets[+c.dataset.i]; const tgt=norm(bb.original); let hit=false;
+            R.experience.forEach(x=>{ x.bullets=(x.bullets||[]).map(t=>{ if(!hit && tgt && norm(t)===tgt){ hit=true; changed++; return bb.improved; } return t; }); });
+            if(!hit && bb.improved){ if(!R.experience.length) R.experience.push({title:'',company:'',dates:'',bullets:[]}); R.experience[0].bullets.push(bb.improved); changed++; }
+          }
+        });
+        renderAll(); return changed;
+      }
+      $('jcApply').onclick = ()=>{ const n=applyApproved(); save(); rescore(); $('jcEdits').innerHTML=`<p class="ok">Applied ${n} change${n===1?'':'s'}. Match score updated above.</p>`; };
+      $('jcStamp').onclick = async ()=>{ const n=applyApproved(); const nm=jobName.slice(0,60);
+        await saveVersion(nm); save();
+        if(CTX_JOB && CTX_JOB.id) await fetch('/api/jobs/'+CTX_JOB.id+'?resume_used='+encodeURIComponent(nm)+'&status=applied',{method:'POST'});
+        $('jcEdits').innerHTML=`<p class="ok">Applied ${n} change${n===1?'':'s'}, saved this version, and marked the job applied in your tracker.</p>`; };
+    }
+
+    async function initJobContext(){
+      if(!JOB_ID && !JOB_URL) return;
+      $('jobContext').style.display='block';
+      $('jcTitle').textContent = 'Loading job...';
+      const r = await fetch('/api/resume/context?'+ctxQuery());
+      if(!r.ok){ $('jcTitle').textContent='Could not load this job.'; return; }
+      const d = await r.json();
+      if(!d.ok){ $('jcTitle').textContent = d.reason||'Job not found.'; return; }
+      CTX_JOB = d.job;
+      $('jcTitle').textContent = [d.job.company, d.job.title].filter(Boolean).join(' , ') || 'This job';
+      if(d.resume){ R = Object.assign(BASE(), d.resume); renderAll(); }
+      renderHealth(d.health);
+      renderMatch(d.match);
+      // surface Groq tailor edits inline (reuse the existing approve UI), or a deterministic hint
+      if(d.edits){ showEdits(d.edits, d.job.title || 'this job'); }
+      else if(d.llm===false){ $('jcEdits').innerHTML='<p class="sub">AI rewrite is offline (no key). Add the missing keywords above, then export , the match score updates live.</p>'; }
+      document.addEventListener('input', rescore);
+    }
+
+    load().then(initJobContext);
     loadVersions();
   </script>
 </body>

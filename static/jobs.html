@@ -358,7 +358,10 @@
             ${j.salary?`<span class="sal">${esc(j.salary)}</span>`:''}
             ${a?`<span class="ago">${a}</span>`:''}
           </div></div>
-          ${u?`<a class="apply" href="${esc(u)}" target="_blank" rel="noopener">Apply</a>`:''}
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            ${u?`<a class="apply" href="${esc(u)}" target="_blank" rel="noopener">Apply</a>`:''}
+            ${u?`<a class="apply" style="background:var(--field);color:var(--ink);border:1px solid var(--field-border)" href="/resume?url=${encodeURIComponent(u)}">Tailor resume</a>`:''}
+          </div>
         </div>`;
       }).join('');
     }

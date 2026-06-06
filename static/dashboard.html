@@ -414,7 +414,8 @@
     function aiMenu(id){
       tov.classList.add('show');
       document.getElementById('ttitle').textContent = 'AI tools for this job';
-      const opts = [['Tailor','Rewrite resume bullets for this job',tailor],['Outreach','Connection note + recruiter email',boost],
+      const opts = [['Improve resume for this job','Open the builder loaded with this job: live match score, missing keywords, one-click fixes',(id)=>{location.href='/resume?job_id='+id;}],
+        ['Outreach','Connection note + recruiter email',boost],
         ['Interview prep','Likely questions + your angles',prep],['Fit & gaps','Honest fit + how to close gaps',fit],
         ['ATS match','Keyword match score',ats]];
       const b = document.getElementById('tbody');

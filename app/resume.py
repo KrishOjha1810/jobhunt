@@ -144,6 +144,70 @@ def years_experience(text: str):
     return max(yrs) if yrs else None
 
 
+# Acronym/spelled-out variants so "AWS" matches "Amazon Web Services", "react" matches "reactjs", etc.
+SYNONYMS = {
+    "aws": ["amazon web services"], "gcp": ["google cloud"], "react": ["reactjs", "react.js"],
+    "node": ["node.js", "nodejs"], "ci/cd": ["continuous integration", "cicd", "ci cd"],
+    "k8s": ["kubernetes"], "ml": ["machine learning"], "postgres": ["postgresql"],
+    "js": ["javascript"], "ts": ["typescript"], "nlp": ["natural language processing"],
+}
+
+
+def _variants(term):
+    out = {term}
+    for k, vs in SYNONYMS.items():
+        if term == k:
+            out.update(vs)
+        elif term in vs:
+            out.add(k); out.update(vs)
+    return out
+
+
+def _count(term, text):
+    return len(re.findall(r"(?<![a-z0-9])" + re.escape(term) + r"(?![a-z0-9+#.])", text))
+
+
+def jd_keywords(jd_text: str) -> list:
+    """Hard skills the JD asks for, with frequency + tier (core if mentioned 2+ times). Deterministic."""
+    low = (jd_text or "").lower()
+    found = {}
+    for skill in SKILL_VOCAB:
+        c = _count(skill, low)
+        if c:
+            found[skill] = c
+    return [{"term": t, "count": c, "tier": "core" if c >= 2 else "nice"}
+            for t, c in sorted(found.items(), key=lambda kv: -kv[1])]
+
+
+def flatten_resume(rj: dict) -> str:
+    parts = [rj.get("summary", ""), " ".join(rj.get("skills", []))]
+    for e in (rj.get("experience") or []):
+        parts.append(e.get("title", ""))
+        parts.extend(e.get("bullets") or [])
+    return " ".join(p for p in parts if p).lower()
+
+
+def ats_job_match(resume_json: dict, jd_text: str) -> dict:
+    """JD-aware 0-100 ATS score = keyword coverage (50) + writing quality (50). Fully deterministic.
+    Returns present/missing skills so the builder can show exactly what to add."""
+    from .resume_export import ats_health
+    jdk = jd_keywords(jd_text)
+    flat = flatten_resume(resume_json)
+    present, missing, have, total = [], [], 0, 0
+    for k in jdk:
+        w = 2 if k["tier"] == "core" else 1
+        total += w
+        hit = any(_count(v, flat) for v in _variants(k["term"]))
+        if hit:
+            present.append(k["term"]); have += w
+        else:
+            missing.append({"term": k["term"], "tier": k["tier"]})
+    coverage = round(50 * have / total) if total else 30
+    quality = round(0.5 * ats_health(resume_json).get("score", 0))
+    return {"score": coverage + quality, "coverage": coverage, "quality": quality,
+            "present": present, "missing": missing, "jd_skill_count": total}
+
+
 def heuristic_structure(text: str) -> dict:
     """Build a structured resume WITHOUT an LLM (fallback so upload/parse never hard-fails).
     Pulls contact + skills reliably; leaves experience for the user (or the LLM) to fill."""

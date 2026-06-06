@@ -74,7 +74,7 @@ GAP_PROMPT = (
 def _run(prompt: str, job: dict, resume_text: str, jd_chars: int = 3000):
     """Shared LLM call for the per-job advice features. Returns (text, error)."""
     if not available():
-        return "", "No LLM key set (add a free Groq or Gemini key)."
+        return "", "No LLM key set (add a free Groq key)."
     if not resume_text:
         return "", "No resume on file. Subscribe with a resume first."
     user_msg = (f"RESUME:\n{resume_text[:6000]}\n\nJOB: {job.get('title','')} at "
@@ -96,7 +96,7 @@ def _run(prompt: str, job: dict, resume_text: str, jd_chars: int = 3000):
 def _json_call(system: str, user_msg: str):
     """Run an LLM call expected to return JSON; parse defensively. Returns (obj, error)."""
     if not available():
-        return None, "No LLM key set (add a free Groq or Gemini key)."
+        return None, "No LLM key set (add a free Groq key)."
     try:
         if LLM_PROVIDER == "anthropic":
             raw = _chat_anthropic(system, user_msg)
@@ -118,7 +118,7 @@ def _json_call(system: str, user_msg: str):
 def improve_text(field: str, text: str, jd: str = ""):
     """Rewrite a single resume field (summary or a bullet) , premium inline assist. Returns (text, error)."""
     if not available():
-        return "", "No LLM key set (add a free Groq or Gemini key)."
+        return "", "No LLM key set (add a free Groq key)."
     if not (text or "").strip():
         return "", "nothing to improve"
     instr = {
@@ -228,7 +228,7 @@ def answer_questions(job: dict, resume_text: str, questions: list, facts: dict =
     """Return (answers, error). answers is a list aligned to `questions`, each a short first-person
     answer drafted from the resume + facts. One batched LLM call (cheaper, fewer 429s)."""
     if not available():
-        return [], "No LLM key set (add a free Groq or Gemini key)."
+        return [], "No LLM key set (add a free Groq key)."
     if not questions:
         return [], "no questions"
     facts = facts or {}
@@ -273,7 +273,7 @@ def booster(job: dict, resume_text: str):
     """Return (text, error): ready-to-send outreach drafts + a checklist for a job. The user sends
     everything manually, no automated LinkedIn/email actions."""
     if not available():
-        return "", "No LLM key set (add a free Groq or Gemini key)."
+        return "", "No LLM key set (add a free Groq key)."
     if not resume_text:
         return "", "No resume on file. Subscribe with a resume first."
     user_msg = (
@@ -336,7 +336,7 @@ def tailor(job: dict, resume_text: str):
     """Return (tailored_block, error). On success error is ''. On failure block is '' and error
     holds a human-readable reason so the UI can show what actually went wrong."""
     if not available():
-        return "", "No LLM key set (add a free Gemini or Groq key)."
+        return "", "No LLM key set (add a free Groq key)."
     if not resume_text:
         return "", "No resume on file. Subscribe with a resume first, then tailor."
     user_msg = (

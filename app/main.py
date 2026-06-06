@@ -557,7 +557,7 @@ def tailor_endpoint(request: Request, job_id: int = 0, token: str = ""):
     if not job:
         return JSONResponse({"error": "job not found"}, status_code=404)
     if not enrich.available():
-        return {"ok": False, "reason": "Resume tailoring is not enabled yet (needs a free Gemini or Groq key)."}
+        return {"ok": False, "reason": "Resume tailoring is not enabled yet (needs a free Groq key)."}
     block, err = enrich.tailor(
         {"title": job.get("title"), "company": job.get("company"),
          "description": db.catalog_description(job.get("url"))},
@@ -642,7 +642,7 @@ async def api_answer(request: Request, job_id: int = 0, token: str = ""):
     if not questions:
         return {"ok": False, "reason": "no questions"}
     if not enrich.available():
-        return {"ok": False, "reason": "Needs a free Groq or Gemini key to draft answers."}
+        return {"ok": False, "reason": "Needs a free Groq key to draft answers."}
     job = db.get_job_log(job_id, user["id"]) or {}
     txt = user.get("resume_text") or ""
     facts = {"name": user.get("name"), "years": _resume.years_experience(txt) or "",
@@ -667,7 +667,7 @@ def booster_endpoint(request: Request, job_id: int = 0, token: str = ""):
     if not job:
         return JSONResponse({"error": "job not found"}, status_code=404)
     if not enrich.available():
-        return {"ok": False, "reason": "Needs a free Groq or Gemini key to draft outreach."}
+        return {"ok": False, "reason": "Needs a free Groq key to draft outreach."}
     block, err = enrich.booster(
         {"title": job.get("title"), "company": job.get("company"),
          "description": db.catalog_description(job.get("url"))},
@@ -688,7 +688,7 @@ def _advice(request, job_id, token, fn, key):
     if not job:
         return JSONResponse({"error": "job not found"}, status_code=404)
     if not enrich.available():
-        return {"ok": False, "reason": "Needs a free Groq or Gemini key for AI features."}
+        return {"ok": False, "reason": "Needs a free Groq key for AI features."}
     block, err = fn({"title": job.get("title"), "company": job.get("company"),
                      "description": db.catalog_description(job.get("url"))}, user.get("resume_text") or "")
     if not block:
@@ -866,7 +866,7 @@ def api_resume_tailor(request: Request, job_id: int = 0, token: str = ""):
     if not job:
         return JSONResponse({"error": "job not found"}, status_code=404)
     if not enrich.available():
-        return {"ok": False, "reason": "Needs a free Groq or Gemini key."}
+        return {"ok": False, "reason": "Needs a free Groq key."}
     edits, err = enrich.tailor_edits(rj, job.get("title") or "", db.catalog_description(job.get("url")))
     if not edits:
         return {"ok": False, "reason": err or "Could not generate edits."}
@@ -915,6 +915,79 @@ async def api_resume_import(request: Request, token: str = ""):
     db.set_resume_text(user["id"], text[:20000])
     return {"ok": True, "resume": obj, "health": resume_export.ats_health(obj),
             "parsed_by": "ai" if enrich.available() and obj.get("experience") else "basic"}
+
+
+def _resolve_job_for_context(user, job_id, url):
+    """Resolve a job for the contextual builder: by job_log id, or by url (creating a tracker row
+    from the catalog if needed, so browse-card deep links always work)."""
+    if job_id:
+        return db.get_job_log(int(job_id), user["id"])
+    if url:
+        jobs = db.list_jobs(user["id"])
+        job = next((j for j in jobs if j.get("url") == url), None)
+        if job:
+            return job
+        desc = db.catalog_description(url)
+        jb = {"url": url, "title": "Saved job", "company": "", "description": desc, "posted_at": ""}
+        jb["category"] = matcher.categorize(jb)
+        db.log_job(user["id"], jb)
+        jobs = db.list_jobs(user["id"])
+        return next((j for j in jobs if j.get("url") == url), None)
+    return None
+
+
+@app.get("/api/resume/context")
+def api_resume_context(request: Request, job_id: int = 0, url: str = "", token: str = ""):
+    """Open the builder already loaded for a specific job: returns the job, the structured resume,
+    a deterministic JD-aware match score (+ present/missing skills), and best-effort Groq tailor
+    edits. The deterministic parts always work; edits is null on no-key/quota."""
+    from . import enrich, resume as _resume, resume_export
+    user = _resolve_user(request, token)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    job = _resolve_job_for_context(user, job_id, url)
+    if not job:
+        return {"ok": False, "reason": "job not found"}
+    jd = db.catalog_description(job.get("url")) or (job.get("title") or "")
+    rj = db.get_resume_json(user["id"])
+    if rj is None:
+        txt = user.get("resume_text") or ""
+        if txt:
+            rj = (enrich.parse_resume_structured(txt)[0] if enrich.available() else None) or _resume.heuristic_structure(txt)
+            if rj:
+                db.set_resume_json(user["id"], rj)
+    if rj is None:
+        rj = {"name": user.get("name") or "", "email": user.get("email") or "", "phone": "",
+              "links": [], "summary": "", "skills": user.get("keywords") or [], "experience": [], "education": []}
+    edits = None
+    if enrich.available():
+        edits, _err = enrich.tailor_edits(rj, job.get("title") or "", jd)
+    return {"ok": True,
+            "job": {"id": job["id"], "title": job.get("title"), "company": job.get("company"), "url": job.get("url")},
+            "resume": rj, "match": _resume.ats_job_match(rj, jd),
+            "health": resume_export.ats_health(rj), "edits": edits, "llm": enrich.available()}
+
+
+@app.post("/api/resume/ats")
+async def api_resume_ats(request: Request, job_id: int = 0, url: str = "", token: str = ""):
+    """Recompute the JD-aware ATS match for the (edited) resume in the body. Deterministic, instant."""
+    from . import resume as _resume
+    user = _resolve_user(request, token)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    rj = body.get("resume") or {}
+    jd = body.get("jd") or ""
+    if not jd:
+        job = db.get_job_log(int(job_id), user["id"]) if job_id else None
+        if not job and url:
+            jobs = db.list_jobs(user["id"]); job = next((j for j in jobs if j.get("url") == url), None)
+        if job:
+            jd = db.catalog_description(job.get("url")) or (job.get("title") or "")
+    return {"ok": True, "match": _resume.ats_job_match(rj, jd)}
 
 
 @app.post("/api/resume/improve")
