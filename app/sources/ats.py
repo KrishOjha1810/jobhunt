@@ -12,7 +12,45 @@ and drop the slug in the matching list below. Verify it returns jobs first (a wr
 returns 0 silently). SmartRecruiters slugs are case-sensitive (e.g. "BoschGroup", "Visa").
 """
 import concurrent.futures
+import re
 import requests
+
+
+def _strip_html(s):
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", s or "")).strip()
+
+
+def fetch_detail(job):
+    """Best-effort full JD body for sources whose LIST endpoint omits it (SmartRecruiters, Workday).
+    Returns plain text or "" . Never raises. Called lazily for just the top candidates we're about to
+    rank/deliver, so matching judges the real description instead of a bare title."""
+    src = job.get("source") or ""
+    url = job.get("url") or ""
+    try:
+        if src.startswith("smartrecruiters:"):
+            slug = src.split(":", 1)[1]
+            jid = url.rstrip("/").rsplit("/", 1)[-1]
+            r = requests.get(
+                f"https://api.smartrecruiters.com/v1/companies/{slug}/postings/{jid}", timeout=12)
+            if not r.ok:
+                return ""
+            secs = (r.json().get("jobAd") or {}).get("sections") or {}
+            return _strip_html(" ".join((v or {}).get("text", "") for v in secs.values()
+                                        if isinstance(v, dict)))
+        if src.startswith("workday:"):
+            # url: https://<tenant>.<dc>.myworkdayjobs.com/en-US/<site>/job/...
+            m = re.match(r"https://([^.]+)\.([^.]+)\.myworkdayjobs\.com/[^/]+/([^/]+)(/.+)", url)
+            if not m:
+                return ""
+            tenant, dc, site, path = m.groups()
+            r = requests.get(f"https://{tenant}.{dc}.myworkdayjobs.com/wday/cxs/{tenant}/{site}{path}",
+                             headers={"Accept": "application/json"}, timeout=12)
+            if not r.ok:
+                return ""
+            return _strip_html((r.json().get("jobPostingInfo") or {}).get("jobDescription", ""))
+    except Exception:
+        return ""
+    return ""
 
 # Curated boards, weighted toward Web3/crypto/infra/dev-tools + strong tech (where these feeds win).
 GREENHOUSE = [
@@ -27,6 +65,9 @@ GREENHOUSE = [
     "okta", "cloudflare", "elastic", "reddit", "lyft", "sofi", "fivetran", "slice", "phonepe",
     "newrelic", "chime", "duolingo", "fastly", "pagerduty", "marqeta", "cockroachlabs", "druva",
     "calendly", "groww", "lattice", "coursera",
+    # batch 3 (verified live)
+    "airbnb", "zscaler", "roblox", "clickhouse", "rubrik", "monzo", "amplitude", "launchdarkly",
+    "hackerrank", "mixpanel", "applovin", "squarespace", "twitch",
 ]
 LEVER = [
     "blockchain", "ledger", "chainlink", "kraken", "nethermind", "blockdaemon", "fireblocks",
@@ -39,6 +80,7 @@ ASHBY = [
     "neon", "modal", "baseten", "perplexity-ai", "ramp", "linear", "cursor",
     "notion", "sardine", "watershed",
     "harvey", "sierra", "decagon", "abridge", "warp", "browserbase",  # verified live (AI-heavy)
+    "elevenlabs", "cohere", "temporal", "airbyte",  # batch 3 (verified live)
 ]
 # SmartRecruiters: keyless public board (api.smartrecruiters.com/v1/companies/<slug>/postings).
 # Big enterprises with real India presence live here. Slugs are case-sensitive.
@@ -48,12 +90,20 @@ SMARTRECRUITERS = [
 # Workday: keyless per-tenant JSON (POST .../wday/cxs/<tenant>/<site>/jobs). Big MNCs with heavy
 # India hiring live here. Each entry is (tenant, datacenter, site) read off the careers URL
 # <tenant>.<dc>.myworkdayjobs.com/<site>; verify it returns jobs before adding (wrong site -> 422).
+# Entries are (tenant, datacenter, site) or (tenant, datacenter, site, searchText). For big global
+# MNCs we pass searchText="India" so their huge boards return India roles for our India-centric users
+# (verified: Mastercard 18/20, Micron 19/20 India-located with that filter) instead of a US-heavy page.
 WORKDAY = [
     ("nvidia", "wd5", "NVIDIAExternalCareerSite"),
     ("adobe", "wd5", "external_experienced"),
     ("salesforce", "wd12", "External_Career_Site"),
     ("redhat", "wd5", "Jobs"),
     ("workday", "wd5", "Workday"),
+    ("mastercard", "wd1", "CorporateCareers", "India"),
+    ("paypal", "wd1", "jobs", "India"),
+    ("ebay", "wd5", "apply", "India"),
+    ("autodesk", "wd1", "Ext", "India"),
+    ("micron", "wd1", "External", "India"),
 ]
 
 # Keep only technical roles, these feeds list every department (HR, legal, sales...).
@@ -154,14 +204,15 @@ def _smartrecruiters(slug):
 
 
 def _workday(entry):
-    tenant, dc, site = entry
+    tenant, dc, site = entry[0], entry[1], entry[2]
+    search = entry[3] if len(entry) > 3 else ""
     base = f"https://{tenant}.{dc}.myworkdayjobs.com"
     try:
         r = requests.post(
             f"{base}/wday/cxs/{tenant}/{site}/jobs",
             headers={"Content-Type": "application/json", "Accept": "application/json",
                      "User-Agent": "Mozilla/5.0 (compatible; JobHunt/1.0)"},
-            json={"appliedFacets": {}, "limit": 20, "offset": 0, "searchText": ""}, timeout=15)
+            json={"appliedFacets": {}, "limit": 20, "offset": 0, "searchText": search}, timeout=15)
         if not r.ok:
             return []
         out = []
@@ -191,16 +242,20 @@ def fetch(limit_companies: int = 0) -> list:
     tasks += [(_smartrecruiters, s) for s in sr]
     tasks += [(_workday, e) for e in wd]
     jobs = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=24) as ex:
+    # Don't use `with` here: its shutdown(wait=True) on exit blocks on in-flight requests past our
+    # budget. We collect whatever finished within the timeout, then abandon stragglers immediately.
+    ex = concurrent.futures.ThreadPoolExecutor(max_workers=40)
+    try:
         futures = [ex.submit(fn, slug) for fn, slug in tasks]
-        try:
-            for f in concurrent.futures.as_completed(futures, timeout=25):
-                try:
-                    jobs += f.result() or []
-                except Exception:
-                    pass
-        except concurrent.futures.TimeoutError:
-            pass  # take whatever finished within the budget; never let ATS stall the run
+        for f in concurrent.futures.as_completed(futures, timeout=25):
+            try:
+                jobs += f.result() or []
+            except Exception:
+                pass
+    except concurrent.futures.TimeoutError:
+        pass  # take whatever finished within the budget; never let ATS stall the run
+    finally:
+        ex.shutdown(wait=False, cancel_futures=True)
     # Keep ALL roles from company boards (tech + sales/marketing/finance/ops/etc) so the catalog isn't
     # dev-only; per-user matching's skill-overlap floor gates relevance, and Browse benefits from breadth.
     import os as _os

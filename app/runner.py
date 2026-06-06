@@ -257,6 +257,23 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
                         ranked.sort(key=lambda j: j.get("score", 0), reverse=True)
                 except Exception as e:
                     print(f"[runner] personalization skipped for {user.get('id')}: {e}")
+            # Backfill JD bodies for sources whose listing omits them (SmartRecruiters/Workday), for
+            # just the top candidates we're about to rerank/deliver, so the LLM judges the real
+            # description, not a bare title. Persisted to the catalog so browse + tailoring reuse it.
+            try:
+                from .sources import ats as _ats
+                enriched = []
+                for j in ranked[:RERANK_N]:
+                    if (j.get("source") or "").split(":")[0] in ("workday", "smartrecruiters") \
+                            and len(j.get("description") or "") < 200:
+                        body = _ats.fetch_detail(j)
+                        if body:
+                            j["description"] = body[:4000]
+                            enriched.append(j)
+                if enriched:
+                    db.upsert_jobs(enriched)
+            except Exception as e:
+                print(f"[runner] jd backfill skipped for {user.get('id')}: {e}")
             # LLM re-rank of the top candidates by true fit (best matching signal). Blends 50/50 with
             # the keyword/semantic fit so it sharpens order without throwing away the base score.
             try:

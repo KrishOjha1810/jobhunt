@@ -77,9 +77,10 @@ def _dedup(jobs: list) -> list:
 
 # Hard cap on the pool per run so a run stays fast (fits in one Render wake window): too many jobs
 # means a long upsert loop and the instance can suspend mid-run before recording completion.
-POOL_CAP = 500
+POOL_CAP = 600
 # Cap each high-volume source's contribution so no single one crowds out the others under POOL_CAP.
-ATS_CAP = 220
+# ATS = direct-from-company boards (highest quality, keyless), so give it a larger share than aggregators.
+ATS_CAP = 300
 
 
 def _ats_capped():
