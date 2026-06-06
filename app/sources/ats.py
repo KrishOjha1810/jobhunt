@@ -1,13 +1,15 @@
-"""ATS / company career-page feeds: Greenhouse, Lever, Ashby public job-board APIs.
+"""ATS / company career-page feeds: Greenhouse, Lever, Ashby, SmartRecruiters public job boards.
 
-These are free, need no key, and are where high-quality + niche (Web3/crypto/infra) roles live, the
-exact roles generic aggregators bury. Each provider exposes a per-company board, so we keep a
-curated list of company slugs and fetch them concurrently (one HTTP call each).
+These are free, need NO API key, and are served straight from each company's careers page (e.g.
+boards-api.greenhouse.io/coinbase IS Coinbase's careers backend). This is the no-aggregator way to
+pull jobs directly from companies. Each provider exposes a per-company board, so we keep curated
+lists of company slugs and fetch them concurrently (one HTTP call each).
 
 To add a company: find its board slug from the careers URL, e.g.
-  greenhouse: boards.greenhouse.io/<slug>      lever: jobs.lever.co/<slug>
-  ashby:      jobs.ashbyhq.com/<slug>
-and drop the slug in the matching list below.
+  greenhouse:      boards.greenhouse.io/<slug>           lever: jobs.lever.co/<slug>
+  ashby:           jobs.ashbyhq.com/<slug>               smartrecruiters: jobs.smartrecruiters.com/<slug>
+and drop the slug in the matching list below. Verify it returns jobs first (a wrong slug 404s or
+returns 0 silently). SmartRecruiters slugs are case-sensitive (e.g. "BoschGroup", "Visa").
 """
 import concurrent.futures
 import requests
@@ -18,15 +20,24 @@ GREENHOUSE = [
     "dydx", "matterlabs", "alchemy", "databricks", "anthropic", "stripe",
     "razorpay", "postman", "hasura", "mongodb", "datadog", "gitlab", "hashicorp",
     "twilio", "dropbox", "pinterest", "doordash", "affirm", "plaid", "robinhood",
+    # verified-live additions (strong tech employers, high volume)
+    "figma", "brex", "scaleai", "samsara", "instacart", "asana", "flexport", "discord",
+    "gusto", "faire", "airtable", "webflow",
 ]
 LEVER = [
     "blockchain", "ledger", "chainlink", "kraken", "nethermind", "blockdaemon", "fireblocks",
-    "gnosis", "status", "netlify", "spotify", "kucoin", "voiceflow",
+    "gnosis", "status", "netlify", "spotify", "kucoin", "voiceflow", "palantir",
 ]
 ASHBY = [
     "openai", "vercel", "mercury", "replit", "uniswap-labs", "wintermute", "gauntlet",
     "flashbots", "phantom", "zora", "eigenlabs", "succinct", "deel", "supabase", "render",
     "neon", "modal", "baseten", "perplexity-ai", "ramp", "linear", "cursor",
+    "notion", "sardine", "watershed",
+]
+# SmartRecruiters: keyless public board (api.smartrecruiters.com/v1/companies/<slug>/postings).
+# Big enterprises with real India presence live here. Slugs are case-sensitive.
+SMARTRECRUITERS = [
+    "Visa", "BoschGroup", "NielsenIQ", "WeWork",
 ]
 
 # Keep only technical roles, these feeds list every department (HR, legal, sales...).
@@ -100,17 +111,45 @@ def _ashby(slug):
         return []
 
 
+def _smartrecruiters(slug):
+    try:
+        r = requests.get(
+            f"https://api.smartrecruiters.com/v1/companies/{slug}/postings?limit=100", timeout=12)
+        if not r.ok:
+            return []
+        out = []
+        for j in r.json().get("content", []):
+            lc = j.get("location") or {}
+            loc = lc.get("fullLocation") or ", ".join(
+                filter(None, [lc.get("city"), (lc.get("country") or "").upper()]))
+            # the postings list omits the JD body; synthesize a light one from the structured fields
+            # so categorize/skill-matching have signal (title stays the dominant match driver).
+            def _label(v):
+                return v.get("label", "") if isinstance(v, dict) else (v or "")
+            desc = " ".join(filter(None, [_label(j.get("function")), _label(j.get("department")),
+                                          _label(j.get("experienceLevel")), _label(j.get("industry"))]))
+            jid = j.get("id")
+            url = f"https://jobs.smartrecruiters.com/{slug}/{jid}" if jid else (j.get("ref") or "")
+            out.append(_norm(j.get("name"), (j.get("company") or {}).get("name") or slug, loc, url,
+                             desc, j.get("releasedDate", ""), f"smartrecruiters:{slug}"))
+        return out
+    except Exception:
+        return []
+
+
 def fetch(limit_companies: int = 0) -> list:
     """Fetch all curated boards concurrently. limit_companies>0 caps how many per provider."""
     tasks = []
     gh = GREENHOUSE[:limit_companies] if limit_companies else GREENHOUSE
     lv = LEVER[:limit_companies] if limit_companies else LEVER
     ab = ASHBY[:limit_companies] if limit_companies else ASHBY
+    sr = SMARTRECRUITERS[:limit_companies] if limit_companies else SMARTRECRUITERS
     tasks += [(_greenhouse, s) for s in gh]
     tasks += [(_lever, s) for s in lv]
     tasks += [(_ashby, s) for s in ab]
+    tasks += [(_smartrecruiters, s) for s in sr]
     jobs = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=12) as ex:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=24) as ex:
         futures = [ex.submit(fn, slug) for fn, slug in tasks]
         try:
             for f in concurrent.futures.as_completed(futures, timeout=25):
