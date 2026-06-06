@@ -68,6 +68,8 @@ GREENHOUSE = [
     # batch 3 (verified live)
     "airbnb", "zscaler", "roblox", "clickhouse", "rubrik", "monzo", "amplitude", "launchdarkly",
     "hackerrank", "mixpanel", "applovin", "squarespace", "twitch",
+    # batch 4 (verified live): fintech/security/crypto
+    "verkada", "tide", "gomotive", "gocardless", "truelayer", "aptoslabs",
 ]
 LEVER = [
     "blockchain", "ledger", "chainlink", "kraken", "nethermind", "blockdaemon", "fireblocks",
@@ -81,6 +83,7 @@ ASHBY = [
     "notion", "sardine", "watershed",
     "harvey", "sierra", "decagon", "abridge", "warp", "browserbase",  # verified live (AI-heavy)
     "elevenlabs", "cohere", "temporal", "airbyte",  # batch 3 (verified live)
+    "lovable", "mercor", "writer", "suno",  # batch 4 (verified live)
 ]
 # SmartRecruiters: keyless public board (api.smartrecruiters.com/v1/companies/<slug>/postings).
 # Big enterprises with real India presence live here. Slugs are case-sensitive.
@@ -104,6 +107,8 @@ WORKDAY = [
     ("ebay", "wd5", "apply", "India"),
     ("autodesk", "wd1", "Ext", "India"),
     ("micron", "wd1", "External", "India"),
+    ("cisco", "wd5", "Cisco_Careers", "India"),
+    ("broadcom", "wd1", "External_Career", "India"),
 ]
 
 # Keep only technical roles, these feeds list every department (HR, legal, sales...).
