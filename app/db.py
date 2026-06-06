@@ -38,6 +38,10 @@ users = Table(
     Column("experience", Text),  # fresher | junior | mid | senior | lead (drives seniority matching)
     Column("resume_json", Text), # structured resume for the Resume Studio (sections as JSON)
     Column("resume_versions", Text), # JSON list of saved/tailored resume copies [{name,data}]
+    Column("pref_vector", Text),  # online-learned preference weight vector (JSON {feature: weight})
+    Column("github_username", Text),
+    Column("github_data", Text),       # cached GitHub enrichment (JSON)
+    Column("github_fetched_at", Text), # ISO timestamp of last GitHub fetch
     Column("active", Integer, default=1),
 )
 
@@ -86,6 +90,29 @@ jobs_catalog = Table(
 )
 Index("ix_catalog_seen", jobs_catalog.c.first_seen_at)
 
+# Implicit + explicit interaction log , the training data for the recommendation engine.
+# Append-only, tiny rows. We log impressions ('shown') so a shown-but-skipped job is a usable
+# negative signal (without that you can't learn). category is denormalized so aggregates avoid a join.
+events = Table(
+    "events", metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("user_id", Integer, nullable=False),
+    Column("url", Text),
+    Column("category", Text),
+    Column("event", Text, nullable=False),   # see EVENT_REWARD
+    Column("source", Text),                  # digest | browse | extension | external_link | tracker
+    Column("rank_shown", Integer),           # position in the shown list (for position-bias correction)
+    Column("created_at", DateTime, default=datetime.utcnow),
+)
+Index("ix_events_user_time", events.c.user_id, events.c.created_at)
+Index("ix_events_cat_time", events.c.category, events.c.created_at)
+
+# Reward each event contributes to the learner. Positive = wanted it, negative = didn't.
+EVENT_REWARD = {
+    "shown": -0.1, "ignored": -0.3, "clicked": 0.4, "saved": 0.6,
+    "applied": 1.0, "external_applied": 1.0, "not_interested": -1.0, "rejected": -0.2,
+}
+
 # Small key-value store for app metadata (e.g. last scheduled-run timestamp).
 meta = Table(
     "meta", metadata,
@@ -101,7 +128,8 @@ def init_db():
     existing = {c["name"] for c in insp.get_columns("users")}
     with engine.begin() as conn:
         for col in ("email", "dash_token", "password_hash", "ref_code", "embedding", "categories",
-                    "cadence", "experience", "resume_json", "resume_versions"):
+                    "cadence", "experience", "resume_json", "resume_versions",
+                    "pref_vector", "github_username", "github_data", "github_fetched_at"):
             if col not in existing:
                 conn.execute(text(f"ALTER TABLE users ADD COLUMN {col} TEXT"))
         if "referred_by" not in existing:
@@ -244,7 +272,7 @@ def upsert_job(job):
         ))
 
 
-def prune_catalog(max_age_days=14, per_category=120, total=1000):
+def prune_catalog(max_age_days=21, per_category=150, total=1500):
     """Keep the browse catalog fresh + bounded: drop jobs older than max_age_days (by when we first
     saw them), cap each category to its newest `per_category`, and the whole catalog to `total`.
     Uses timestamp thresholds (not IN-lists) so it's safe on sqlite's 999-param limit + Postgres."""
@@ -338,7 +366,7 @@ def posted_age_days(s):
     return None
 
 
-MAX_POSTED_AGE_DAYS = 40  # browse only shows jobs posted within ~the last month or so
+MAX_POSTED_AGE_DAYS = 30  # browse only shows jobs posted within ~the last month (reqs go stale after)
 
 
 def list_catalog(category=None, q=None, limit=200):
@@ -367,10 +395,62 @@ def list_catalog(category=None, q=None, limit=200):
     return fresh
 
 
+def list_catalog_ranked(user, category=None, q=None, limit=200):
+    """Per-user 'recommended for you' browse ordering: score the fresh catalog with the same blended
+    selection score (content + learned preference + trending + recency), no LLM. Cheap, cached signals."""
+    from . import matcher
+    rows = list_catalog(category=category, q=q, limit=limit * 2)
+    kw = user.get("keywords") or []
+    theta = get_pref_vector(user["id"])
+    top_cats = sorted([(w, k.split(":", 1)[1]) for k, w in theta.items()
+                       if k.startswith("cat:") and w > 0], reverse=True)
+    exp_map = {"fresher": 0, "junior": 1, "mid": 3, "senior": 7, "lead": 11}
+    ctx = {"theta": theta, "trending": trending_scores(), "collab": collab_category_prefs(),
+           "user_top_cats": [c for _, c in top_cats[:3]],
+           "uyears": exp_map.get(user.get("experience") or "", 0),
+           "india_user": any("india" in (l or "").lower() for l in (user.get("locations") or []))}
+    for j in rows:
+        sc, matched = matcher.score_job(j, kw)
+        j["raw_score"] = sc
+        j["matched"] = matched
+        j["region"] = matcher.job_region(j.get("location", ""))
+        s, _ = matcher.blended_score(j, ctx)
+        j["rec_score"] = s
+    rows.sort(key=lambda j: j.get("rec_score", 0), reverse=True)
+    return rows[:limit]
+
+
 def catalog_categories():
     with engine.connect() as conn:
         rows = conn.execute(select(jobs_catalog.c.category).distinct()).all()
     return sorted({r[0] for r in rows if r[0]})
+
+
+def set_job_meta_by_url(user_id, url, **fields):
+    """Update title/company/category on a tracked row by url (used after a background JD fetch)."""
+    allowed = {k: v for k, v in fields.items() if k in ("title", "company", "category") and v}
+    if not allowed:
+        return
+    with engine.begin() as c:
+        c.execute(update(job_log).where(job_log.c.user_id == user_id, job_log.c.url == url).values(**allowed))
+
+
+def add_external_application(user_id, url, title, company, category, description=""):
+    """Track a job the user applied to ELSEWHERE: create an applied row (stamps applied_at so the
+    streak counts), enrich the shared catalog, dedup against existing rows. Returns a small status."""
+    if is_seen(user_id, url):
+        set_status_by_url(user_id, url, "applied")  # stamps applied_at if not already
+        return {"ok": True, "updated": True}
+    job = {"url": url, "title": (title or "Job (external)")[:200], "company": (company or "")[:120],
+           "category": category, "posted_at": ""}
+    log_job(user_id, job)
+    set_status_by_url(user_id, url, "applied")  # status=applied + applied_at stamp
+    try:
+        upsert_job({"url": url, "title": job["title"], "company": job["company"],
+                    "category": category, "description": (description or "")[:2000], "posted_at": ""})
+    except Exception:
+        pass
+    return {"ok": True, "created": True}
 
 
 def get_job_log(job_id, user_id):
@@ -647,6 +727,166 @@ def leaderboard(user_id=None):
                         "is_me": uid == user_id})
     out.sort(key=lambda r: (r["applied_week"], r["applied_total"], r["current_streak"]), reverse=True)
     return out[:20]
+
+
+# ---- events (recommendation learning signal) ----
+
+def log_event(user_id, url, event, *, category=None, source=None, rank_shown=None):
+    """Record one interaction. Fire-and-forget , never let logging break a request/delivery."""
+    if not user_id or not event:
+        return
+    try:
+        with engine.begin() as c:
+            c.execute(insert(events).values(
+                user_id=user_id, url=url, category=category, event=event,
+                source=source, rank_shown=rank_shown))
+    except Exception:
+        pass
+
+
+def log_events_bulk(rows):
+    """Batch-insert events (rows = list of dicts with user_id/url/category/event/source/rank_shown)."""
+    if not rows:
+        return
+    try:
+        with engine.begin() as c:
+            c.execute(insert(events), rows)
+    except Exception:
+        pass
+
+
+def recent_events(user_id, days=180):
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    with engine.connect() as c:
+        rows = c.execute(
+            select(events.c.url, events.c.category, events.c.event, events.c.created_at)
+            .where(events.c.user_id == user_id, events.c.created_at >= cutoff)
+            .order_by(events.c.created_at.desc())
+        ).all()
+    return [{"url": r[0], "category": r[1], "event": r[2], "created_at": r[3]} for r in rows]
+
+
+def prune_events(max_age_days=180):
+    cutoff = datetime.utcnow() - timedelta(days=max_age_days)
+    try:
+        with engine.begin() as c:
+            return c.execute(delete(events).where(events.c.created_at < cutoff)).rowcount or 0
+    except Exception:
+        return 0
+
+
+def trending_scores(days=7):
+    """Aggregate apply/save/click velocity per category and per company over the last `days`, for the
+    trending signal. One grouped query each; tanh-squashed to [0,1]. Cheap (indexed)."""
+    import math
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    pos = ["clicked", "saved", "applied", "external_applied"]
+    out_cat, out_co = {}, {}
+    with engine.connect() as c:
+        for cat, n in c.execute(
+            select(events.c.category, func.count()).where(
+                events.c.created_at >= cutoff, events.c.event.in_(pos),
+                events.c.category.isnot(None)
+            ).group_by(events.c.category)
+        ).all():
+            if cat:
+                out_cat[cat] = math.tanh(n / 5.0)
+    return {"cat": out_cat, "company": out_co}
+
+
+def collab_category_prefs(days=120):
+    """Item-based collaborative filtering at category granularity (<=~19 cats => tiny matrix).
+    Returns {category: {co_category: affinity 0..1}} from co-occurrence of users' positive actions."""
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    pos = ["clicked", "saved", "applied", "external_applied"]
+    by_user = {}
+    with engine.connect() as c:
+        for uid, cat in c.execute(
+            select(events.c.user_id, events.c.category).where(
+                events.c.created_at >= cutoff, events.c.event.in_(pos), events.c.category.isnot(None))
+        ).all():
+            by_user.setdefault(uid, set()).add(cat)
+    cooc, totals = {}, {}
+    for cats in by_user.values():
+        for a in cats:
+            totals[a] = totals.get(a, 0) + 1
+            for b in cats:
+                if a != b:
+                    cooc.setdefault(a, {})[b] = cooc.get(a, {}).get(b, 0) + 1
+    out = {}
+    for a, bs in cooc.items():
+        ta = totals.get(a, 1)
+        out[a] = {b: n / ta for b, n in bs.items()}
+    return out
+
+
+# ---- per-user preference model (online-learned weight vector) ----
+
+def get_pref_vector(user_id):
+    with engine.connect() as c:
+        r = c.execute(select(users.c.pref_vector).where(users.c.id == user_id)).first()
+    if r and r[0]:
+        try:
+            return json.loads(r[0])
+        except Exception:
+            return {}
+    return {}
+
+
+def set_pref_vector(user_id, vec):
+    with engine.begin() as c:
+        c.execute(update(users).where(users.c.id == user_id).values(pref_vector=json.dumps(vec)))
+
+
+def update_pref_online(user_id, phi: dict, reward: float, lr=0.1, l2=1e-3):
+    """One online-logistic SGD step. phi = sparse feature dict for the acted-on job, reward in [-1,1].
+    label y = 1 if reward>0 else 0. Returns the updated vector (also persisted)."""
+    import math
+    theta = get_pref_vector(user_id)
+    if not phi:
+        return theta
+    y = 1.0 if reward > 0 else 0.0
+    z = sum(theta.get(k, 0.0) * v for k, v in phi.items())
+    p = 1.0 / (1.0 + math.exp(-max(-30, min(30, z))))
+    err = (y - p) * abs(reward)  # stronger signals move weights more
+    for k, v in phi.items():
+        theta[k] = theta.get(k, 0.0) * (1 - lr * l2) + lr * err * v
+    # prune tiny weights so the vector stays small/explainable
+    theta = {k: round(w, 4) for k, w in theta.items() if abs(w) > 1e-3}
+    set_pref_vector(user_id, theta)
+    return theta
+
+
+# ---- GitHub enrichment storage ----
+
+def set_github(user_id, username=None, data=None):
+    vals = {}
+    if username is not None:
+        vals["github_username"] = username
+    if data is not None:
+        vals["github_data"] = json.dumps(data)
+        vals["github_fetched_at"] = datetime.utcnow().isoformat()
+    if not vals:
+        return
+    with engine.begin() as c:
+        c.execute(update(users).where(users.c.id == user_id).values(**vals))
+
+
+def users_needing_github(limit=3, ttl_days=14):
+    """Users with a github_username whose cached data is missing or older than ttl_days."""
+    cutoff = (datetime.utcnow() - timedelta(days=ttl_days)).isoformat()
+    with engine.connect() as c:
+        rows = c.execute(
+            select(users.c.id, users.c.github_username, users.c.github_fetched_at).where(
+                users.c.github_username.isnot(None), users.c.github_username != "")
+        ).all()
+    out = []
+    for uid, un, fetched in rows:
+        if not fetched or str(fetched) < cutoff:
+            out.append({"id": uid, "github_username": un})
+        if len(out) >= limit:
+            break
+    return out
 
 
 def analytics(user_id):

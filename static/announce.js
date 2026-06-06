@@ -2,11 +2,17 @@
    To announce a new feature: bump VERSION and add an entry to RELEASES. Existing users (anyone
    whose seen-version is behind) get a one-time card next time they open any page. */
 (function () {
-  var VERSION = 3;
+  var VERSION = 4;
 
   // Newest first. Each release: { v, title, items[] }. Cards for every release newer than what the
   // user has already seen are merged into one flash.
   var RELEASES = [
+    { v: 4, title: "Smarter recommendations + GitHub + track-anywhere", items: [
+      "Your matches now learn from you: apply or dismiss jobs and the ranking adapts to what you actually want.",
+      "Add your GitHub username (Alerts page) and we tailor matches to what you actually build.",
+      "Applied somewhere else? Paste the link on your Tracker , it counts toward your streak and we keep learning.",
+      "Browse has a 'Recommended for you' toggle, and only shows recent postings.",
+    ] },
     { v: 3, title: "New look + per-job resume tailoring", items: [
       "Fresh design across the whole app, easier on the eyes.",
       "Resume tailoring is now per-job: open a job, get the exact changes to accept or reject, then export and apply , no rebuilding your resume.",

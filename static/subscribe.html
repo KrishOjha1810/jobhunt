@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>JobHunt, subscribe for matched alerts</title>
-  <link rel="stylesheet" href="/static/theme.css?v=3" />
+  <link rel="stylesheet" href="/static/theme.css?v=4" />
   <style>
     /* legacy var aliases mapped onto the shared system */
     :root{ --ok-bg:var(--score-bg); --ok-border:var(--score-border); --ok-ink:var(--score-ink);
@@ -182,6 +182,10 @@
         <input type="file" name="resume_file" accept=".pdf,.docx,.doc,.txt" multiple required />
         <small>Attach more than one (e.g. blockchain, backend, full-stack) and we match the best jobs across all of them in a single digest.</small>
 
+        <label>GitHub username <span style="font-weight:400;color:var(--muted)">(optional, sharpens your matches)</span></label>
+        <input type="text" name="github_username" id="github_username" placeholder="e.g. KrishOjha1810" />
+        <small>We read only your public repos (languages, projects) to recommend jobs that fit what you actually build. No login needed.</small>
+
         <button type="submit" class="submit">Start getting matches</button>
       </form>
 
@@ -291,6 +295,9 @@
         const data = await res.json();
         result.style.display = 'block';
         if (res.ok && data.ok) {
+          // save GitHub username (enriches matching); best-effort, never blocks
+          const gh = (document.getElementById('github_username').value || '').trim();
+          if (gh) { try { fetch('/api/github', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({username:gh})}).catch(()=>{}); } catch(e){} }
           result.className = 'ok';
           const chips = (data.detected_keywords||[]).map(k => `<span class="chip">${esc(k)}</span>`).join('');
           result.innerHTML = `<b>You're subscribed!</b><br>${esc(data.message || 'We will send you matched jobs on your chosen channel.')}` +
@@ -310,6 +317,6 @@
       btn.disabled = false; btn.textContent = 'Start getting matches';
     });
   </script>
-  <script src="/static/announce.js?v=3"></script>
+  <script src="/static/announce.js?v=4"></script>
 </body>
 </html>

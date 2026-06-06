@@ -4,6 +4,7 @@ dedupe, and send each a single digest. Fetch-once-match-many keeps API usage fla
 Run directly (python -m app.runner) or via cron / the external /run trigger.
 """
 import os
+import random
 from datetime import datetime, timedelta
 from . import db, sources, matcher, notifier, embeddings, enrich
 from .config import MIN_SCORE, MAX_MATCHES_PER_RUN
@@ -12,6 +13,10 @@ from .config import MIN_SCORE, MAX_MATCHES_PER_RUN
 # key is set; set LLM_RERANK=0 to disable. Bounded to the top N candidates to cap cost/latency.
 LLM_RERANK = os.environ.get("LLM_RERANK", "1") != "0"
 RERANK_N = int(os.environ.get("RERANK_N", "") or "12")
+# Recommendation engine v2: blended selection score + online preference learning + exploration.
+SCORE_V2 = os.environ.get("SCORE_V2", "1") != "0"
+PREF_LEARNING = os.environ.get("PREF_LEARNING", "1") != "0"
+EPSILON = float(os.environ.get("EPSILON", "0.15"))  # exploration rate (surface a fresh role sometimes)
 
 
 def _cadence_due(user, force):
@@ -162,6 +167,14 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
         print(f"[runner] {len(users)} user(s), shared pool of {len(pool)} jobs")
     sent = 0
     detail = []  # non-sensitive per-user breakdown for diagnosing coverage (ids + counts only)
+    # Global signals for the v2 scorer, computed ONCE per run (cheap grouped queries).
+    g_trending, g_collab = {}, {}
+    if SCORE_V2 and PREF_LEARNING:
+        try:
+            g_trending = db.trending_scores()
+            g_collab = db.collab_category_prefs()
+        except Exception as e:
+            print(f"[runner] trending/collab build failed: {e}")
     for user in users:
         d = {"id": user["id"], "ch": user.get("channel"), "kw": len(user.get("keywords") or []),
              "cats": len(user.get("categories") or []), "matched": 0, "sent": False, "why": ""}
@@ -187,18 +200,51 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
                 ranked = [j for j in ranked if (j.get("category") or matcher.categorize(j)) in cats]
                 d["matched"] = len(ranked)
             ranked = _semantic_rerank(user, ranked, verbose)  # cached-only, no network here
-            # Personalization: boost categories the user applies to, demote ones marked 'not a fit'
-            # (learned from their tracker). Bounded so it tunes order without burying fresh fits.
-            try:
-                signal = db.category_signal(user["id"])
-                if signal:
+            if SCORE_V2:
+                # v2: rebuild the user's preference vector from their event history (idempotent replay),
+                # then re-score every candidate with the blended selection score + reason.
+                theta = {}
+                if PREF_LEARNING:
+                    try:
+                        evs = db.recent_events(user["id"], days=120)
+                        for e in reversed(evs):  # chronological
+                            r = db.EVENT_REWARD.get(e["event"], 0)
+                            if r and e.get("category"):
+                                theta = matcher.pref_update(theta, {"cat:" + e["category"]: 1.0}, r)
+                        if theta:
+                            db.set_pref_vector(user["id"], theta)  # persist for explainability/browse
+                    except Exception as e:
+                        print(f"[runner] pref learn skipped for {user.get('id')}: {e}")
+                top_cats = sorted([(w, k.split(":", 1)[1]) for k, w in theta.items()
+                                   if k.startswith("cat:") and w > 0], reverse=True)
+                ctx = {"theta": theta, "trending": g_trending, "collab": g_collab,
+                       "user_top_cats": [c for _, c in top_cats[:3]], "uyears": uyears,
+                       "india_user": any((l or "").lower() in ("india",) or "india" in (l or "").lower()
+                                         for l in (user.get("locations") or []))}
+                try:
                     for j in ranked:
-                        w = signal.get(j.get("category"), 0)
-                        if w:
-                            j["score"] = max(10, min(100, (j.get("score") or 0) + round(15 * w)))
+                        s, contrib = matcher.blended_score(j, ctx)
+                        j["score"] = s
+                        j["reason"] = matcher.blended_reason(j, s, contrib)
                     ranked.sort(key=lambda j: j.get("score", 0), reverse=True)
-            except Exception as e:
-                print(f"[runner] personalization skipped for {user.get('id')}: {e}")
+                    # epsilon-greedy: occasionally surface a fresh role the model hasn't favoured
+                    if EPSILON > 0 and len(ranked) > 6 and random.random() < EPSILON:
+                        i = random.randint(5, len(ranked) - 1)
+                        ranked.insert(2, ranked.pop(i))
+                except Exception as e:
+                    print(f"[runner] blended score skipped for {user.get('id')}: {e}")
+            else:
+                # legacy personalization: category +/- nudge from the tracker
+                try:
+                    signal = db.category_signal(user["id"])
+                    if signal:
+                        for j in ranked:
+                            w = signal.get(j.get("category"), 0)
+                            if w:
+                                j["score"] = max(10, min(100, (j.get("score") or 0) + round(15 * w)))
+                        ranked.sort(key=lambda j: j.get("score", 0), reverse=True)
+                except Exception as e:
+                    print(f"[runner] personalization skipped for {user.get('id')}: {e}")
             # LLM re-rank of the top candidates by true fit (best matching signal). Blends 50/50 with
             # the keyword/semantic fit so it sharpens order without throwing away the base score.
             try:
@@ -243,6 +289,13 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
                 # (e.g. email misconfigured) gets retried on the next run instead of vanishing.
                 for job in to_send:
                     db.log_job(user["id"], job)
+                # log impressions so the recommender has negatives (shown-but-skipped) + positions
+                db.log_events_bulk([
+                    {"user_id": user["id"], "url": j.get("url"),
+                     "category": j.get("category"), "event": "shown",
+                     "source": "digest", "rank_shown": i}
+                    for i, j in enumerate(to_send) if j.get("url")
+                ])
         except Exception as e:
             d["why"] = f"error: {e}"
             print(f"[runner] user {user.get('id')} failed: {e}")
@@ -290,6 +343,14 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
     # Background embedding precompute LAST, purely best-effort, so smart ranking improves over time
     # without ever delaying alerts or the completion record.
     _precompute_embeddings(users, pool, verbose)
+    # GitHub enrichment for a few users with stale/missing cached data (post-delivery, best-effort).
+    if os.environ.get("GITHUB_ENRICH", "1") != "0":
+        try:
+            from . import github as _gh
+            for u in db.users_needing_github(limit=3):
+                _gh.enrich_user(u["id"], u["github_username"], verbose)
+        except Exception as e:
+            print(f"[runner] github enrich failed: {e}")
 
 
 if __name__ == "__main__":

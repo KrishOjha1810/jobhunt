@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>JobHunt, browse jobs</title>
-  <link rel="stylesheet" href="/static/theme.css?v=3" />
+  <link rel="stylesheet" href="/static/theme.css?v=4" />
   <style>
     /* legacy var aliases this page still references, mapped onto the shared system */
     :root{ --fresh:var(--c-response); --overlay:rgba(0,0,0,.6);
@@ -142,6 +142,7 @@
     <input class="search" id="search" placeholder="Search title or company..." />
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
       <p class="count" id="count"></p>
+      <button id="recoBtn" type="button" class="chipbtn" style="display:none">✨ Recommended for you</button>
       <button id="triageBtn" type="button" style="display:none;padding:7px 14px;border:0;border-radius:8px;cursor:pointer;font-weight:700;font-size:.85rem;background:var(--accent);color:var(--accent-ink);">⚡ Triage my matches</button>
     </div>
 
@@ -200,6 +201,12 @@
     function catIcon(c){ return CAT_ICONS[String(c||'').toLowerCase()]||'▣'; }
     function catGrad(c){ let h=0; const s=String(c||''); for(let i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))>>>0; return CAT_GRADS[h%CAT_GRADS.length]; }
     function safeUrl(u){ u=String(u||''); return /^https?:\/\//i.test(u)?u:''; }
+    function logClick(url, cat){
+      if(!dashToken) return;
+      try{ fetch('/api/event?token='+encodeURIComponent(dashToken),{method:'POST',keepalive:true,
+        headers:{'content-type':'application/json'},
+        body:JSON.stringify({url,event:'clicked',category:cat,source:'browse'})}).catch(()=>{}); }catch(e){}
+    }
     function ago(iso, seen){
       const d = Date.parse(iso) || Date.parse(String(seen||'').replace(' ','T'));
       if(!d) return '';
@@ -211,10 +218,10 @@
     }
 
     // ----- Catalog -----
-    let all = [], cat = '';
+    let all = [], cat = '', recoMode = false;
     async function load(){
       try {
-        const r = await fetch('/api/catalog');
+        const r = await fetch('/api/catalog' + (recoMode ? '?sort=recommended' : ''));
         const data = await r.json();
         all = data.jobs || [];
         const cats = data.categories || [];
@@ -321,13 +328,19 @@
             ${a?`<span class="ago">${a}</span>`:''}
           </div></div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
-            ${u?`<a class="apply" href="${esc(u)}" target="_blank" rel="noopener">Apply</a>`:''}
+            ${u?`<a class="apply" href="${esc(u)}" target="_blank" rel="noopener" onclick="logClick('${esc(u)}','${esc(j.category||'')}')">Apply</a>`:''}
             ${u?`<a class="apply" style="background:var(--field);color:var(--ink);border:1px solid var(--field-border)" href="/resume?url=${encodeURIComponent(u)}">Tailor resume</a>`:''}
           </div>
         </div>`;
       }).join('');
     }
     document.getElementById('search').addEventListener('input', render);
+    document.getElementById('recoBtn').addEventListener('click', (e)=>{
+      recoMode = !recoMode;
+      e.target.classList.toggle('active', recoMode);
+      e.target.textContent = recoMode ? '✨ Recommended (on)' : '✨ Recommended for you';
+      load();
+    });
 
     // ----- Multi-step walkthrough tour -----
     const overlay = document.getElementById('overlay');
@@ -378,6 +391,7 @@
         appVersion = me.version || '';
         dashToken = me.dash_token || '';
         document.getElementById(subscribed ? 'subnote' : 'sbanner').style.display = 'flex';
+        if (subscribed) document.getElementById('recoBtn').style.display = 'inline-flex';
         // auto-show the walkthrough once per version, but only to users who haven't subscribed yet
         // (don't interrupt established users on every deploy; they can replay via "How it works")
         if (!subscribed && localStorage.getItem(TOUR_VER_KEY) !== appVersion) startTour();
@@ -406,6 +420,6 @@
     checkMe();
     loadReferral();
   </script>
-  <script src="/static/announce.js?v=3"></script>
+  <script src="/static/announce.js?v=4"></script>
 </body>
 </html>

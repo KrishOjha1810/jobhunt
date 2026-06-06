@@ -384,11 +384,15 @@ async def subscribe_post(
 
 
 @app.get("/api/catalog")
-def api_catalog(request: Request, category: str = "", q: str = ""):
+def api_catalog(request: Request, category: str = "", q: str = "", sort: str = ""):
     """Public browse of every job we have found (so new visitors see value before signing up).
-    For a logged-in user, tag jobs already sent to them so /jobs stays in sync with My Matches."""
-    jobs = db.list_catalog(category=category or None, q=q or None)
+    For a logged-in user, tag jobs already sent to them, and sort=recommended ranks the catalog for
+    them with the blended selection score (personalized feed, not just newest)."""
     u = current_user(request)
+    if u and sort == "recommended":
+        jobs = db.list_catalog_ranked(u, category=category or None, q=q or None)
+    else:
+        jobs = db.list_catalog(category=category or None, q=q or None)
     if u:
         mine = db.matched_urls(u["id"])
         for j in jobs:
@@ -396,6 +400,7 @@ def api_catalog(request: Request, category: str = "", q: str = ""):
     return {
         "ok": True,
         "categories": db.catalog_categories(),
+        "recommended": bool(u and sort == "recommended"),
         "jobs": jobs,
     }
 
@@ -525,6 +530,31 @@ def api_update_job(request: Request, job_id: int, token: str = "", applied: int 
     if status is not None:
         fields["status"] = status
     db.update_job(job_id, user["id"], **fields)
+    # feed the recommender: a status change is a strong explicit signal
+    if status in db.EVENT_REWARD:
+        row = db.get_job_log(job_id, user["id"])
+        if row:
+            db.log_event(user["id"], row.get("url"), status,
+                         category=row.get("category"), source="tracker")
+    return {"ok": True}
+
+
+@app.post("/api/event")
+async def api_event(request: Request, token: str = ""):
+    """Lightweight client-side event beacon (e.g. a job card 'clicked'). Body: {url, event, category?,
+    source?, rank?}. Only accepts known event types; never errors loudly."""
+    user = _resolve_user(request, token)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=403)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    ev = body.get("event")
+    if ev not in db.EVENT_REWARD:
+        return {"ok": False}
+    db.log_event(user["id"], body.get("url"), ev, category=body.get("category"),
+                 source=body.get("source") or "browse", rank_shown=body.get("rank"))
     return {"ok": True}
 
 
@@ -616,6 +646,64 @@ def api_profile(request: Request, token: str = ""):
     }
 
 
+@app.post("/api/external-apply")
+async def api_external_apply(request: Request, token: str = "", background: BackgroundTasks = None):
+    """Track a job the user applied to elsewhere by pasting its URL. Creates an applied row instantly
+    (so the streak counts now), then enriches title/company/JD in the background. Body: {url, title?,
+    company?, note?}."""
+    user = _resolve_user(request, token)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        b = await request.json()
+    except Exception:
+        b = {}
+    from . import jobfetch
+    url = jobfetch.normalize_url(b.get("url") or "")
+    if not url.startswith("http"):
+        return {"ok": False, "reason": "Paste a valid job URL (starting with http)."}
+    title = (b.get("title") or "").strip()
+    company = (b.get("company") or "").strip()
+    job_for_cat = {"title": title, "description": ""}
+    category = matcher.categorize(job_for_cat) if title else "Other"
+    res = db.add_external_application(user["id"], url, title, company, category)
+    db.log_event(user["id"], url, "external_applied", category=category, source="external_link")
+
+    def _enrich(uid, u, has_title):
+        try:
+            jd = jobfetch.fetch_jd(u)
+            if jd.get("title") or jd.get("description"):
+                cat = matcher.categorize({"title": jd.get("title", ""), "description": jd.get("description", "")})
+                db.set_job_meta_by_url(uid, u, title=(None if has_title else jd.get("title")),
+                                       company=jd.get("company"), category=cat)
+                db.upsert_job({"url": u, "title": jd.get("title") or "Job (external)",
+                               "company": jd.get("company") or "", "category": cat,
+                               "description": jd.get("description", ""), "posted_at": ""})
+        except Exception:
+            pass
+    if background is not None:
+        background.add_task(_enrich, user["id"], url, bool(title))
+    return {**res, "url": url}
+
+
+@app.post("/api/github")
+async def api_github(request: Request, token: str = "", background: BackgroundTasks = None):
+    """Save a GitHub username and enrich the user's skills from public repos (free, no OAuth)."""
+    user = _resolve_user(request, token)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        b = await request.json()
+    except Exception:
+        b = {}
+    username = (b.get("username") or "").strip()
+    db.set_github(user["id"], username=username or None)
+    if username and background is not None:
+        from . import github as _gh
+        background.add_task(_gh.enrich_user, user["id"], username, False)
+    return {"ok": True, "username": username}
+
+
 @app.post("/api/save-job")
 async def api_save_job(request: Request, token: str = ""):
     """Capture a job from ANY page (browser extension) into the user's tracker. Body JSON:
@@ -639,6 +727,7 @@ async def api_save_job(request: Request, token: str = ""):
     if db.is_seen(user["id"], url):
         return {"ok": True, "saved": False, "reason": "already in your tracker"}
     db.log_job(user["id"], job)
+    db.log_event(user["id"], url, "saved", category=job["category"], source="extension")
     return {"ok": True, "saved": True, "category": job["category"], "score": job["score"]}
 
 
@@ -803,6 +892,8 @@ def track(t: str = "", u: str = "", s: str = "applied"):
     confirmation page with an Undo, so an accidental tap is reversible."""
     user = db.user_by_token(t)
     ok = bool(user) and db.set_status_by_url(user["id"], u, s)
+    if ok and s in db.EVENT_REWARD:
+        db.log_event(user["id"], u, s, source="digest")
     dash = "/dashboard?token=" + t
     if not ok:
         body = "<h2>Link expired or job not found</h2><p>Open your tracker to update it.</p>"

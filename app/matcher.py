@@ -133,6 +133,118 @@ def score_job(job: dict, keywords: list) -> tuple:
     return len(matched) + 2 * title_bonus, matched
 
 
+import math as _math
+
+# Blended selection-score weights (the prior, before any per-user learning). Content dominates so a
+# brand-new user's ranking ~= the old keyword behaviour; learned/global signals only re-sort within.
+SCORE_WEIGHTS = {"content": 2.2, "pref": 1.4, "seniority": 1.2, "location": 1.0,
+                 "recency": 0.8, "collab": 0.7, "trending": 0.5}
+
+
+def pref_update(theta: dict, phi: dict, reward: float, lr=0.1, l2=1e-3) -> dict:
+    """Pure online-logistic SGD step (no IO). Replay events through this to rebuild a user's vector
+    idempotently. reward in [-1,1]; label y=1 if reward>0. Returns a new pruned theta."""
+    if not phi:
+        return theta
+    y = 1.0 if reward > 0 else 0.0
+    z = sum(theta.get(k, 0.0) * v for k, v in phi.items())
+    p = 1.0 / (1.0 + _math.exp(-max(-30, min(30, z))))
+    err = (y - p) * abs(reward)
+    out = dict(theta)
+    for k, v in phi.items():
+        out[k] = out.get(k, 0.0) * (1 - lr * l2) + lr * err * v
+    return {k: round(w, 4) for k, w in out.items() if abs(w) > 1e-3}
+
+
+def pref_features(job: dict) -> dict:
+    """Sparse, interpretable feature dict phi(j) for the per-user preference model. Category is the
+    main learnable signal (we can derive it from events); skills/region add explainability."""
+    phi = {}
+    cat = job.get("category") or "Other"
+    phi["cat:" + cat] = 1.0
+    reg = job.get("region")
+    if reg:
+        phi["region:" + reg] = 1.0
+    for k in (job.get("matched") or [])[:8]:
+        phi["skill:" + k] = 1.0
+    return phi
+
+
+def _recency_unit(job: dict) -> float:
+    """0..1 freshness from posted age (half-life ~14d). Unknown age -> neutral 0.4 (don't punish)."""
+    try:
+        from .db import posted_age_days
+        age = posted_age_days(job.get("posted_at"))
+    except Exception:
+        age = None
+    if age is None:
+        return 0.4
+    return _math.exp(-max(0, age) / 14.0)
+
+
+def blended_score(job: dict, ctx: dict) -> tuple:
+    """Probability-of-selection score in [15,100] + a contributions dict for the 'why' string.
+    Expects job already through rank_matches (has raw_score, region, category, matched). ctx carries
+    the per-user/learned signals: theta, trending, collab, user_top_cats, uyears, india_user."""
+    raw = job.get("raw_score") or 0
+    C = min(1.0, raw / 8.0)
+    # learned preference
+    theta = ctx.get("theta") or {}
+    phi = pref_features(job)
+    Pf = _math.tanh(sum(theta.get(k, 0.0) * v for k, v in phi.items())) if theta else 0.0
+    # seniority fit (asymmetric: under-qualified hurts, over-qualified barely)
+    yrs = years_required(job.get("description", ""))
+    gap = max(0, yrs - (ctx.get("uyears") or 0))
+    S = 0.3 if gap <= 0 else (-0.2 if gap <= 2 else (-0.5 if gap < 6 else -1.0))
+    # location/region
+    region = job.get("region") or job_region(job.get("location", ""))
+    if ctx.get("india_user"):
+        L = 0.5 if region == "india" else (0.2 if region == "global" else 0.0)
+    else:
+        L = 0.2
+    # recency
+    R = _recency_unit(job) - 0.3
+    # collaborative: how much users-like-you favour this job's category
+    cat = job.get("category") or "Other"
+    collab = ctx.get("collab") or {}
+    top = ctx.get("user_top_cats") or []
+    Co = 0.0
+    if top and collab:
+        vals = [collab.get(t, {}).get(cat, 0.0) for t in top]
+        Co = max(vals) if vals else 0.0
+    # trending
+    Tr = (ctx.get("trending") or {}).get("cat", {}).get(cat, 0.0)
+
+    w = SCORE_WEIGHTS
+    contrib = {"content": w["content"] * C, "pref": w["pref"] * Pf, "seniority": w["seniority"] * S,
+               "location": w["location"] * L, "recency": w["recency"] * R,
+               "collab": w["collab"] * Co, "trending": w["trending"] * Tr}
+    z = sum(contrib.values())
+    score = int(round(100 / (1 + _math.exp(-max(-30, min(30, z))))))
+    score = max(15, min(100, score))
+    return score, contrib
+
+
+_CONTRIB_LABEL = {"content": "skills match", "pref": "roles you favour", "seniority": "seniority fit",
+                  "location": "location fit", "recency": "freshly posted", "collab": "popular with similar users",
+                  "trending": "trending role"}
+
+
+def blended_reason(job: dict, score: int, contrib: dict) -> str:
+    tier = "Strong fit" if score >= 75 else ("Good fit" if score >= 50 else "Possible fit")
+    pos = sorted([(v, k) for k, v in contrib.items() if v > 0.05], reverse=True)[:3]
+    parts = [_CONTRIB_LABEL[k] for _, k in pos]
+    top = ", ".join((job.get("matched") or [])[:4])
+    msg = f"{tier} ({score}/100)."
+    if parts:
+        msg += " " + ", ".join(parts) + "."
+    if top:
+        msg += f" Matches: {top}."
+    if contrib.get("seniority", 0) <= -0.5:
+        msg += " Note: asks more experience than you list."
+    return msg
+
+
 def rank_matches(jobs: list, keywords: list, locations: list, min_score: int,
                  user_years: int = 0) -> list:
     """Return jobs that clear min_score and pass the location filter, sorted by fit desc.
