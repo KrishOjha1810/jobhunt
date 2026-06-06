@@ -199,18 +199,32 @@ def ats_job_match(resume_json: dict, jd_text: str) -> dict:
     jdk = jd_keywords(jd_text)
     flat = flatten_resume(resume_json)
     present, missing, have, total = [], [], 0, 0
+    core_have = core_tot = nice_have = nice_tot = 0
     for k in jdk:
-        w = 2 if k["tier"] == "core" else 1
+        is_core = k["tier"] == "core"
+        w = 2 if is_core else 1
         total += w
+        if is_core: core_tot += 1
+        else: nice_tot += 1
         hit = any(_count(v, flat) for v in _variants(k["term"]))
         if hit:
             present.append(k["term"]); have += w
+            if is_core: core_have += 1
+            else: nice_have += 1
         else:
             missing.append({"term": k["term"], "tier": k["tier"]})
     coverage = round(50 * have / total) if total else 30
-    quality = round(0.5 * ats_health(resume_json).get("score", 0))
+    health = ats_health(resume_json).get("score", 0)
+    quality = round(0.5 * health)
+    # credible sub-scores (0-100 each) so the number is explainable, not a vanity metric
+    subscores = {
+        "must_have": round(100 * core_have / core_tot) if core_tot else 100,
+        "nice_to_have": round(100 * nice_have / nice_tot) if nice_tot else 100,
+        "resume_quality": int(health),
+    }
     return {"score": coverage + quality, "coverage": coverage, "quality": quality,
-            "present": present, "missing": missing, "jd_skill_count": total}
+            "present": present, "missing": missing, "jd_skill_count": total,
+            "subscores": subscores}
 
 
 def heuristic_structure(text: str) -> dict:

@@ -1298,6 +1298,26 @@ async def api_resume_export(request: Request, token: str = ""):
     )
 
 
+@app.post("/api/resume/phrasings")
+async def api_resume_phrasings(request: Request, token: str = ""):
+    """3 ways to phrase a missing keyword into the user's real experience (Jobscan-style). Body:
+    {keyword, role?, jd?}. Free (Groq); returns [] when no key so the client falls back to add-to-skills."""
+    from . import enrich
+    user = _resolve_user(request, token)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        b = await request.json()
+    except Exception:
+        b = {}
+    kw = (b.get("keyword") or "").strip()
+    if not kw:
+        return {"ok": False, "reason": "no keyword"}
+    rj = db.get_resume_json(user["id"]) or {}
+    opts, err = enrich.phrasings(rj, kw, b.get("role") or "", b.get("jd") or "")
+    return {"ok": True, "options": opts, "llm": enrich.available(), "reason": err}
+
+
 @app.post("/api/resume/export_original")
 async def api_resume_export_original(request: Request, token: str = ""):
     """Export the user's ORIGINAL resume with the accepted edits applied in place (keeps their exact

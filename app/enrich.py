@@ -184,6 +184,26 @@ def tailor_edits(resume_json: dict, job_title: str, job_desc: str):
     return _json_call(sys, user_msg)
 
 
+def phrasings(resume_json: dict, keyword: str, role: str = "", jd: str = ""):
+    """3 resume-bullet options that work `keyword` into the candidate's REAL experience (never
+    fabricated). Returns (list[str], error)."""
+    import json as _json
+    sys = (
+        "Given a candidate's resume (JSON) and a target keyword/skill, write 3 distinct, concise "
+        "resume BULLET options that naturally incorporate the keyword, grounded ONLY in what the "
+        "resume already supports , never invent a project, employer, or metric that isn't there. "
+        "Each bullet starts with a strong action verb and is one line. No em dashes. "
+        'Return JSON: {"options": ["...","...","..."]}.'
+    )
+    user_msg = (f"KEYWORD: {keyword}\nTARGET ROLE: {role}\n"
+                f"RESUME JSON:\n{_json.dumps(resume_json)[:5000]}\n\nJOB (context):\n{(jd or '')[:1200]}")
+    obj, err = _json_call(sys, user_msg)
+    if err:
+        return [], err
+    opts = (obj or {}).get("options") or []
+    return [str(o) for o in opts if o][:3], ""
+
+
 def rerank(resume_text: str, jobs: list):
     """Score how well the candidate fits each job, 0-100, in ONE batched LLM call. Returns a list of
     ints aligned to `jobs` (or [] on any failure). This is the strongest matching signal we have,

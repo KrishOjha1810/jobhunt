@@ -70,6 +70,7 @@
           <div class="card-kicker">Tailoring resume for</div>
           <div style="font-size:1.15rem;font-weight:700" id="jcTitle"></div>
           <div class="sub" id="jcGoal" style="margin:4px 0 0"></div>
+          <div id="jcSubs" style="margin-top:10px;display:flex;gap:14px;flex-wrap:wrap"></div>
           <div id="jcMissing" style="margin-top:10px"></div>
         </div>
       </div>
@@ -361,15 +362,41 @@
       $('jcGoal').innerHTML = m.score>=80
         ? '<span class="ok">Strong match , you\'re ready to apply.</span>'
         : `Aim for <b>80+</b> to be competitive. ${miss.length ? miss.length+' skill'+(miss.length===1?'':'s')+' to add:' : ''}`;
+      // credible sub-scores (so the number isn't a vanity metric)
+      const ss = m.subscores;
+      if(ss){
+        const bar = (label,v)=>{ const c=v>=75?'var(--ok)':(v>=50?'var(--accent)':'var(--c-notfit)');
+          return `<div style="flex:1;min-width:90px"><div style="display:flex;justify-content:space-between;font-size:.7rem;color:var(--muted)"><span>${label}</span><b style="color:var(--ink)">${v}</b></div><div class="bar" style="height:5px;margin-top:3px"><span style="width:${v}%;background:${c}"></span></div></div>`; };
+        $('jcSubs').innerHTML = bar('Must-have skills',ss.must_have)+bar('Nice-to-have',ss.nice_to_have)+bar('Resume quality',ss.resume_quality);
+      } else { $('jcSubs').innerHTML=''; }
       if(!miss.length){
         $('jcMissing').innerHTML = '<span class="ok">Your resume covers the key skills in this job.</span>';
       } else {
-        $('jcMissing').innerHTML = '<div style="font-size:.78rem;color:var(--muted);margin-bottom:4px">Add the ones you actually have (we never invent experience):</div>' +
-          miss.map(x=>`<button class="sm ghost addkw" data-k="${esc(x.term)}" style="margin:2px;padding:3px 9px;font-size:.8rem;${x.tier==='core'?'border-color:var(--accent);color:var(--accent)':''}">+ ${esc(x.term)}${x.tier==='core'?' ★':''}</button>`).join('');
-        document.querySelectorAll('.addkw').forEach(b=>b.onclick=()=>{
-          const k=b.dataset.k; if(!R.skills.includes(k)){ R.skills.push(k); $('skills').value=R.skills.join(', '); }
-          b.remove(); save(); rescore();
-        });
+        $('jcMissing').innerHTML = '<div style="font-size:.78rem;color:var(--muted);margin-bottom:4px">Missing , click one you actually have and we\'ll phrase it from your experience (we never invent):</div>' +
+          miss.map(x=>`<button class="sm ghost addkw" data-k="${esc(x.term)}" style="margin:2px;padding:3px 9px;font-size:.8rem;${x.tier==='core'?'border-color:var(--accent);color:var(--accent)':''}">+ ${esc(x.term)}${x.tier==='core'?' ★':''}</button>`).join('') +
+          '<div id="jcPhrase"></div>';
+        document.querySelectorAll('.addkw').forEach(b=>b.onclick=()=>offerPhrasings(b));
+      }
+    }
+    function roleName(){ return (CTX_JOB && CTX_JOB.title) || ($('inRole') ? $('inRole').value : '') || ''; }
+    function addSkill(k){ if(!R.skills.includes(k)){ R.skills.push(k); $('skills').value=R.skills.join(', '); } save(); rescore(); }
+    function addBulletKw(k, bullet){ if(!R.experience.length) R.experience.push({title:'',company:'',dates:'',bullets:[]});
+      R.experience[0].bullets.push(bullet); if(!R.skills.includes(k)) R.skills.push(k); renderAll(); save(); rescore(); }
+    async function offerPhrasings(btn){
+      const k=btn.dataset.k; const box=$('jcPhrase');
+      box.innerHTML='<div class="sub" style="margin-top:8px"><span class="spinner"></span> Finding ways to use "'+esc(k)+'" from your experience...</div>';
+      let opts=[];
+      try{ const r=await fetch('/api/resume/phrasings',{method:'POST',headers:{'content-type':'application/json'},
+        body:JSON.stringify({keyword:k, role:roleName(), jd:CTX_JD||''})}); const d=await r.json(); opts=d.options||[]; }catch(e){}
+      if(opts.length){
+        box.innerHTML='<div style="font-size:.78rem;color:var(--muted);margin:8px 0 4px">Pick a bullet that uses <b>'+esc(k)+'</b> (add it only if it\'s true):</div>'+
+          opts.map(o=>`<div class="edit"><div class="after">${esc(o)}</div><button class="sm ph-pick" data-o="${esc(o)}">Use this</button></div>`).join('')+
+          `<button class="sm ghost ph-skill">Just add "${esc(k)}" to skills</button> <button class="sm ghost ph-cancel">Cancel</button>`;
+        box.querySelectorAll('.ph-pick').forEach(x=>x.onclick=()=>{ addBulletKw(k,x.dataset.o); btn.remove(); box.innerHTML=''; });
+        box.querySelector('.ph-skill').onclick=()=>{ addSkill(k); btn.remove(); box.innerHTML=''; };
+        box.querySelector('.ph-cancel').onclick=()=>{ box.innerHTML=''; };
+      } else {
+        addSkill(k); btn.remove(); box.innerHTML='';  // no LLM/options -> just add to skills
       }
     }
     async function rescore(){
@@ -384,33 +411,58 @@
       }, 500);
     }
 
-    function showEdits(e, jobName){
-      const norm = s => (s||'').toLowerCase().replace(/\s+/g,' ').replace(/[.,;:]+$/,'').trim();
-      let html = '<div style="font-size:.78rem;color:var(--muted);margin-bottom:4px">One-click rewrites tuned to this job:</div>';
-      if(e.summary) html += `<div class="edit"><span class="pill">Summary</span><div class="after">${esc(e.summary)}</div><label><input type="checkbox" class="appr2" data-t="summary" checked style="width:auto"> apply</label></div>`;
-      (e.add_skills||[]).forEach(s=>{ html += `<div class="edit"><span class="pill">+ Skill</span> ${esc(s)} <label><input type="checkbox" class="appr2" data-t="skill" data-v="${esc(s)}" checked style="width:auto"> add</label></div>`; });
-      (e.bullets||[]).forEach((b,i)=>{ html += `<div class="edit"><span class="pill">Bullet</span><div class="before">${esc(b.original)}</div><div class="after">${esc(b.improved)}</div><label><input type="checkbox" class="appr2" data-t="bullet" data-i="${i}" checked style="width:auto"> apply</label></div>`; });
-      if(!e.summary && !(e.add_skills||[]).length && !(e.bullets||[]).length){ $('jcEdits').innerHTML=''; return; }
-      html += '<div class="row" style="margin-top:8px"><button class="sm" id="jcApply">Apply approved changes</button>'
-            + `<button class="sm ghost" id="jcStamp">Save &amp; mark applied for this job</button></div>`;
-      $('jcEdits').innerHTML = html;
-      function applyApproved(){
-        syncTop(); let changed=0;
-        document.querySelectorAll('.appr2:checked').forEach(c=>{
-          if(c.dataset.t==='summary'){ R.summary=e.summary; changed++; }
-          else if(c.dataset.t==='skill'){ if(!R.skills.includes(c.dataset.v)){ R.skills.push(c.dataset.v); changed++; } }
-          else if(c.dataset.t==='bullet'){ const bb=e.bullets[+c.dataset.i]; const tgt=norm(bb.original); let hit=false;
-            [...(R.experience||[]), ...(R.projects||[])].forEach(x=>{ x.bullets=(x.bullets||[]).map(t=>{ if(!hit && tgt && norm(t)===tgt){ hit=true; changed++; return bb.improved; } return t; }); });
-            if(!hit && bb.improved){ if(!R.experience.length) R.experience.push({title:'',company:'',dates:'',bullets:[]}); R.experience[0].bullets.push(bb.improved); changed++; }
-          }
-        });
-        renderAll(); return changed;
+    const _norm = s => (s||'').toLowerCase().replace(/\s+/g,' ').replace(/[.,;:]+$/,'').trim();
+    // apply / undo ONE suggestion against R, storing its inverse so reject is a true revert
+    function applyS(s){
+      if(s._on) return; s._on=true;
+      if(s.kind==='summary'){ s._prev=R.summary; R.summary=s.after; $('summary').value=s.after; }
+      else if(s.kind==='skill'){ if(!R.skills.includes(s.value)){ R.skills.push(s.value); s._added=true; } }
+      else if(s.kind==='bullet'){ const tgt=_norm(s.before); let hit=false;
+        [...(R.experience||[]),...(R.projects||[])].forEach(x=>{ (x.bullets||[]).forEach((t,j)=>{ if(!hit && tgt && _norm(t)===tgt){ hit=true; s._loc={a:x.bullets,j,prev:t}; x.bullets[j]=s.after; } }); });
+        if(!hit){ if(!R.experience.length) R.experience.push({title:'',company:'',dates:'',bullets:[]}); R.experience[0].bullets.push(s.after); s._loc={a:R.experience[0].bullets,j:R.experience[0].bullets.length-1,append:true}; }
       }
-      $('jcApply').onclick = ()=>{ const n=applyApproved(); save(); rescore(); $('jcEdits').innerHTML=`<p class="ok">Applied ${n} change${n===1?'':'s'}. Match score updated above.</p>`; };
-      $('jcStamp').onclick = async ()=>{ const n=applyApproved(); const nm=jobName.slice(0,60);
+      renderAll();
+    }
+    function unapplyS(s){
+      if(!s._on) return; s._on=false;
+      if(s.kind==='summary'){ R.summary=s._prev||''; $('summary').value=R.summary; }
+      else if(s.kind==='skill'){ if(s._added){ R.skills=R.skills.filter(x=>x!==s.value); s._added=false; } }
+      else if(s.kind==='bullet' && s._loc){ const L=s._loc; if(L.append){ L.a.splice(L.j,1); } else { L.a[L.j]=L.prev; } s._loc=null; }
+      renderAll();
+    }
+    function showEdits(e, jobName){
+      const S=[];
+      if(e.summary) S.push({kind:'summary', after:e.summary});
+      (e.add_skills||[]).forEach(v=>S.push({kind:'skill', value:v}));
+      (e.bullets||[]).forEach(b=>{ if(b && b.improved) S.push({kind:'bullet', before:b.original||'', after:b.improved, why:b.why||''}); });
+      if(!S.length){ $('jcEdits').innerHTML='<p class="sub">No AI rewrites this time , add the missing keywords above; the score updates live.</p>'; return; }
+      $('jcEdits').innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin:4px 0 8px">
+        <span class="card-kicker" style="margin:0">Tailored suggestions , accept, tweak, or reject each</span>
+        <div class="row"><button class="sm" id="jcAll">Accept all</button><button class="sm ghost" id="jcStamp">Save &amp; mark applied</button></div></div><div id="jcList"></div>`;
+      const list=$('jcList');
+      S.forEach(s=>{
+        const card=document.createElement('div'); card.className='edit';
+        const label = s.kind==='summary'?'Summary':(s.kind==='skill'?'+ Skill':'Bullet');
+        let body = s.kind==='skill' ? `<b>${esc(s.value)}</b>`
+          : `${s.before?`<div class="before">${esc(s.before)}</div>`:''}<div class="after" data-after>${esc(s.after)}</div>${s.why?`<div class="sub" style="font-size:.72rem;margin-top:2px">${esc(s.why)}</div>`:''}`;
+        card.innerHTML = `<span class="pill">${label}</span>${body}<div class="acts row" style="margin-top:6px"></div>`;
+        const acts=card.querySelector('.acts');
+        function pending(){ acts.innerHTML=`<button class="sm acc">Accept</button>${s.kind!=='skill'?'<button class="sm ghost twk">Tweak</button>':''}<button class="sm ghost rej">Reject</button>`;
+          acts.querySelector('.acc').onclick=()=>{ applyS(s); save(); rescore(); done(); };
+          acts.querySelector('.rej').onclick=()=>card.remove();
+          const t=acts.querySelector('.twk'); if(t) t.onclick=()=>{ const af=card.querySelector('[data-after]'); const cur=af.textContent;
+            af.innerHTML=`<textarea style="width:100%;min-height:46px">${esc(cur)}</textarea>`; const ta=af.querySelector('textarea'); ta.focus();
+            ta.oninput=()=>{ s.after=ta.value; }; ta.onblur=()=>{ af.textContent=ta.value||cur; }; };
+        }
+        function done(){ acts.innerHTML='<span class="ok" style="font-size:.8rem">✓ Applied</span> <button class="sm ghost undo">Undo</button>';
+          acts.querySelector('.undo').onclick=()=>{ unapplyS(s); save(); rescore(); pending(); }; }
+        pending(); list.appendChild(card); card._apply=()=>{ if(!s._on){ applyS(s); done(); } };
+      });
+      $('jcAll').onclick=()=>{ list.querySelectorAll('.edit').forEach(c=>c._apply && c._apply()); save(); rescore(); };
+      $('jcStamp').onclick = async ()=>{ const nm=jobName.slice(0,60);
         await saveVersion(nm); save();
         if(CTX_JOB && CTX_JOB.id) await fetch('/api/jobs/'+CTX_JOB.id+'?resume_used='+encodeURIComponent(nm)+'&status=applied',{method:'POST'});
-        $('jcEdits').innerHTML=`<p class="ok">Applied ${n} change${n===1?'':'s'}, saved this version, and marked the job applied in your tracker.</p>`; };
+        $('msg').innerHTML='<span class="ok">Saved this tailored version and marked the job applied.</span>'; };
     }
 
     function renderResult(d, titleText){
