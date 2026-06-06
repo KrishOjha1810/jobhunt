@@ -91,9 +91,15 @@
     .roles { display:flex; flex-wrap:wrap; gap:9px; margin:4px 0 6px; }
     .rolechip { position:relative; cursor:pointer; }
     .rolechip input { position:absolute; opacity:0; width:0; height:0; }
-    .rolechip span { display:inline-block; padding:8px 15px; border-radius:999px; font-size:.86rem; font-weight:600;
+    .rolechip span { display:inline-flex; align-items:center; gap:7px; padding:8px 15px; border-radius:999px; font-size:.86rem; font-weight:600;
       border:1px solid var(--field-border); background:var(--field); color:var(--ink); transition:.15s; }
+    /* visible checkbox so it's obvious multiple can be picked (was read as single-select) */
+    .rolechip span::before { content:''; width:15px; height:15px; border-radius:4px; border:1.5px solid var(--muted);
+      display:inline-block; flex:0 0 auto; }
     .rolechip input:checked + span { background:var(--grad); color:#fff; border-color:transparent; box-shadow:0 6px 16px var(--accent-soft); }
+    .rolechip input:checked + span::before { background:#fff; border-color:#fff;
+      content:'✓'; color:var(--accent2); font-size:11px; line-height:13px; text-align:center; font-weight:900; }
+    .rolechip input:focus-visible + span { outline:2px solid var(--accent); outline-offset:2px; }
     button.submit { margin-top:30px; width:100%; padding:14px; border:0; border-radius:14px; cursor:pointer; font-size:1rem; font-weight:700;
       font-family:inherit; color:#fff; letter-spacing:.01em; background:var(--grad); box-shadow:0 12px 30px var(--accent-soft);
       transition:transform .1s, box-shadow .2s, opacity .15s; }
@@ -193,7 +199,7 @@
           <small>One-time: save +34 644 94 58 67 as a contact, WhatsApp it "I allow callmebot to send me messages", it replies with your key.</small>
         </div>
 
-        <label>Which roles do you want? <span style="font-weight:400;color:var(--muted)">(pick any, or none for all)</span></label>
+        <label>Which roles do you want? <span style="font-weight:400;color:var(--muted)">(tick all that apply , you can pick several; none = all roles)</span></label>
         <div class="roles" id="roles">
           <label class="rolechip"><input type="checkbox" name="categories" value="Blockchain" /><span>Blockchain</span></label>
           <label class="rolechip"><input type="checkbox" name="categories" value="Backend" /><span>Backend</span></label>
