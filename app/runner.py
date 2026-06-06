@@ -147,6 +147,13 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
             print("[runner] no active users")
         return
     pool = sources.fetch_pool(users)
+    # drop anything reported closed so we never match or re-list a dead posting
+    try:
+        blocked = db.closed_urls()
+        if blocked:
+            pool = [j for j in pool if j.get("url") not in blocked]
+    except Exception as e:
+        print(f"[runner] closed-filter skipped: {e}")
     _phase(f"fetched:{len(pool)}")
     # Categorize, then batch-insert new jobs in one transaction (fast even at POOL_CAP).
     for j in pool:

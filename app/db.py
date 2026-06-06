@@ -70,7 +70,7 @@ Index("ix_joblog_user_url", job_log.c.user_id, job_log.c.url)
 
 # Simple, realistic states people will actually set. 'saved' = matched/sent (default);
 # 'not_interested' = user dismissed it (a negative signal we learn from).
-STATUSES = ["saved", "applied", "not_interested", "rejected"]
+STATUSES = ["saved", "applied", "not_interested", "rejected", "closed"]
 APPLIED_STATES = {"applied", "rejected"}      # rejected implies they had applied
 RESPONDED_STATES = {"rejected"}               # the only "heard back" state we keep
 
@@ -113,6 +113,14 @@ EVENT_REWARD = {
     "shown": -0.1, "ignored": -0.3, "clicked": 0.4, "saved": 0.6,
     "applied": 1.0, "external_applied": 1.0, "not_interested": -1.0, "rejected": -0.2,
 }
+
+# URLs reported as closed (job no longer open). Global blocklist: removed from the catalog, kept out
+# of future scrapes/matching, and purged after a while. One report closes it for everyone.
+closed_jobs = Table(
+    "closed_jobs", metadata,
+    Column("url", Text, primary_key=True),
+    Column("closed_at", DateTime, default=datetime.utcnow),
+)
 
 # Small key-value store for app metadata (e.g. last scheduled-run timestamp).
 meta = Table(
@@ -280,6 +288,9 @@ def prune_catalog(max_age_days=21, per_category=150, total=1500):
     cutoff = datetime.utcnow() - timedelta(days=max_age_days)
     removed = 0
     with engine.begin() as c:
+        # purge any catalog rows that were reported closed, and age out the blocklist itself
+        c.execute(delete(jobs_catalog).where(jobs_catalog.c.url.in_(select(closed_jobs.c.url))))
+        c.execute(delete(closed_jobs).where(closed_jobs.c.closed_at < (datetime.utcnow() - timedelta(days=45))))
         removed += c.execute(delete(jobs_catalog).where(jobs_catalog.c.first_seen_at < cutoff)).rowcount or 0
         # drop confidently-stale postings by their posted date (e.g. 2yr/6yr-old listings)
         stale = []
@@ -308,13 +319,32 @@ def prune_catalog(max_age_days=21, per_category=150, total=1500):
     return removed
 
 
+def mark_url_closed(url):
+    """Report a job URL as closed: blocklist it + remove from the shared catalog so it stops showing
+    to everyone and can't be re-added by the next scrape. Idempotent."""
+    url = (url or "").strip()
+    if not url:
+        return
+    with engine.begin() as c:
+        exists = c.execute(select(closed_jobs.c.url).where(closed_jobs.c.url == url)).first()
+        if not exists:
+            c.execute(insert(closed_jobs).values(url=url))
+        c.execute(delete(jobs_catalog).where(jobs_catalog.c.url == url))
+
+
+def closed_urls():
+    with engine.connect() as c:
+        return {r[0] for r in c.execute(select(closed_jobs.c.url)).all()}
+
+
 def upsert_jobs(jobs):
     """Batch-insert new catalog jobs in ONE transaction (1 SELECT + 1 multi-row INSERT) instead of
     a transaction per job. At 500 jobs this is the difference between ~2 round-trips and ~1000."""
     rows, seen = [], set()
+    blocked = closed_urls()  # never re-add jobs someone reported closed
     for j in jobs:
         url = (j.get("url") or "").strip()
-        if not url or url in seen:
+        if not url or url in seen or url in blocked:
             continue
         seen.add(url)
         rows.append({

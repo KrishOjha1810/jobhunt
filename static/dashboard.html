@@ -122,6 +122,7 @@
           <button class="btn" data-status="applied">Applied</button>
           <button class="btn" data-status="not_interested">Not a fit</button>
           <button class="btn" data-status="rejected">Rejected</button>
+          <button class="btn" data-status="closed">Closed</button>
         </div>
 
         <div class="filters">
@@ -236,9 +237,9 @@
 
     const STATUS_OPTS = [
       {v:'saved',label:'Saved'},{v:'applied',label:'Applied'},
-      {v:'not_interested',label:'Not a fit'},{v:'rejected',label:'Rejected'}
+      {v:'not_interested',label:'Not a fit'},{v:'rejected',label:'Rejected'},{v:'closed',label:'Closed (job gone)'}
     ];
-    const STATUS_TOKEN = { saved:'--c-saved', applied:'--c-applied', not_interested:'--c-notfit', rejected:'--c-rejected' };
+    const STATUS_TOKEN = { saved:'--c-saved', applied:'--c-applied', not_interested:'--c-notfit', rejected:'--c-rejected', closed:'--c-notfit' };
     function statusStyle(s){ const v=`var(${STATUS_TOKEN[s||'saved']||'--c-saved'})`;
       return `color:${v};border-color:${v};background:color-mix(in srgb, ${v} 15%, transparent)`; }
 
@@ -370,12 +371,16 @@
       const ca = document.getElementById('categoryFilter').value;
       const cutoff = state.days ? Date.now() - state.days*864e5 : 0;
       const ts = j => j.sent_at ? new Date(j.sent_at.replace(' ','T')).getTime() : 0;
-      const rows = all.filter(j =>
-        (!co || j.company === co) && (!ca || j.category === ca) &&
-        ((j.score || 0) >= state.minScore) &&
-        (!state.status || (j.status || 'saved') === state.status) &&
-        (!cutoff || !j.sent_at || ts(j) >= cutoff)
-      ).sort((a, b) => {
+      // default "All" view hides dismissed/closed jobs (still reachable via their own tab); the
+      // dismissal still feeds the recommender server-side.
+      const HIDDEN_IN_ALL = new Set(['not_interested','closed']);
+      const rows = all.filter(j => {
+        const st = j.status || 'saved';
+        const statusOk = state.status ? st === state.status : !HIDDEN_IN_ALL.has(st);
+        return (!co || j.company === co) && (!ca || j.category === ca) &&
+          ((j.score || 0) >= state.minScore) && statusOk &&
+          (!cutoff || !j.sent_at || ts(j) >= cutoff);
+      }).sort((a, b) => {
         let d = state.sortKey === 'date' ? ts(a) - ts(b) : (a.score || 0) - (b.score || 0);
         if (d === 0) d = ts(a) - ts(b);
         return state.sortDir === 'asc' ? d : -d;
@@ -476,8 +481,9 @@
       b.classList.add('active'); state.status = b.dataset.status; render();
     });
     function updateStatusCounts() {
-      const c = { '': all.length, saved: 0, applied: 0, not_interested: 0, rejected: 0 };
-      all.forEach(j => { const s = j.status || 'saved'; if (c[s] != null) c[s]++; });
+      const c = { '': 0, saved: 0, applied: 0, not_interested: 0, rejected: 0, closed: 0 };
+      all.forEach(j => { const s = j.status || 'saved'; if (c[s] != null) c[s]++;
+        if (s !== 'not_interested' && s !== 'closed') c['']++; });  // "All" = active only
       document.querySelectorAll('#statusGroup .btn').forEach(b => {
         const s = b.dataset.status, base = b.textContent.replace(/\s*\(\d+\)\s*$/, '');
         b.textContent = `${base} (${c[s] ?? 0})`;

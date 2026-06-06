@@ -570,12 +570,16 @@ def api_update_job(request: Request, job_id: int, token: str = "", applied: int 
     if status is not None:
         fields["status"] = status
     db.update_job(job_id, user["id"], **fields)
-    # feed the recommender: a status change is a strong explicit signal
-    if status in db.EVENT_REWARD:
+    if status in db.EVENT_REWARD or status == "closed":
         row = db.get_job_log(job_id, user["id"])
         if row:
-            db.log_event(user["id"], row.get("url"), status,
-                         category=row.get("category"), source="tracker")
+            # feed the recommender (strong explicit signal)
+            if status in db.EVENT_REWARD:
+                db.log_event(user["id"], row.get("url"), status,
+                             category=row.get("category"), source="tracker")
+            # "closed" is a global fact: remove it from the catalog for everyone + blocklist it
+            if status == "closed":
+                db.mark_url_closed(row.get("url"))
     return {"ok": True}
 
 
@@ -934,6 +938,8 @@ def track(t: str = "", u: str = "", s: str = "applied"):
     ok = bool(user) and db.set_status_by_url(user["id"], u, s)
     if ok and s in db.EVENT_REWARD:
         db.log_event(user["id"], u, s, source="digest")
+    if ok and s == "closed":
+        db.mark_url_closed(u)
     dash = "/dashboard?token=" + t
     if not ok:
         body = "<h2>Link expired or job not found</h2><p>Open your tracker to update it.</p>"
