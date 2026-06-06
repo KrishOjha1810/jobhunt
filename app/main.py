@@ -1398,8 +1398,24 @@ def diag():
         detail = json.loads(raw) if raw else []
     except Exception:
         detail = []
+    # Coverage summary: the real metric is matched-jobs-per-user, so surface who is under-served and
+    # why (so we fix the right gap), not just the raw per-user rows.
+    from collections import Counter
+    n = len(detail)
+    def _m(d):
+        return d.get("matched") or 0
+    under = sorted([d for d in detail if not d.get("sent") or _m(d) < 3], key=_m)
+    summary = {
+        "active_users": n,
+        "delivered": sum(1 for d in detail if d.get("sent")),
+        "median_matched": (sorted(_m(d) for d in detail)[n // 2] if n else 0),
+        "under_served": [{"id": d.get("id"), "matched": _m(d), "cats": d.get("cats"),
+                          "why": d.get("why")} for d in under],
+        "no_resume_user_ids": [d.get("id") for d in detail if (d.get("kw") or 0) == 0],
+        "why_breakdown": dict(Counter(d.get("why", "?") for d in detail)),
+    }
     return {"last_run": db.get_meta("last_run"), "sent": db.get_meta("last_run_sent"),
-            "users": db.get_meta("last_run_users"), "detail": detail}
+            "users": db.get_meta("last_run_users"), "summary": summary, "detail": detail}
 
 
 @app.get("/telegram/info")
