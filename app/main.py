@@ -299,6 +299,13 @@ async def signup(
         if kw and kw not in keywords:
             keywords.append(kw)
 
+    # A resume that parsed to ZERO skills (scanned image / unusual format) can't be matched, this is
+    # exactly how users end up silently getting nothing. Reject with guidance instead of creating them.
+    if not keywords:
+        return JSONResponse({"error": "We couldn't detect any skills from your resume, it may be a "
+                             "scanned image or an unusual format. Please upload a text-based PDF or "
+                             "DOCX, or add a few skills in the keywords field."}, status_code=400)
+
     loc_list = [l.strip().lower() for l in locations.split(",") if l.strip()]
     user_id, token = db.add_user(
         name, telegram_chat_id, keywords, loc_list, str(dest), profile.get("text", ""),
@@ -431,6 +438,13 @@ async def subscribe_post(
         kw = kw.strip().lower()
         if kw and kw not in keywords:
             keywords.append(kw)
+    # Reject resumes that parsed to zero skills (scanned image / odd format) so we never create a
+    # silently un-matchable subscriber, the user gets told how to fix it instead.
+    if not keywords:
+        return JSONResponse({"error": "We couldn't detect any skills from the resume(s) you uploaded, "
+                             "they may be scanned images or an unusual format. Please upload a "
+                             "text-based PDF or DOCX, or add a few skills in the keywords field."},
+                            status_code=400)
     loc_list = [l.strip().lower() for l in locations.split(",") if l.strip()]
     allowed = {c[0] for c in matcher.CATEGORY_RULES}
     cat_list = [c for c in categories if c in allowed]

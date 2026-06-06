@@ -7,7 +7,7 @@ import os
 import random
 from datetime import datetime, timedelta
 from . import db, sources, matcher, notifier, embeddings, enrich
-from .config import MIN_SCORE, MAX_MATCHES_PER_RUN
+from .config import MIN_SCORE, MAX_MATCHES_PER_RUN, BASE_URL
 
 # LLM re-rank of each user's top candidates by true fit (strongest matching signal). On when an LLM
 # key is set; set LLM_RERANK=0 to disable. Bounded to the top N candidates to cap cost/latency.
@@ -44,6 +44,26 @@ def _cadence_due(user, force):
 
 # How many catalog jobs to embed per run, AFTER delivery (background precompute, never blocks sends).
 EMBED_BUDGET = int(os.environ.get("EMBED_BUDGET", "") or "40")
+
+
+def _nudge_no_resume(user):
+    """Email/Telegram a subscribed user who has no usable resume keywords, telling them why they're
+    getting nothing and how to fix it. Returns True if sent. Rate-limited by the caller."""
+    name = user.get("name") or "there"
+    link = f"{BASE_URL}/subscribe"
+    txt = (f"Hi {name}, you're signed up for JobHunt but we couldn't read any skills from your resume, "
+           f"so we can't match jobs to you yet. Please upload a text-based PDF or DOCX (not a scanned "
+           f"image), or add a few skills, here: {link} . You'll start getting matches on the next run.")
+    ch = user.get("channel")
+    try:
+        if ch == "email" and user.get("email"):
+            return notifier.send_email(user["email"], txt,
+                                       subject="JobHunt: add your resume to start getting matches")
+        if ch == "telegram" and user.get("telegram_chat_id"):
+            return notifier.send_telegram(user["telegram_chat_id"], txt)
+    except Exception as e:
+        print(f"[runner] nudge send failed for {user.get('id')}: {e}")
+    return False
 
 
 def _semantic_rerank(user, ranked, verbose=False):
@@ -188,7 +208,20 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
              "cats": len(user.get("categories") or []), "matched": 0, "sent": False, "why": ""}
         try:
             if not user.get("keywords"):
+                # Can't match without skills (e.g. a resume that parsed to nothing). Nudge them to
+                # (re)upload a readable resume, at most once a week, so a silent zero-match user
+                # actually hears why and how to fix it instead of vanishing.
                 d["why"] = "no resume/keywords"
+                try:
+                    from datetime import datetime, timedelta
+                    last = db.get_meta(f"nudge_{user['id']}")
+                    now = datetime.utcnow()
+                    due = (not last) or (now - datetime.fromisoformat(last) > timedelta(days=7))
+                    if due and _nudge_no_resume(user):
+                        db.set_meta(f"nudge_{user['id']}", now.isoformat())
+                        d["why"] = "no resume/keywords (nudged)"
+                except Exception as e:
+                    print(f"[runner] nudge skipped for {user.get('id')}: {e}")
                 detail.append(d); continue
             if not _cadence_due(user, force):
                 d["why"] = f"cadence:{user.get('cadence')}"
