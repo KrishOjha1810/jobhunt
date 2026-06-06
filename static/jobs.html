@@ -137,6 +137,10 @@
     <h1>Latest jobs we found</h1>
     <p class="sub">Browse everything we have pulled in. Subscribe to get the ones matched to you.</p>
 
+    <div id="roleGreet" style="display:none;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;background:var(--accent-soft);border:1px solid var(--accent);border-radius:var(--r-md);padding:10px 14px;margin:14px 0">
+      <span class="sub" style="margin:0;color:var(--ink)">👋 Pick the roles you want below, and we'll keep Browse focused on them.</span>
+      <button class="chipbtn" id="greetDismiss">Got it</button>
+    </div>
     <div class="cattiles" id="catTiles"></div>
     <div class="filters" id="filters"></div>
     <input class="search" id="search" placeholder="Search title or company..." />
@@ -218,7 +222,23 @@
     }
 
     // ----- Catalog -----
-    let all = [], cat = '', recoMode = false;
+    let all = [], recoMode = false, matchedOnly = false;
+    let selRoles = new Set((()=>{ try{ return JSON.parse(localStorage.getItem('jh_browse_roles')||'[]'); }catch{ return []; } })());
+    function persistRoles(){ localStorage.setItem('jh_browse_roles', JSON.stringify([...selRoles])); }
+    function syncRoleUI(){
+      document.querySelectorAll('.chipbtn').forEach(x=>{
+        const c=x.dataset.c;
+        const on = c===''? (!matchedOnly && selRoles.size===0) : (c==='__matched__'? matchedOnly : selRoles.has(c));
+        x.classList.toggle('active', on);
+      });
+      document.querySelectorAll('.cattile').forEach(x=>x.classList.toggle('active', selRoles.has(x.dataset.c)));
+    }
+    function maybeGreet(cats){
+      if(localStorage.getItem('jh_roles_greeted') || selRoles.size) return;
+      const el=document.getElementById('roleGreet'); if(!el) return;
+      el.style.display='flex';
+      document.getElementById('greetDismiss').onclick=()=>{ localStorage.setItem('jh_roles_greeted','1'); el.style.display='none'; };
+    }
     async function load(){
       try {
         const r = await fetch('/api/catalog' + (recoMode ? '?sort=recommended' : ''));
@@ -227,21 +247,27 @@
         const cats = data.categories || [];
         const hasMatches = all.some(j => j.matched);
         document.getElementById('filters').innerHTML =
-          '<button class="chipbtn active" data-c="">All</button>' +
+          '<button class="chipbtn" data-c="">All</button>' +
           (hasMatches ? '<button class="chipbtn" data-c="__matched__">★ My matches</button>' : '') +
           cats.map(c=>`<button class="chipbtn" data-c="${esc(c)}">${esc(c)}</button>`).join('');
-        // TUF-style category tiles (gradient icon + live count), act as filters
+        // TUF-style category tiles (gradient icon + live count), act as MULTI-select filters
         const counts={}; all.forEach(j=>{ if(j.category) counts[j.category]=(counts[j.category]||0)+1; });
         document.getElementById('catTiles').innerHTML = cats.map(c=>
           `<div class="cattile" data-c="${esc(c)}"><div class="ic" style="background:${catGrad(c)}">${catIcon(c)}</div>
            <div class="nm">${esc(c)}</div><div class="ct">${counts[c]||0} jobs</div></div>`).join('');
-        function setCat(c){ cat=c;
-          document.querySelectorAll('.chipbtn').forEach(x=>x.classList.toggle('active', x.dataset.c===c));
-          document.querySelectorAll('.cattile').forEach(x=>x.classList.toggle('active', x.dataset.c===c));
-          render();
-        }
-        document.querySelectorAll('.chipbtn').forEach(b=>b.onclick=()=>setCat(b.dataset.c));
-        document.querySelectorAll('.cattile').forEach(b=>b.onclick=()=>setCat(b.dataset.c===cat?'':b.dataset.c));
+        syncRoleUI();
+        document.querySelectorAll('.chipbtn').forEach(b=>b.onclick=()=>{
+          const c=b.dataset.c;
+          if(c===''){ selRoles.clear(); matchedOnly=false; }
+          else if(c==='__matched__'){ matchedOnly=!matchedOnly; selRoles.clear(); }
+          else { matchedOnly=false; selRoles.has(c)?selRoles.delete(c):selRoles.add(c); }
+          persistRoles(); syncRoleUI(); render();
+        });
+        document.querySelectorAll('.cattile').forEach(b=>b.onclick=()=>{
+          const c=b.dataset.c; matchedOnly=false; selRoles.has(c)?selRoles.delete(c):selRoles.add(c);
+          persistRoles(); syncRoleUI(); render();
+        });
+        maybeGreet(cats);
         render();
         setupTriage();
       } catch (e) {
@@ -307,11 +333,22 @@
       else if (e.key === 'ArrowRight') trAct('short');
       else if (e.key === 'Escape') closeTriage();
     });
+    function freshTs(j){
+      const p = Date.parse(j.posted_at); if(p) return p;
+      const s = String(j.posted_at||'').toLowerCase();
+      const m = s.match(/(\d+)\s*(hour|day|week|month)/);
+      if(m){ const mult={hour:3600e3,day:864e5,week:6048e5,month:2592e6}[m[2]]; return Date.now()-(+m[1])*mult; }
+      if(/today|just|minute/.test(s)) return Date.now();
+      return Date.parse(String(j.first_seen_at||'').replace(' ','T')) || 0;
+    }
     function render(){
       const q = document.getElementById('search').value.toLowerCase();
-      const rows = all.filter(j =>
-        (!cat || (cat==='__matched__' ? j.matched : j.category===cat)) &&
-        (!q || (j.title||'').toLowerCase().includes(q) || (j.company||'').toLowerCase().includes(q)));
+      const rows = all.filter(j => {
+        const roleOk = matchedOnly ? j.matched : (selRoles.size===0 || selRoles.has(j.category));
+        return roleOk && (!q || (j.title||'').toLowerCase().includes(q) || (j.company||'').toLowerCase().includes(q));
+      });
+      // freshest postings first (unless the server already ranked them for "recommended")
+      if(!recoMode) rows.sort((a,b)=> freshTs(b)-freshTs(a));
       document.getElementById('empty').style.display = rows.length?'none':'block';
       document.getElementById('count').textContent = rows.length ? `${rows.length} job${rows.length===1?'':'s'}` : '';
       document.getElementById('list').innerHTML = rows.map(j=>{
@@ -392,6 +429,12 @@
         dashToken = me.dash_token || '';
         document.getElementById(subscribed ? 'subnote' : 'sbanner').style.display = 'flex';
         if (subscribed) document.getElementById('recoBtn').style.display = 'inline-flex';
+        // default Browse to the roles the user picked at signup (once), so it opens focused on them
+        if (subscribed && (me.categories||[]).length && selRoles.size===0 && !localStorage.getItem('jh_roles_seeded')) {
+          me.categories.forEach(c=>selRoles.add(c)); persistRoles();
+          localStorage.setItem('jh_roles_seeded','1'); localStorage.setItem('jh_roles_greeted','1');
+          syncRoleUI(); render();
+        }
         // auto-show the walkthrough once per version, but only to users who haven't subscribed yet
         // (don't interrupt established users on every deploy; they can replay via "How it works")
         if (!subscribed && localStorage.getItem(TOUR_VER_KEY) !== appVersion) startTour();
