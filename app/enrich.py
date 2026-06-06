@@ -153,11 +153,13 @@ def parse_resume_structured(resume_text: str):
     sys = (
         "Convert this resume into JSON with EXACTLY these keys: name, email, phone, links (array of "
         "strings), summary (string), skills (array of strings), experience (array of objects with "
-        "keys: title, company, dates, bullets[array of strings]), education (array of objects with "
-        "keys: degree, school, dates). Use only what's in the resume; empty string/array if unknown. "
-        "Keep bullets verbatim. Output ONLY the JSON object."
+        "keys: title, company, dates, bullets[array of strings]), projects (array of objects with "
+        "keys: name, stack, dates, bullets[array of strings]), education (array of objects with keys: "
+        "degree, school, dates). Capture EVERY section , put a projects section under 'projects'. Use "
+        "only what's in the resume; empty string/array if unknown. Keep bullets verbatim. Output ONLY "
+        "the JSON object."
     )
-    obj, err = _json_call(sys, resume_text[:8000])
+    obj, err = _json_call(sys, resume_text[:12000])
     return obj, err
 
 
@@ -166,15 +168,19 @@ def tailor_edits(resume_json: dict, job_title: str, job_desc: str):
     dict = {summary: str, add_skills: [str], bullets: [{original, improved, why}]}."""
     import json as _json
     sys = (
-        "You tailor a resume to a specific job. Given the candidate's structured resume (JSON) and a "
-        "job, return JSON with keys: summary (a rewritten 2-3 line summary tuned to this job, or ''), "
-        "add_skills (array of real skills from the candidate that this JD wants but the skills list "
-        "omits, [] if none), bullets (array of up to 6 objects {original, improved, why} that rewrite "
-        "EXISTING experience bullets to mirror the JD's language and quantify impact). Never fabricate; "
-        "improve only what the resume supports. No em dashes. Output ONLY the JSON object."
+        "You tailor a resume to a specific job. Given the candidate's structured resume (JSON, which "
+        "may include experience, projects, and other sections) and a job, return JSON with keys: "
+        "summary (a rewritten 2-3 line summary tuned to this job, or ''), "
+        "add_skills (array of real skills the candidate already evidences that this JD wants but the "
+        "skills list omits, [] if none), "
+        "bullets (array of objects {original, improved, why} that rewrite EXISTING bullets , from "
+        "experience AND projects AND any other section , to mirror the JD's language and quantify "
+        "impact). Include EVERY bullet worth improving (do not cap the count); 'original' MUST be the "
+        "exact existing bullet text so it can be located. Never fabricate; improve only what the "
+        "resume supports. No em dashes. Output ONLY the JSON object."
     )
-    user_msg = (f"RESUME JSON:\n{_json.dumps(resume_json)[:6000]}\n\n"
-                f"JOB: {job_title}\n{(job_desc or '')[:2500]}")
+    user_msg = (f"RESUME JSON:\n{_json.dumps(resume_json)[:9000]}\n\n"
+                f"JOB: {job_title}\n{(job_desc or '')[:2800]}")
     return _json_call(sys, user_msg)
 
 

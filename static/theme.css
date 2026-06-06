@@ -82,14 +82,14 @@ a{color:var(--accent)}
 b,strong{font-weight:700}
 .tnum,b,.ring-center,.stat b,.lb-val{font-variant-numeric:tabular-nums}
 :focus-visible{outline:none;box-shadow:0 0 0 3px var(--accent-soft)}
-.wrap{max-width:1180px;margin:0 auto;padding:var(--sp-6) var(--sp-5);position:relative;z-index:1}
+.wrap{max-width:1320px;margin:0 auto;padding:var(--sp-6) var(--sp-5);position:relative;z-index:1}
 .muted{color:var(--muted)} .sub{color:var(--muted);font-size:var(--fs-sm)}
 .kicker{font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600}
 .ok{color:var(--ok)} .err{color:var(--danger)}
 
 /* ---- nav ---- */
 .nav{position:sticky;top:0;z-index:30;background:var(--bg-elev);border-bottom:1px solid var(--line)}
-.nav-inner{max-width:1180px;margin:0 auto;display:flex;align-items:center;gap:var(--sp-1);padding:var(--sp-3) var(--sp-5)}
+.nav-inner{max-width:1320px;margin:0 auto;display:flex;align-items:center;gap:var(--sp-1);padding:var(--sp-3) var(--sp-5)}
 .brand{display:flex;align-items:center;gap:var(--sp-2);font-family:var(--font-display);font-weight:800;color:var(--ink);text-decoration:none;margin-right:auto;letter-spacing:-.02em;font-size:1.05rem}
 .brand-mark{width:30px;height:30px;border-radius:var(--r-sm);background:var(--grad);color:var(--accent-ink);display:grid;place-items:center;font-size:.8rem;font-weight:800}
 .nlink{display:inline-flex;align-items:center;gap:6px;color:var(--muted);text-decoration:none;font-size:var(--fs-sm);font-weight:600;padding:var(--sp-2) var(--sp-3);border-radius:var(--r-sm);white-space:nowrap}

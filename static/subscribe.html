@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>JobHunt, subscribe for matched alerts</title>
-  <link rel="stylesheet" href="/static/theme.css?v=5" />
+  <link rel="stylesheet" href="/static/theme.css?v=6" />
   <style>
     /* legacy var aliases mapped onto the shared system */
     :root{ --ok-bg:var(--score-bg); --ok-border:var(--score-border); --ok-ink:var(--score-ink);
@@ -94,7 +94,11 @@
         <div class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/><circle cx="11" cy="11" r="2.5"/></svg></div>
         <h1>Get matched jobs</h1>
       </div>
-      <p class="sub">Upload your resume once. We scan job boards daily and send only the matches that fit you, with apply links, to your inbox, Telegram, or WhatsApp.</p>
+      <p class="sub">Upload your resume once. We scan job boards daily and send only the matches that fit you, with apply links, to your inbox or Telegram.</p>
+
+      <div id="subEditBanner" style="display:none;background:var(--accent-soft);border:1px solid var(--accent);border-radius:12px;padding:11px 14px;margin:0 0 16px;font-size:.86rem;color:var(--ink)">
+        You're already subscribed. Saving here <b>replaces</b> your current setup (last one wins). Your resume stays unless you upload a new one. All resumes you upload are used for matching.
+      </div>
 
       <form id="form">
         <label>Send alerts to</label>
@@ -210,6 +214,13 @@
         if (cad) cad.checked = true;
       }
       if (me.experience) document.getElementById('experience').value = me.experience;
+      if (me.channel) { const ch = document.querySelector('input[name="channel"][value="'+me.channel+'"]');
+        if (ch) { ch.checked = true; if (typeof showChannel === 'function') showChannel(me.channel); } }
+      if (me.subscribed) {
+        const rf = document.querySelector('input[name="resume_file"]'); if (rf) { rf.required = false; }
+        const b = document.getElementById('subEditBanner'); if (b) b.style.display = 'block';
+        const lbl = document.querySelector('label[for], .reslabel');
+      }
     }).catch(() => {});
 
     // ----- Channel show/hide (email default) -----
@@ -343,6 +354,6 @@
       btn.disabled = false; btn.textContent = 'Start getting matches';
     });
   </script>
-  <script src="/static/announce.js?v=5"></script>
+  <script src="/static/announce.js?v=6"></script>
 </body>
 </html>

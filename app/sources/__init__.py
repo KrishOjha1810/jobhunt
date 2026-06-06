@@ -16,11 +16,16 @@ PRIORITY_TERMS = [
 # Common roles we always poll so the browse catalog stays broad + useful to non-subscribers,
 # not just whatever current subscribers happen to search for.
 COMMON_ROLE_TERMS = [
+    # tech
     "backend developer", "frontend developer", "full stack developer", "data engineer",
     "data scientist", "data analyst", "machine learning engineer", "devops engineer",
     "site reliability engineer", "cloud engineer", "blockchain developer", "security engineer",
     "mobile developer", "android developer", "ios developer", "qa engineer",
     "product manager", "ui ux designer",
+    # non-tech (broaden beyond developer roles)
+    "account executive", "sales development representative", "marketing manager", "digital marketing",
+    "financial analyst", "operations manager", "customer success manager", "business analyst",
+    "recruiter", "human resources", "content writer", "graphic designer",
 ]
 
 

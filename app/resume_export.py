@@ -46,6 +46,22 @@ def build_docx(r: dict) -> bytes:
             for b in (e.get("bullets") or []):
                 doc.add_paragraph(b, style="List Bullet")
 
+    if r.get("projects"):
+        heading("Projects")
+        for pr in r["projects"]:
+            line = " | ".join(x for x in [pr.get("name"), pr.get("stack"), pr.get("dates")] if x)
+            if line:
+                p = doc.add_paragraph()
+                p.add_run(line).bold = True
+            for b in (pr.get("bullets") or []):
+                doc.add_paragraph(b, style="List Bullet")
+
+    for sec in (r.get("sections") or []):
+        if sec.get("heading"):
+            heading(sec["heading"])
+        for it in (sec.get("items") or []):
+            doc.add_paragraph(it, style="List Bullet")
+
     if r.get("education"):
         heading("Education")
         for ed in r["education"]:

@@ -280,7 +280,11 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
                 used_fallback = bool(ranked)
             # Normally only send unseen jobs; a forced run resends current top matches as a test.
             fresh = ranked if force else [j for j in ranked if not db.is_seen(user["id"], j["url"])]
-            to_send = fresh[:MAX_MATCHES_PER_RUN]
+            # quality gate the digest: prefer strong matches, but if a coverage-fallback list is all
+            # we have, still send a few so the user hears from us.
+            strong = [j for j in fresh if (j.get("score") or 0) >= 50]
+            to_send = (strong[:MAX_MATCHES_PER_RUN] if strong
+                       else (fresh[:3] if used_fallback else fresh[:MAX_MATCHES_PER_RUN]))
             if verbose:
                 print(f"[runner] {user['name']}: {len(ranked)} matched, {len(fresh)} candidate, "
                       f"sending {len(to_send)}")

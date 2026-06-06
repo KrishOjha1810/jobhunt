@@ -60,12 +60,15 @@ def apply_edits(b64, edits):
         doc = Document(io.BytesIO(base64.b64decode(b64)))
     except Exception:
         return None
+    import difflib
     sum_old = _norm(edits.get("summary_old"))
     sum_new = edits.get("summary_new")
-    bullets = { _norm(b.get("old")): b.get("new") for b in (edits.get("bullets") or [])
-                if b.get("old") and b.get("new") }
+    # "lines" unifies experience/project/section rewrites; "bullets" kept for backward-compat.
+    pairs = list(edits.get("lines") or []) + list(edits.get("bullets") or [])
+    rewrites = {_norm(b.get("old")): b.get("new") for b in pairs if b.get("old") and b.get("new")}
     skills_add = [s for s in (edits.get("skills_add") or []) if s]
     skills_done = False
+    used = set()
     for p in doc.paragraphs:
         raw = p.text
         t = _norm(raw)
@@ -73,13 +76,29 @@ def apply_edits(b64, edits):
             continue
         if sum_new and sum_old and t == sum_old:
             _set_text(p, sum_new); continue
-        if t in bullets and bullets[t]:
-            _set_text(p, bullets[t]); continue
+        if t in rewrites and rewrites[t] and t not in used:
+            _set_text(p, rewrites[t]); used.add(t); continue
         if skills_add and not skills_done and ("skill" in t or ("," in raw and len(raw.split(",")) >= 4)):
             add = [s for s in skills_add if s.lower() not in t]
             if add:
                 _set_text(p, raw.rstrip(" .;,") + ", " + ", ".join(add))
                 skills_done = True
+    # pass 2: fuzzy-match any rewrites that didn't hit exactly (lightly-reformatted / lossy text)
+    remaining = {k: v for k, v in rewrites.items() if k not in used}
+    if remaining:
+        for p in doc.paragraphs:
+            t = _norm(p.text)
+            if not t or t in rewrites:
+                continue
+            best, score = None, 0.0
+            for k in remaining:
+                if k in used:
+                    continue
+                r = difflib.SequenceMatcher(None, t, k).ratio()
+                if r > score:
+                    best, score = k, r
+            if best and score >= 0.9:
+                _set_text(p, remaining[best]); used.add(best)
     try:
         out = io.BytesIO()
         doc.save(out)

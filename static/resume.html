@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Resume Studio , JobHunt</title>
-  <link rel="stylesheet" href="/static/theme.css?v=5" />
+  <link rel="stylesheet" href="/static/theme.css?v=6" />
   <style>
     /* page-local: resume editor + paper preview (everything else from theme.css) */
     .grid { display:grid; grid-template-columns:1fr 320px; gap:var(--sp-5); align-items:start; }
@@ -255,9 +255,17 @@
       $('checks').innerHTML = (h.checks||[]).map(c=>`<div class="chk ${c.ok?'ok':''}"><span class="dot">${c.ok?'✓':'•'}</span><span>${esc(c.label)}</span></div>`).join('');
     }
 
+    let HAS_RESUME = false;
+    function showUploadGate(){
+      // require a real resume before tailoring; open the import card and tell the user
+      const ic = $('importCard'); if (ic) ic.open = true;
+      $('jobContext').style.display='none'; $('jobIntake').style.display='none';
+      $('pageSub').innerHTML = '<b style="color:var(--accent)">Upload your resume to begin</b> , we tailor your real resume (we don\'t build one from scratch). Add it below, then tailor it to any job.';
+    }
     async function load(){
       const r = await fetch('/api/resume'); const d = await r.json();
-      if (d.resume) { R = Object.assign(R, d.resume); renderAll(); renderHealth(d.health); snapOriginal(); }
+      if (d && d.needs_upload) { HAS_RESUME=false; showUploadGate(); return; }
+      if (d.resume) { HAS_RESUME=true; R = Object.assign(R, d.resume); renderAll(); renderHealth(d.health); snapOriginal(); }
     }
     async function save(){
       syncTop(); $('msg').innerHTML = 'Saving...';
@@ -286,6 +294,9 @@
       if((R.experience||[]).length){ h+='<h2>Experience</h2>'; R.experience.forEach(e=>{
         h += `<div class="role">${esc([e.title,e.company,e.dates].filter(Boolean).join(' | '))}</div>`;
         if((e.bullets||[]).length) h += '<ul>'+e.bullets.map(b=>`<li>${esc(b)}</li>`).join('')+'</ul>'; }); }
+      if((R.projects||[]).length){ h+='<h2>Projects</h2>'; R.projects.forEach(p=>{
+        h += `<div class="role">${esc([p.name,p.stack,p.dates].filter(Boolean).join(' | '))}</div>`;
+        if((p.bullets||[]).length) h += '<ul>'+p.bullets.map(b=>`<li>${esc(b)}</li>`).join('')+'</ul>'; }); }
       if((R.education||[]).length){ h+='<h2>Education</h2>'; R.education.forEach(e=>{ h+=`<div>${esc([e.degree,e.school,e.dates].filter(Boolean).join(' | '))}</div>`; }); }
       $('preview').innerHTML = h;
     }
@@ -298,6 +309,8 @@
       const os = new Set((O.skills||[]).map(s=>s.toLowerCase()));
       e.skills_add = (R.skills||[]).filter(s=>!os.has(s.toLowerCase()));
       (R.experience||[]).forEach((x,i)=>{ const ox=(O.experience||[])[i]||{}; (x.bullets||[]).forEach((b,j)=>{
+        const ob=(ox.bullets||[])[j]; if(ob && ob!==b) e.bullets.push({old:ob,new:b}); }); });
+      (R.projects||[]).forEach((x,i)=>{ const ox=(O.projects||[])[i]||{}; (x.bullets||[]).forEach((b,j)=>{
         const ob=(ox.bullets||[])[j]; if(ob && ob!==b) e.bullets.push({old:ob,new:b}); }); });
       return e;
     }
@@ -387,7 +400,7 @@
           if(c.dataset.t==='summary'){ R.summary=e.summary; changed++; }
           else if(c.dataset.t==='skill'){ if(!R.skills.includes(c.dataset.v)){ R.skills.push(c.dataset.v); changed++; } }
           else if(c.dataset.t==='bullet'){ const bb=e.bullets[+c.dataset.i]; const tgt=norm(bb.original); let hit=false;
-            R.experience.forEach(x=>{ x.bullets=(x.bullets||[]).map(t=>{ if(!hit && tgt && norm(t)===tgt){ hit=true; changed++; return bb.improved; } return t; }); });
+            [...(R.experience||[]), ...(R.projects||[])].forEach(x=>{ x.bullets=(x.bullets||[]).map(t=>{ if(!hit && tgt && norm(t)===tgt){ hit=true; changed++; return bb.improved; } return t; }); });
             if(!hit && bb.improved){ if(!R.experience.length) R.experience.push({title:'',company:'',dates:'',bullets:[]}); R.experience[0].bullets.push(bb.improved); changed++; }
           }
         });
@@ -422,6 +435,7 @@
         const r = await fetch('/api/resume/context?'+ctxQuery());
         if(!r.ok){ $('jcTitle').textContent='Could not load this job.'; return; }
         const d = await r.json();
+        if(d.needs_upload){ showUploadGate(); return; }
         if(!d.ok){ $('jcTitle').textContent = d.reason||'Job not found.'; return; }
         CTX_JOB = d.job;
         renderResult(d, [d.job.company, d.job.title].filter(Boolean).join(' , ') || 'This job');
@@ -439,6 +453,7 @@
         $('inTailor').disabled=false;
         if(!r.ok){ $('inMsg').innerHTML='<span class="err">Could not tailor. Try again.</span>'; return; }
         const d = await r.json();
+        if(d.needs_upload){ showUploadGate(); return; }
         if(!d.ok){ $('inMsg').innerHTML=`<span class="err">${esc(d.reason||'Could not tailor.')}</span>`; return; }
         $('inMsg').textContent='';
         CTX_JD = jd;
@@ -448,6 +463,6 @@
 
     load().then(initJobContext);
   </script>
-  <script src="/static/announce.js?v=5"></script>
+  <script src="/static/announce.js?v=6"></script>
 </body>
 </html>

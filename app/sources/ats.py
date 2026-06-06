@@ -120,4 +120,9 @@ def fetch(limit_companies: int = 0) -> list:
                     pass
         except concurrent.futures.TimeoutError:
             pass  # take whatever finished within the budget; never let ATS stall the run
-    return [j for j in jobs if _is_tech(j.get("title"))]
+    # Keep ALL roles from company boards (tech + sales/marketing/finance/ops/etc) so the catalog isn't
+    # dev-only; per-user matching's skill-overlap floor gates relevance, and Browse benefits from breadth.
+    import os as _os
+    if _os.environ.get("ATS_TECH_ONLY", "0") == "1":
+        return [j for j in jobs if _is_tech(j.get("title"))]
+    return jobs

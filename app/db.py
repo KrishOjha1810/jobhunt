@@ -240,7 +240,7 @@ def user_by_token(token):
         return None
     with engine.connect() as conn:
         r = conn.execute(select(users).where(users.c.dash_token == token)).mappings().first()
-    return dict(r) if r else None
+    return _row_to_user(r)  # parse JSON keywords/locations etc (dict(r) left them as raw strings)
 
 
 def is_seen(user_id, job_url):
@@ -443,10 +443,12 @@ def list_catalog_ranked(user, category=None, q=None, limit=200):
     for j in rows:
         sc, matched = matcher.score_job(j, kw)
         j["raw_score"] = sc
-        j["matched"] = matched
+        j["matched"] = matched  # transient: blended_score reads this; replaced with matched_skills below
         j["region"] = matcher.job_region(j.get("location", ""))
         s, _ = matcher.blended_score(j, ctx)
         j["rec_score"] = s
+        j["matched_skills"] = matched
+        j.pop("matched", None)  # leave "matched" free for api_catalog's bool (already-sent) flag
     rows.sort(key=lambda j: j.get("rec_score", 0), reverse=True)
     return rows[:limit]
 
@@ -1139,8 +1141,11 @@ def update_subscription(user_id, keywords, locations, channel, resume_path=None,
         vals["resume_path"] = resume_path
     if resume_text is not None:
         vals["resume_text"] = resume_text
-        # Resume changed -> drop the cached embedding so it re-embeds on the next run.
+        # Resume changed -> drop the cached embedding + structured json + stored docx so they
+        # re-derive from the NEW resume (A5: stale resume_docx was editing the wrong resume).
         vals["embedding"] = None
+        vals["resume_json"] = None
+        vals["resume_docx"] = None
     if email:
         vals["email"] = email
     with engine.begin() as c:

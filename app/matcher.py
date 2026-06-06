@@ -59,8 +59,9 @@ def location_ok(job_location: str, locations: list) -> bool:
     india_user = any(w == "india" or w in INDIA_CITIES for w in wants)
     region = job_region(job_location)
     if india_user:
-        # keep India + true global remote; drop foreign and unrecognized non-remote locations
-        return region in ("india", "global")
+        # keep India + true global remote + unknown (vaguely-located remote roles); drop only clearly
+        # foreign postings. The overlap floor + neutral location weight keep 'unknown' honest.
+        return region in ("india", "global", "unknown")
     loc = (job_location or "").lower().strip()
     if region in ("global",):
         return True
@@ -104,6 +105,18 @@ CATEGORY_RULES = [
                 "ux researcher"]),
     ("Embedded", ["embedded", "firmware", "rtos", "fpga", "verilog", "device driver"]),
     ("Game Dev", ["game developer", "game engineer", "unity developer", "unreal engine", "gameplay"]),
+    ("Sales", ["account executive", "sales development", "sdr", "bdr", "sales manager",
+               "business development", "inside sales", "sales representative"]),
+    ("Marketing", ["marketing manager", "growth marketer", "content marketer", "seo specialist",
+                   "performance marketing", "social media manager", "brand manager", "digital marketing"]),
+    ("Finance", ["financial analyst", "accountant", "finance manager", "fp&a", "investment analyst",
+                 "controller", "bookkeeper"]),
+    ("Operations", ["operations manager", "operations associate", "supply chain", "logistics",
+                    "program manager", "project manager"]),
+    ("Customer Success", ["customer success", "customer support", "account manager",
+                          "support engineer", "technical support"]),
+    ("HR / Recruiting", ["recruiter", "talent acquisition", "human resources", "hr manager",
+                         "people operations", "hr business partner"]),
     ("Full-Stack", ["full stack", "full-stack", "fullstack", "mern", "mean stack"]),
     ("Frontend", ["frontend", "front-end", "front end", "react developer", "next.js", "vue.js",
                   "angular developer", "ui engineer", "ui developer", "web developer"]),
@@ -137,8 +150,8 @@ import math as _math
 
 # Blended selection-score weights (the prior, before any per-user learning). Content dominates so a
 # brand-new user's ranking ~= the old keyword behaviour; learned/global signals only re-sort within.
-SCORE_WEIGHTS = {"content": 2.2, "pref": 1.4, "seniority": 1.2, "location": 1.0,
-                 "recency": 0.8, "collab": 0.7, "trending": 0.5}
+SCORE_WEIGHTS = {"content": 3.0, "pref": 1.4, "seniority": 1.2, "location": 1.0,
+                 "recency": 0.5, "collab": 0.7, "trending": 0.5}
 
 
 def pref_update(theta: dict, phi: dict, reward: float, lr=0.1, l2=1e-3) -> dict:
@@ -187,7 +200,7 @@ def blended_score(job: dict, ctx: dict) -> tuple:
     Expects job already through rank_matches (has raw_score, region, category, matched). ctx carries
     the per-user/learned signals: theta, trending, collab, user_top_cats, uyears, india_user."""
     raw = job.get("raw_score") or 0
-    C = min(1.0, raw / 8.0)
+    C = min(1.0, raw / 5.0)
     # learned preference
     theta = ctx.get("theta") or {}
     phi = pref_features(job)
@@ -259,7 +272,11 @@ def rank_matches(jobs: list, keywords: list, locations: list, min_score: int,
         if not location_ok(job.get("location", ""), locations):
             continue
         score, matched = score_job(job, keywords)
-        if score >= min_score:
+        title_l = (job.get("title", "") or "").lower()
+        title_bonus = sum(1 for k in keywords if _contains(title_l, k))
+        # overlap floor: drop jobs that merely brushed one incidental keyword (the source of the
+        # "20 matched, none worth applying to" noise). Need real overlap or a title-role hit.
+        if score >= min_score and (len(matched) >= 2 or title_bonus >= 1):
             job = dict(job)
             yrs = years_required(job.get("description", ""))
             gap = max(0, yrs - user_years)  # how much more experience the job wants than they have

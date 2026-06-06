@@ -184,6 +184,11 @@ def flatten_resume(rj: dict) -> str:
     for e in (rj.get("experience") or []):
         parts.append(e.get("title", ""))
         parts.extend(e.get("bullets") or [])
+    for p in (rj.get("projects") or []):  # projects count toward JD coverage too
+        parts.append(p.get("name", "")); parts.append(p.get("stack", ""))
+        parts.extend(p.get("bullets") or [])
+    for s in (rj.get("sections") or []):
+        parts.extend(s.get("items") or [])
     return " ".join(p for p in parts if p).lower()
 
 
@@ -237,7 +242,7 @@ def heuristic_structure(text: str) -> dict:
     return {
         "name": name, "email": email, "phone": phone, "links": links,
         "summary": summary, "skills": extract_keywords(text)[:30],
-        "experience": [], "education": [],
+        "experience": [], "projects": [], "education": [],
     }
 
 

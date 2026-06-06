@@ -51,15 +51,45 @@ def current_user(request: Request):
 
 
 def _seed_matches(user_id):
-    """Background: fill a new subscriber's dashboard with their best ~20 ranked matches (saved)."""
+    """Background: seed a new subscriber's dashboard with GENUINELY relevant matches, using the same
+    gated pipeline as the runner (location + min-score + seniority + skill-overlap floor + optional
+    LLM rerank) , NOT the ungated catalog ranker that padded to 20 with noise. Quality over quantity."""
     try:
-        uobj = db.get_user_by_id(user_id)
-        if not uobj:
+        from . import enrich
+        from .config import MIN_SCORE
+        u = db.get_user_by_id(user_id)
+        if not u or not u.get("keywords"):
             return
-        for j in db.list_catalog_ranked(uobj, limit=20)[:20]:
+        pool = db.list_catalog(limit=600)
+        blocked = db.closed_urls()
+        if blocked:
+            pool = [j for j in pool if j.get("url") not in blocked]
+        exp = {"fresher": 0, "junior": 1, "mid": 3, "senior": 7, "lead": 11}
+        uyears = exp.get(u.get("experience") or "", 0)
+        ranked = matcher.rank_matches(pool, u["keywords"], u["locations"], MIN_SCORE, uyears)
+        cats = u.get("categories") or []
+        if cats:
+            ranked = [j for j in ranked if (j.get("category") or matcher.categorize(j)) in cats]
+        # LLM-rerank the top candidates for true fit (strongest signal); degrade cleanly with no key
+        try:
+            if enrich.available() and len(ranked) >= 3:
+                top = ranked[:15]
+                scores = enrich.rerank(u.get("resume_text") or "", top)
+                if scores:
+                    for jb, s in zip(top, scores):
+                        if s is not None:
+                            jb["score"] = round(0.5 * (jb.get("score") or 0) + 0.5 * s)
+                    top.sort(key=lambda jb: jb.get("score", 0), reverse=True)
+                    ranked = top + ranked[15:]
+        except Exception as e:
+            print(f"[seed] rerank skipped: {e}")
+        # quality cutoff: prefer strong matches; never pad to 20 with weak ones
+        strong = [j for j in ranked if (j.get("score") or 0) >= 55]
+        keep = strong[:20] if strong else ranked[:8]
+        for j in keep:
             if j.get("url"):
                 db.log_job(user_id, {"url": j["url"], "title": j.get("title"), "company": j.get("company"),
-                                     "category": j.get("category"), "score": j.get("rec_score"),
+                                     "category": j.get("category"), "score": j.get("score"),
                                      "posted_at": j.get("posted_at")})
     except Exception as e:
         print(f"[subscribe] seed matches failed: {e}")
@@ -239,12 +269,10 @@ async def signup(
     resume_file: UploadFile = File(...),
 ):
     channel = (channel or "email").lower()
-    if channel not in ("email", "telegram", "whatsapp"):
+    if channel not in ("email", "telegram"):
         return JSONResponse({"error": "Invalid channel."}, status_code=400)
     if channel == "telegram" and not telegram_chat_id.strip():
         return JSONResponse({"error": "Telegram chat ID is required for the Telegram channel."}, status_code=400)
-    if channel == "whatsapp" and not (whatsapp_phone.strip() and whatsapp_apikey.strip()):
-        return JSONResponse({"error": "WhatsApp needs both phone and CallMeBot API key."}, status_code=400)
     if channel == "email" and not EMAIL_RE.match(email.strip()):
         return JSONResponse({"error": "A valid email address is required for the Email channel."}, status_code=400)
     # save resume (sanitize both the name and the client-supplied filename to avoid path traversal)
@@ -324,6 +352,7 @@ def me(request: Request):
     return {"authenticated": True, "name": u["name"], "email": u.get("email"),
             "subscribed": db.is_subscribed(u), "channel": u.get("channel"),
             "categories": u.get("categories") or [],
+            "keywords": u.get("keywords") or [], "locations": u.get("locations") or [],
             "cadence": u.get("cadence") or "twice",
             "experience": u.get("experience") or "",
             "schedule": sched_info.describe(), "next_run": sched_info.next_run_label(),
@@ -344,18 +373,17 @@ async def subscribe_post(
     categories: List[str] = Form([]),
     cadence: str = Form("twice"),
     experience: str = Form(""),
-    resume_file: List[UploadFile] = File(...),
+    resume_file: List[UploadFile] = File([]),
 ):
     user = current_user(request)
     if not user:
         return JSONResponse({"error": "please log in first"}, status_code=401)
+    already_subscribed = db.is_subscribed(user)
     channel = (channel or "email").lower()
-    if channel not in ("email", "telegram", "whatsapp"):
+    if channel not in ("email", "telegram"):
         return JSONResponse({"error": "Invalid channel."}, status_code=400)
     if channel == "telegram" and not telegram_chat_id.strip():
         return JSONResponse({"error": "Telegram chat ID is required."}, status_code=400)
-    if channel == "whatsapp" and not (whatsapp_phone.strip() and whatsapp_apikey.strip()):
-        return JSONResponse({"error": "WhatsApp needs phone and CallMeBot key."}, status_code=400)
     eff_email = (email.strip() or user.get("email") or "")
     if channel == "email" and not EMAIL_RE.match(eff_email):
         return JSONResponse({"error": "A valid email is required for the Email channel."}, status_code=400)
@@ -363,8 +391,25 @@ async def subscribe_post(
     # Multiple resumes: parse each, UNION their keywords, and combine text, so the user gets the
     # best matches across all their profiles (e.g. blockchain + backend + full-stack) in one digest.
     files = [f for f in (resume_file or []) if f and f.filename][:3]
+    # Editing an existing subscription without re-uploading: keep the resume on file (don't wipe it),
+    # just update channel/roles/cadence. Only require a resume on the FIRST subscribe.
     if not files:
-        return JSONResponse({"error": "Please attach at least one resume."}, status_code=400)
+        if not (already_subscribed and (user.get("resume_text") or "").strip()):
+            return JSONResponse({"error": "Please attach at least one resume."}, status_code=400)
+        loc_list = [l.strip().lower() for l in locations.split(",") if l.strip()] or (user.get("locations") or [])
+        allowed = {c[0] for c in matcher.CATEGORY_RULES}
+        cat_list = [c for c in categories if c in allowed]
+        extra = [k.strip().lower() for k in extra_keywords.split(",") if k.strip()]
+        kw = list(dict.fromkeys((user.get("keywords") or []) + extra))
+        db.update_subscription(
+            user["id"], kw, loc_list, channel, resume_path=None, resume_text=None,
+            telegram_chat_id=telegram_chat_id.strip(), email=eff_email or None, categories=cat_list,
+            cadence=cadence if cadence in ("twice", "daily", "weekly") else "twice",
+            experience=experience if experience in ("fresher", "junior", "mid", "senior", "lead") else None)
+        from . import schedule as sched_info2
+        return {"ok": True, "detected_keywords": kw[:30], "channel": channel,
+                "schedule": sched_info2.describe(), "next_run": sched_info2.next_run_label(),
+                "message": "Updated your subscription (this replaced your previous settings). Your resume on file is unchanged."}
     keywords, texts, first_path = [], [], None
     try:
         for idx, rf in enumerate(files):
@@ -406,10 +451,13 @@ async def subscribe_post(
     from . import schedule as sched_info
     roles = ", ".join(cat_list) if cat_list else "all roles"
     nres = f"{len(files)} resume{'s' if len(files) != 1 else ''}"
+    lead = ("Updated your subscription (this replaced your previous one). " if already_subscribed
+            else "")
+    allres = " We match across all your resumes." if len(files) > 1 else ""
     return {"ok": True, "detected_keywords": keywords, "channel": channel,
             "schedule": sched_info.describe(), "next_run": sched_info.next_run_label(),
-            "message": (f"Subscribed for {roles} ({nres}, {len(keywords)} skills). Your first "
-                        f"matches are on the way to your {channel.title()} now, then automatically "
+            "message": (f"{lead}Subscribed for {roles} ({nres}, {len(keywords)} skills).{allres} Your "
+                        f"first matches are on the way to your {channel.title()} now, then automatically "
                         f"at {sched_info.describe()}.")}
 
 
@@ -936,9 +984,11 @@ def track(t: str = "", u: str = "", s: str = "applied"):
     confirmation page with an Undo, so an accidental tap is reversible."""
     user = db.user_by_token(t)
     ok = bool(user) and db.set_status_by_url(user["id"], u, s)
-    if ok and s in db.EVENT_REWARD:
+    # log the signal even when there's no tracker row yet (e.g. dismissing a Browse job during triage)
+    # so the recommender always learns the dismissal/interest.
+    if user and s in db.EVENT_REWARD:
         db.log_event(user["id"], u, s, source="digest")
-    if ok and s == "closed":
+    if user and s == "closed":
         db.mark_url_closed(u)
     dash = "/dashboard?token=" + t
     if not ok:
@@ -984,9 +1034,9 @@ def api_resume_get(request: Request, token: str = ""):
         if rj:
             db.set_resume_json(user["id"], rj)
     if rj is None:
-        rj = {"name": user.get("name") or "", "email": user.get("email") or "", "phone": "",
-              "links": [], "summary": "", "skills": user.get("keywords") or [],
-              "experience": [], "education": []}
+        # no resume on file , the page must ask the user to upload one before tailoring
+        return {"ok": False, "needs_upload": True,
+                "reason": "Upload your resume to tailor it , we don't build one from scratch."}
     return {"ok": True, "resume": rj, "health": resume_export.ats_health(rj)}
 
 
@@ -1109,8 +1159,9 @@ def api_resume_context(request: Request, job_id: int = 0, url: str = "", token: 
             if rj:
                 db.set_resume_json(user["id"], rj)
     if rj is None:
-        rj = {"name": user.get("name") or "", "email": user.get("email") or "", "phone": "",
-              "links": [], "summary": "", "skills": user.get("keywords") or [], "experience": [], "education": []}
+        return {"ok": False, "needs_upload": True,
+                "reason": "Upload your resume first , we tailor your real resume, not a blank one.",
+                "job": {"id": job["id"], "title": job.get("title"), "company": job.get("company"), "url": job.get("url")}}
     edits = None
     if enrich.available():
         edits, _err = enrich.tailor_edits(rj, job.get("title") or "", jd)
@@ -1167,7 +1218,7 @@ async def api_resume_tailor_adhoc(request: Request, token: str = ""):
             if rj:
                 db.set_resume_json(user["id"], rj)
     if rj is None:
-        return {"ok": False, "reason": "Upload your resume first, then paste the job description."}
+        return {"ok": False, "needs_upload": True, "reason": "Upload your resume first, then paste the job description."}
     context = jd if not years else f"Candidate has about {years} years of experience.\n\n{jd}"
     edits = None
     if enrich.available():

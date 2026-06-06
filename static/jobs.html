@@ -4,21 +4,22 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>JobHunt, browse jobs</title>
-  <link rel="stylesheet" href="/static/theme.css?v=5" />
+  <link rel="stylesheet" href="/static/theme.css?v=6" />
   <style>
     /* legacy var aliases this page still references, mapped onto the shared system */
     :root{ --fresh:var(--c-response); --overlay:rgba(0,0,0,.6);
       --banner-bg:var(--accent-soft); --banner-border:rgba(245,158,11,.3); }
     html[data-theme="light"]{ --overlay:rgba(15,23,42,.45); --banner-border:rgba(245,158,11,.25); }
     body{ padding-bottom:60px; }
-    .wrap{ max-width:1040px; }
-    .cattiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:12px;margin:18px 0}
-    .cattile{background:var(--card);border:1px solid var(--card-border);border-radius:var(--r-lg);padding:14px;cursor:pointer;transition:.15s;box-shadow:var(--card-shadow)}
-    .cattile:hover{transform:translateY(-2px);border-color:var(--accent)}
+    .wrap{ max-width:1200px; }
+    /* compact tag-style category chips (icon + name + count on one line, many per row) */
+    .cattiles{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0}
+    .cattile{display:inline-flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--card-border);border-radius:var(--r-pill);padding:6px 12px 6px 7px;cursor:pointer;transition:.12s}
+    .cattile:hover{border-color:var(--accent);transform:translateY(-1px)}
     .cattile.active{border-color:var(--accent);background:var(--accent-soft)}
-    .cattile .ic{width:42px;height:42px;border-radius:13px;display:grid;place-items:center;font-size:1.3rem;margin-bottom:10px;color:#fff}
-    .cattile .nm{font-weight:700;font-size:.9rem;letter-spacing:-.01em}
-    .cattile .ct{color:var(--muted);font-size:var(--fs-xs);font-weight:600}
+    .cattile .ic{width:22px;height:22px;border-radius:7px;display:grid;place-items:center;font-size:.85rem;color:#fff;flex:0 0 auto}
+    .cattile .nm{font-weight:600;font-size:.82rem;letter-spacing:-.01em}
+    .cattile .ct{color:var(--muted);font-size:.72rem;font-weight:700;font-family:var(--font-mono)}
 
     /* Subscribe banner (slim, persistent after dismiss) */
     .sbanner { display:none; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap;
@@ -41,8 +42,8 @@
     h1 { font-size:1.5rem; margin:0 0 4px; font-weight:800; letter-spacing:-.02em; }
     .sub { color:var(--muted); margin:0 0 18px; font-size:.92rem; }
     .filters { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; align-items:center; }
-    .chipbtn { padding:7px 13px; border:1px solid var(--field-border); border-radius:999px; background:var(--seg-bg);
-      color:var(--seg-ink); font-size:.82rem; font-weight:600; cursor:pointer; transition:.15s; }
+    .chipbtn { padding:4px 11px; border:1px solid var(--field-border); border-radius:999px; background:var(--seg-bg);
+      color:var(--seg-ink); font-size:.76rem; font-weight:600; cursor:pointer; transition:.15s; }
     .chipbtn:hover { border-color:var(--accent); }
     .chipbtn.active { background:var(--accent-soft); color:var(--accent); border-color:var(--accent); }
     input.search { width:100%; padding:11px 14px; border:1px solid var(--field-border); border-radius:12px; margin-bottom:18px;
@@ -200,7 +201,7 @@
 
     // ----- Helpers -----
     function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
-    const CAT_ICONS={backend:'⚙',frontend:'▤','full-stack':'⬡',fullstack:'⬡',blockchain:'◆',web3:'◆',devops:'☁',data:'▦','data science':'▦','machine learning':'✦','ai':'✦',mobile:'▢',security:'⛨',design:'✎','ui/ux':'✎',qa:'✓',product:'◎'};
+    const CAT_ICONS={backend:'⚙',frontend:'▤','full-stack':'⬡',fullstack:'⬡',blockchain:'◆',web3:'◆','devops / sre':'☁',devops:'☁',cloud:'☁','data science':'▦','data engineering':'▦','data analyst':'▦','ai / ml':'✦','machine learning':'✦',ai:'✦',mobile:'▢',security:'⛨',design:'✎','ui/ux':'✎','qa / test':'✓',qa:'✓',product:'◎','engineering manager':'★',embedded:'▣','game dev':'▶',sales:'$',marketing:'◫',finance:'₹',operations:'⚑',hr:'☻',support:'✉'};
     const CAT_GRADS=['linear-gradient(135deg,#f59e0b,#fb923c)','linear-gradient(135deg,#34d399,#059669)','linear-gradient(135deg,#60a5fa,#2563eb)','linear-gradient(135deg,#c084fc,#7c3aed)','linear-gradient(135deg,#f472b6,#db2777)','linear-gradient(135deg,#38bdf8,#0891b2)'];
     function catIcon(c){ return CAT_ICONS[String(c||'').toLowerCase()]||'▣'; }
     function catGrad(c){ let h=0; const s=String(c||''); for(let i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))>>>0; return CAT_GRADS[h%CAT_GRADS.length]; }
@@ -257,8 +258,7 @@
         // TUF-style category tiles (gradient icon + live count), act as MULTI-select filters
         const counts={}; all.forEach(j=>{ if(j.category) counts[j.category]=(counts[j.category]||0)+1; });
         document.getElementById('catTiles').innerHTML = cats.map(c=>
-          `<div class="cattile" data-c="${esc(c)}"><div class="ic" style="background:${catGrad(c)}">${catIcon(c)}</div>
-           <div class="nm">${esc(c)}</div><div class="ct">${counts[c]||0} jobs</div></div>`).join('');
+          `<div class="cattile" data-c="${esc(c)}"><span class="ic" style="background:${catGrad(c)}">${catIcon(c)}</span><span class="nm">${esc(c)}</span><span class="ct">${counts[c]||0}</span></div>`).join('');
         syncRoleUI();
         document.querySelectorAll('.chipbtn').forEach(b=>b.onclick=()=>{
           const c=b.dataset.c;
@@ -467,6 +467,6 @@
     checkMe();
     loadReferral();
   </script>
-  <script src="/static/announce.js?v=5"></script>
+  <script src="/static/announce.js?v=6"></script>
 </body>
 </html>
