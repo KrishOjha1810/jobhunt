@@ -18,7 +18,7 @@ def to_docx_b64(path):
             with open(path, "rb") as f:
                 return base64.b64encode(f.read()).decode()
         if p.endswith(".pdf"):
-            from pdf2docx import Converter
+            from pdf2docx import Converter  # optional dep; if absent we fall back to the template export
             import os
             out = path + ".converted.docx"
             cv = Converter(path)

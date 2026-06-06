@@ -3,7 +3,6 @@ uvicorn
 requests
 pypdf
 python-docx
-pdf2docx
 python-multipart
 apscheduler
 sqlalchemy
