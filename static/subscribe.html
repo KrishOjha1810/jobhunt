@@ -117,13 +117,12 @@
           <label>Connect Telegram</label>
           <div id="tgConnect">
             <ol style="margin:0 0 10px 18px;padding:0;color:var(--muted);font-size:14px;line-height:1.7">
-              <li>Tap <b>Open our Telegram bot</b> below.</li>
-              <li>In Telegram, press the blue <b>START</b> button.</li>
-              <li>Come back here and tap <b>I pressed Start</b>.</li>
+              <li>Tap <b>Open Telegram bot</b>.</li>
+              <li>Press the blue <b>START</b> button. That's it , we connect you automatically.</li>
             </ol>
-            <a id="tgOpenBtn" href="#" target="_blank" rel="noopener" class="submit" style="display:inline-block;text-decoration:none;margin:0 0 8px;padding:10px 16px;width:auto">Open our Telegram bot</a>
-            <button type="button" id="tgConnectBtn" class="submit" style="margin:0 0 6px;padding:10px 16px;width:auto;background:transparent;border:1px solid var(--field-border);color:var(--ink)">I pressed Start, connect me</button>
+            <a id="tgOpenBtn" href="#" target="_blank" rel="noopener" class="submit" style="display:inline-block;text-decoration:none;margin:0 0 8px;padding:11px 18px;width:auto">Open Telegram bot</a>
             <div id="tgStatus" style="font-size:14px;margin-top:6px"></div>
+            <button type="button" id="tgConnectBtn" style="margin:8px 0 0;padding:7px 12px;width:auto;background:transparent;border:1px solid var(--field-border);color:var(--muted);border-radius:10px;font-size:13px;cursor:pointer;display:none">Not connected yet? Check again</button>
           </div>
           <input type="hidden" name="telegram_chat_id" id="tgChatId" value="" />
           <details style="margin-top:10px">
@@ -229,11 +228,12 @@
       telegram: document.getElementById('telegram_fields'),
       whatsapp: document.getElementById('whatsapp_fields'),
     };
+    function showChannel(v){
+      const r = document.querySelector('input[name="channel"][value="'+v+'"]'); if (r) r.checked = true;
+      Object.entries(fields).forEach(([k, el]) => el.style.display = (k === v) ? 'block' : 'none');
+    }
     document.querySelectorAll('input[name="channel"]').forEach(r => {
-      r.addEventListener('change', () => {
-        const v = document.querySelector('input[name="channel"]:checked').value;
-        Object.entries(fields).forEach(([k, el]) => el.style.display = (k === v) ? 'block' : 'none');
-      });
+      r.addEventListener('change', () => showChannel(document.querySelector('input[name="channel"]:checked').value));
     });
 
     function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
@@ -261,24 +261,43 @@
       tgChatId.value = tgManual.value.trim();
       if (tgChatId.value) tgStatus.innerHTML = '<span style="color:#22c55e">Using chat ID ' + esc(tgChatId.value) + '</span>';
     });
-    document.getElementById('tgConnectBtn').addEventListener('click', async () => {
-      tgStatus.innerHTML = '<span style="color:var(--muted)">Checking, give it a sec...</span>';
-      let found = null;
-      // poll ~24s (switching to the Telegram app + pressing START easily takes >6s)
-      for (let i = 0; i < 16 && !found; i++) {
-        try {
-          const r = await fetch('/telegram/detect?code=' + encodeURIComponent(tgCode));
-          const d = await r.json();
-          if (d.found) { found = d; break; }
-        } catch (e) {}
-        if (i === 2) tgStatus.innerHTML = '<span style="color:var(--muted)">Waiting for you to press START in Telegram...</span>';
-        await new Promise(res => setTimeout(res, 1500));
+    // Auto-detect: once they open the bot we poll on our own (no second tap). We also re-check the
+    // moment they switch back to this tab from Telegram. If a long poll lapses, the "Check again"
+    // fallback re-arms it.
+    let tgPolling = false, tgConnected = false;
+    const tgCheckBtn = document.getElementById('tgConnectBtn');
+    function tgSetConnected(found){
+      tgConnected = true; tgChatId.value = found.chat_id;
+      tgStatus.innerHTML = '<span style="color:#22c55e">✓ Connected' + (found.name ? ' as ' + esc(found.name) : '') + '. Finish below.</span>';
+      tgCheckBtn.style.display = 'none';
+    }
+    async function tgDetectOnce(){
+      try { const r = await fetch('/telegram/detect?code=' + encodeURIComponent(tgCode));
+        const d = await r.json(); if (d.found){ tgSetConnected(d); return true; } } catch(e){}
+      return false;
+    }
+    async function tgAutoPoll(seconds){
+      if (tgPolling || tgConnected) return;
+      tgPolling = true; tgCheckBtn.style.display = 'none';
+      tgStatus.innerHTML = '<span style="color:var(--muted)">Waiting for you to press START in Telegram...</span>';
+      const tries = Math.round((seconds||50) / 2);
+      for (let i = 0; i < tries && !tgConnected; i++) {
+        if (await tgDetectOnce()) break;
+        await new Promise(res => setTimeout(res, 2000));
       }
-      if (found) {
-        tgChatId.value = found.chat_id;
-        tgStatus.innerHTML = '<span style="color:#22c55e">Connected' + (found.name ? ' as ' + esc(found.name) : '') + '. You can finish below.</span>';
-      } else {
-        tgStatus.innerHTML = '<span style="color:#f59e0b">Did not see you yet. Make sure you pressed START in the bot, then tap again.</span>';
+      tgPolling = false;
+      if (!tgConnected) {
+        tgStatus.innerHTML = '<span style="color:#f59e0b">Did not see you yet. Press START in the bot, then tap below.</span>';
+        tgCheckBtn.style.display = 'inline-block';
+      }
+    }
+    // opening the bot kicks off auto-detection (the link still opens Telegram normally)
+    document.getElementById('tgOpenBtn').addEventListener('click', () => setTimeout(()=>tgAutoPoll(60), 800));
+    tgCheckBtn.addEventListener('click', () => tgAutoPoll(40));
+    // when they come back from the Telegram app, check immediately
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && !tgConnected && document.getElementById('telegram_fields').style.display !== 'none') {
+        if (!tgPolling) tgAutoPoll(20); else tgDetectOnce();
       }
     });
 
@@ -288,6 +307,19 @@
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const btn = form.querySelector('button');
+      // If they chose Telegram but aren't connected, try once more, then offer email instead of failing.
+      const ch = (document.querySelector('input[name="channel"]:checked')||{}).value;
+      if (ch === 'telegram' && !tgChatId.value) {
+        await tgDetectOnce();
+        if (!tgChatId.value) {
+          result.style.display = 'block'; result.className = 'err';
+          result.innerHTML = "Telegram isn't connected yet. Press START in the bot above, or "
+            + '<a href="#" id="useEmail" style="color:var(--accent);font-weight:700">get matches by email instead</a>.';
+          document.getElementById('useEmail').onclick = (ev) => { ev.preventDefault(); showChannel('email');
+            result.style.display = 'none'; form.requestSubmit ? form.requestSubmit() : form.dispatchEvent(new Event('submit', {cancelable:true})); };
+          return;
+        }
+      }
       btn.disabled = true; btn.textContent = 'Setting you up...';
       result.style.display = 'none';
       try {
