@@ -1,3 +1,13 @@
+---
+title: JobHunt
+emoji: 💼
+colorFrom: yellow
+colorTo: gray
+sdk: docker
+app_port: 8080
+pinned: false
+---
+
 # JobHunt
 
 A free, multi-user job-search companion. Upload your resume once, and JobHunt finds jobs that fit
