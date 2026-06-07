@@ -255,13 +255,15 @@
         all = data.jobs || [];
         const cats = data.categories || [];
         const hasMatches = all.some(j => j.matched);
+        // The colorful tiles below ARE the role picker (multi-select). Keep only All / My-matches
+        // shortcuts here, so we don't show the same roles twice (was a confusing duplicate row).
         document.getElementById('filters').innerHTML =
-          '<button class="chipbtn" data-c="">All</button>' +
-          (hasMatches ? '<button class="chipbtn" data-c="__matched__">★ My matches</button>' : '') +
-          cats.map(c=>`<button class="chipbtn" data-c="${esc(c)}">${esc(c)}</button>`).join('');
-        // TUF-style category tiles (gradient icon + live count), act as MULTI-select filters
+          '<button class="chipbtn" data-c="">All roles</button>' +
+          (hasMatches ? '<button class="chipbtn" data-c="__matched__">★ My matches</button>' : '');
+        // TUF-style category tiles (gradient icon + live count), act as MULTI-select role filters.
+        // Hide roles with no current jobs so the picker isn't cluttered with empty "Data 0" tiles.
         const counts={}; all.forEach(j=>{ if(j.category) counts[j.category]=(counts[j.category]||0)+1; });
-        document.getElementById('catTiles').innerHTML = cats.map(c=>
+        document.getElementById('catTiles').innerHTML = cats.filter(c=>(counts[c]||0)>0).map(c=>
           `<div class="cattile" data-c="${esc(c)}"><span class="ic" style="background:${catGrad(c)}">${catIcon(c)}</span><span class="nm">${esc(c)}</span><span class="ct">${counts[c]||0}</span></div>`).join('');
         syncRoleUI();
         document.querySelectorAll('.chipbtn').forEach(b=>b.onclick=()=>{

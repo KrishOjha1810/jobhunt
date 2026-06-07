@@ -552,7 +552,12 @@ def authconfig():
 async def auth_google(request: Request):
     if not oauth:
         return RedirectResponse("/login")
-    return await oauth.google.authorize_redirect(request, request.url_for("auth_google_callback"))
+    # Build redirect_uri from the configured BASE_URL (not request.url_for), so it is ALWAYS the exact
+    # https URL registered in Google , regardless of proxy header quirks behind Render/HF/etc. This is
+    # the deterministic fix for redirect_uri_mismatch.
+    from .config import BASE_URL
+    redirect_uri = BASE_URL.rstrip("/") + "/auth/google/callback"
+    return await oauth.google.authorize_redirect(request, redirect_uri)
 
 
 @app.get("/auth/google/callback")
