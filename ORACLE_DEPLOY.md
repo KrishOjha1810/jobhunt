@@ -60,8 +60,9 @@ Filling in `.env`:
 - `SECRET_KEY` , generate one: `openssl rand -hex 32`. Keep it stable (changing it logs everyone out).
 - `BASE_URL` , `https://<your hostname>` (see step 5 for the hostname).
 - `SITE_ADDRESS` , the same hostname WITHOUT `https://` (Caddy uses it for the cert).
-- Copy `GEMINI_API_KEY`, `LLM_API_KEY`, `JSEARCH_RAPIDAPI_KEY`, `ADZUNA_*`, `SMTP_*`,
-  `GOOGLE_CLIENT_ID/SECRET`, `TELEGRAM_BOT_TOKEN` from Render.
+- Copy `GEMINI_API_KEY`, `LLM_API_KEY`, `JSEARCH_RAPIDAPI_KEY`, `ADZUNA_*`, `BREVO_API_KEY` +
+  `EMAIL_FROM` (email goes through Brevo's HTTP API, not SMTP), `GOOGLE_CLIENT_ID/SECRET`,
+  `TELEGRAM_BOT_TOKEN` from Render.
 - The `ATS_FULL_CONTENT=1 / ATS_WORKERS=40 / POOL_CAP=800 / ATS_CAP=500` lines unleash full power now
   that you have 24GB (full Greenhouse JDs inline, more boards at once).
 - `ENABLE_SCHEDULER=1` , the VM never sleeps, so the built-in scheduler runs the matcher at
