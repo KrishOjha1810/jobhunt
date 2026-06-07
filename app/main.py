@@ -560,6 +560,10 @@ async def auth_google(request: Request):
     # the deterministic fix for redirect_uri_mismatch.
     from .config import BASE_URL
     redirect_uri = BASE_URL.rstrip("/") + "/auth/google/callback"
+    # OAuth requires https for non-localhost; force it so a stray http BASE_URL / proxy can't cause
+    # the redirect_uri_mismatch we hit behind HF's proxy.
+    if redirect_uri.startswith("http://") and "localhost" not in redirect_uri and "127.0.0.1" not in redirect_uri:
+        redirect_uri = "https://" + redirect_uri[len("http://"):]
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
 
