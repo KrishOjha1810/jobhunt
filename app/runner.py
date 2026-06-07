@@ -316,7 +316,7 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
                 from .sources import ats as _ats
                 enriched = []
                 for j in ranked[:RERANK_N]:
-                    if (j.get("source") or "").split(":")[0] in ("workday", "smartrecruiters") \
+                    if (j.get("source") or "").split(":")[0] in ("workday", "smartrecruiters", "greenhouse") \
                             and len(j.get("description") or "") < 200:
                         body = _ats.fetch_detail(j)
                         if body:

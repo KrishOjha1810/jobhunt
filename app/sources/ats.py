@@ -12,12 +12,16 @@ and drop the slug in the matching list below. Verify it returns jobs first (a wr
 returns 0 silently). SmartRecruiters slugs are case-sensitive (e.g. "BoschGroup", "Visa").
 """
 import concurrent.futures
+import html as _html
 import re
 import requests
 
 
 def _strip_html(s):
-    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", s or "")).strip()
+    # Greenhouse/Workday/SR return HTML-entity-encoded bodies (&lt;div&gt;, &#39;), so unescape first,
+    # then strip tags and collapse whitespace.
+    s = _html.unescape(s or "")
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", s)).strip()
 
 
 def fetch_detail(job):
@@ -27,6 +31,16 @@ def fetch_detail(job):
     src = job.get("source") or ""
     url = job.get("url") or ""
     try:
+        if src.startswith("greenhouse:"):
+            slug = src.split(":", 1)[1]
+            jid = job.get("_gh_id")
+            if not jid:
+                return ""
+            r = requests.get(
+                f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs/{jid}", timeout=12)
+            if not r.ok:
+                return ""
+            return _strip_html(r.json().get("content", ""))
         if src.startswith("smartrecruiters:"):
             slug = src.split(":", 1)[1]
             jid = url.rstrip("/").rsplit("/", 1)[-1]
@@ -129,21 +143,25 @@ def _is_tech(title: str) -> bool:
 
 def _norm(title, company, location, url, desc, posted, source):
     return {"title": title or "", "company": company or "", "location": location or "Remote",
-            "url": url or "", "description": (desc or "")[:4000], "posted_at": posted or "",
+            "url": url or "", "description": (desc or "")[:2000], "posted_at": posted or "",
             "salary": "", "source": source}
 
 
 def _greenhouse(slug):
+    # Fetch the LIGHTWEIGHT listing (no content=true). content=true returns full JD HTML for every
+    # job on the board (~8MB for a big board), which across many concurrent boards blew the 512MB
+    # memory limit. Descriptions are backfilled lazily for just the top candidates (see fetch_detail).
     try:
-        r = requests.get(
-            f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs?content=true", timeout=12)
+        r = requests.get(f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs", timeout=12)
         if not r.ok:
             return []
         out = []
         for j in r.json().get("jobs", []):
             loc = (j.get("location") or {}).get("name", "")
-            out.append(_norm(j.get("title"), slug, loc, j.get("absolute_url"),
-                             j.get("content", ""), j.get("updated_at", ""), f"greenhouse:{slug}"))
+            d = _norm(j.get("title"), slug, loc, j.get("absolute_url"), "",
+                      j.get("updated_at", ""), f"greenhouse:{slug}")
+            d["_gh_id"] = j.get("id")  # transient: lets fetch_detail backfill the JD body later
+            out.append(d)
         return out
     except Exception:
         return []
@@ -249,7 +267,7 @@ def fetch(limit_companies: int = 0) -> list:
     jobs = []
     # Don't use `with` here: its shutdown(wait=True) on exit blocks on in-flight requests past our
     # budget. We collect whatever finished within the timeout, then abandon stragglers immediately.
-    ex = concurrent.futures.ThreadPoolExecutor(max_workers=40)
+    ex = concurrent.futures.ThreadPoolExecutor(max_workers=20)
     try:
         futures = [ex.submit(fn, slug) for fn, slug in tasks]
         for f in concurrent.futures.as_completed(futures, timeout=25):
