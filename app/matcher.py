@@ -108,6 +108,40 @@ def years_required(text: str) -> int:
     return max((int(n) for n in nums), default=0)
 
 
+# Seniority implied by the job TITLE, even when the JD never states "N+ years" (e.g. "Senior Data
+# Engineer"). Junior markers win (an Associate/Junior/Intern title is entry-level regardless of other
+# words); otherwise the strongest senior marker sets an implied experience bar. Unmarked titles imply
+# nothing (0) , we then rely on the stated years.
+_TITLE_SENIOR = {"principal": 9, "staff": 8, "architect": 8, "distinguished": 10, "fellow": 10,
+                 "director": 10, "head": 9, "vp": 12, "vice president": 12, "senior": 5, "sr": 5,
+                 "lead": 6}
+_TITLE_JUNIOR = {"intern": 0, "internship": 0, "trainee": 0, "apprentice": 0, "fresher": 0,
+                 "graduate": 1, "entry": 1, "junior": 1, "jr": 1, "associate": 2}
+
+
+def _tword(text: str, tok: str) -> bool:
+    return re.search(r"(?<![a-z])" + re.escape(tok) + r"(?![a-z])", text) is not None
+
+
+def title_level(title: str) -> int:
+    """Implied minimum years of experience from a job TITLE (0 if none/entry-level)."""
+    t = (title or "").lower()
+    for tok, lvl in _TITLE_JUNIOR.items():
+        if _tword(t, tok):
+            return lvl  # entry-level marker wins outright
+    best = 0
+    for tok, lvl in _TITLE_SENIOR.items():
+        if _tword(t, tok):
+            best = max(best, lvl)
+    return best
+
+
+def required_experience(job: dict) -> int:
+    """Experience a role likely wants: max of stated 'N+ years' and the title's implied level."""
+    return max(years_required(job.get("description", "") or ""),
+               title_level(job.get("title", "") or ""))
+
+
 # Ordered most-specific -> most-generic (first match wins). Title is weighted: a term in the title
 # decides the tag even if a more-generic term appears in the body. Keep tags granular (LeetCode-style)
 # so "Other" is rare.
@@ -247,10 +281,12 @@ def blended_score(job: dict, ctx: dict) -> tuple:
     theta = ctx.get("theta") or {}
     phi = pref_features(job)
     Pf = _math.tanh(sum(theta.get(k, 0.0) * v for k, v in phi.items())) if theta else 0.0
-    # seniority fit (asymmetric: under-qualified hurts, over-qualified barely)
-    yrs = years_required(job.get("description", ""))
+    # seniority fit (asymmetric: under-qualified hurts; title-aware via req_years from rank_matches)
+    yrs = job.get("req_years")
+    if yrs is None:
+        yrs = required_experience(job)
     gap = max(0, yrs - (ctx.get("uyears") or 0))
-    S = 0.3 if gap <= 0 else (-0.2 if gap <= 2 else (-0.5 if gap < 6 else -1.0))
+    S = 0.3 if gap <= 0 else (-0.3 if gap <= 2 else (-0.8 if gap < 6 else -1.6))
     # location/region
     region = job.get("region") or job_region(job.get("location", ""))
     if ctx.get("india_user"):
@@ -328,9 +364,14 @@ def rank_matches(jobs: list, keywords: list, locations: list, min_score: int,
         # overlap floor: drop jobs that merely brushed one incidental keyword (the source of the
         # "20 matched, none worth applying to" noise). Need real overlap or a title-role hit.
         if score >= min_score and (len(matched) >= 2 or title_bonus >= 1):
+            req = required_experience(job)  # stated years OR title level (Senior/Staff/Lead/...)
+            # Drop clearly-senior roles for fresher/junior users (<=2 yrs): a Senior/Staff/Lead/5+yr
+            # role is noise for them. This is the "I set 0-2 but get Senior Data Engineer" complaint.
+            if user_years <= 2 and req >= 5:
+                continue
             job = dict(job)
-            yrs = years_required(job.get("description", ""))
-            gap = max(0, yrs - user_years)  # how much more experience the job wants than they have
+            yrs = req
+            gap = max(0, req - user_years)  # how much more experience the job wants than they have
             penalty = 25 if gap >= 6 else (12 if gap >= 3 else 0)
             region = job_region(job.get("location", ""))
             # For India users, surface India-based roles first (higher interview odds), then global
@@ -343,7 +384,8 @@ def rank_matches(jobs: list, keywords: list, locations: list, min_score: int,
             job["region"] = region
             job["matched"] = matched
             job["category"] = categorize(job)
-            job["seniority_note"] = f"{yrs}+ yrs asked" if yrs >= 6 else ""
+            job["req_years"] = req  # used by blended_score + the browse experience filter
+            job["seniority_note"] = f"~{req}+ yrs" if req >= 5 else ""
             tier = "Strong fit" if fit >= 75 else ("Good fit" if fit >= 50 else "Possible fit")
             top = ", ".join(matched[:5])
             gap_note = f". Note: asks {yrs}+ yrs (you list ~{user_years})" if gap >= 3 else ""
