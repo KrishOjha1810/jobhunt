@@ -489,6 +489,12 @@ def api_catalog(request: Request, category: str = "", q: str = "", sort: str = "
         mine = db.matched_urls(u["id"])
         for j in jobs:
             j["matched"] = j.get("url") in mine
+    # tag each job's implied experience level (title + JD) so Browse can filter by Entry/Mid/Senior
+    for j in jobs:
+        try:
+            j["req_years"] = matcher.required_experience(j)
+        except Exception:
+            j["req_years"] = 0
     return {
         "ok": True,
         "categories": db.catalog_categories(),

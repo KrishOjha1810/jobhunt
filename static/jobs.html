@@ -144,6 +144,7 @@
     </div>
     <div class="cattiles" id="catTiles"></div>
     <div class="filters" id="filters"></div>
+    <div class="filters" id="levelFilters" style="margin-top:-4px"></div>
     <input class="search" id="search" placeholder="Search title or company..." />
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
       <p class="count" id="count"></p>
@@ -224,6 +225,9 @@
 
     // ----- Catalog -----
     let all = [], recoMode = false, matchedOnly = false;
+    let selLevel = localStorage.getItem('jh_browse_level') || '';   // '' | entry | mid | senior
+    const levelOf = j => { const r = j.req_years || 0; return r >= 5 ? 'senior' : (r >= 3 ? 'mid' : 'entry'); };
+    const levelLabel = j => { const r = j.req_years || 0; return r >= 5 ? 'Senior' : (r >= 3 ? 'Mid' : 'Entry'); };
     let selRoles = new Set((()=>{ try{ return JSON.parse(localStorage.getItem('jh_browse_roles')||'[]'); }catch{ return []; } })());
     function persistRoles(){ localStorage.setItem('jh_browse_roles', JSON.stringify([...selRoles])); }
     function syncRoleUI(){
@@ -271,6 +275,15 @@
           const c=b.dataset.c; matchedOnly=false; selRoles.has(c)?selRoles.delete(c):selRoles.add(c);
           persistRoles(); syncRoleUI(); render();
         });
+        // experience-level filter (single-select): All / Entry & Junior / Mid / Senior
+        document.getElementById('levelFilters').innerHTML =
+          [['','All levels'],['entry','Entry / Junior'],['mid','Mid'],['senior','Senior']]
+            .map(([v,l])=>`<button class="chipbtn lvl" data-l="${v}">${l}</button>`).join('');
+        const syncLevelUI=()=>document.querySelectorAll('.lvl').forEach(x=>x.classList.toggle('active', x.dataset.l===selLevel));
+        document.querySelectorAll('.lvl').forEach(b=>b.onclick=()=>{
+          selLevel=b.dataset.l; localStorage.setItem('jh_browse_level',selLevel); syncLevelUI(); render();
+        });
+        syncLevelUI();
         maybeGreet(cats);
         render();
         setupTriage();
@@ -349,7 +362,8 @@
       const q = document.getElementById('search').value.toLowerCase();
       const rows = all.filter(j => {
         const roleOk = matchedOnly ? j.matched : (selRoles.size===0 || selRoles.has(j.category));
-        return roleOk && (!q || (j.title||'').toLowerCase().includes(q) || (j.company||'').toLowerCase().includes(q));
+        const levelOk = !selLevel || levelOf(j)===selLevel;
+        return roleOk && levelOk && (!q || (j.title||'').toLowerCase().includes(q) || (j.company||'').toLowerCase().includes(q));
       });
       // freshest postings first (unless the server already ranked them for "recommended")
       if(!recoMode) rows.sort((a,b)=> freshTs(b)-freshTs(a));
@@ -364,6 +378,7 @@
             <span>${esc(j.company||'')}</span>
             ${j.matched?`<span class="tag matched">★ Matched</span>`:''}
             ${j.category?`<span class="tag">${esc(j.category)}</span>`:''}
+            <span class="tag" style="opacity:.75">${levelLabel(j)}</span>
             ${j.location?`<span>${esc(j.location)}</span>`:''}
             ${j.salary?`<span class="sal">${esc(j.salary)}</span>`:''}
             ${a?`<span class="ago">${a}</span>`:''}
