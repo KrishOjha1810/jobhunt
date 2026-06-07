@@ -1,0 +1,8 @@
+# Caddy gives you automatic HTTPS (free Let's Encrypt cert) for SITE_ADDRESS.
+# SITE_ADDRESS comes from .env, set it to either:
+#   - your own domain with an A record pointing at the VM's public IP (e.g. jobs.example.com), or
+#   - <VM_PUBLIC_IP>.sslip.io  (sslip.io resolves that hostname to the IP, so you get HTTPS with no
+#     domain purchase, e.g. 203-0-113-7.sslip.io)
+{$SITE_ADDRESS} {
+	reverse_proxy app:8080
+}

@@ -13,8 +13,16 @@ returns 0 silently). SmartRecruiters slugs are case-sensitive (e.g. "BoschGroup"
 """
 import concurrent.futures
 import html as _html
+import os
 import re
 import requests
+
+# Memory/throughput knobs (defaults are safe for a 512MB host like Render free). On a roomy host
+# (e.g. Oracle Always Free, 24GB) set ATS_FULL_CONTENT=1, ATS_WORKERS=40, ATS_DESC_CHARS=4000 to
+# fetch full Greenhouse JDs inline and run more boards at once.
+_FULL_CONTENT = os.environ.get("ATS_FULL_CONTENT", "0") == "1"
+_WORKERS = int(os.environ.get("ATS_WORKERS", "") or "20")
+_DESC_CHARS = int(os.environ.get("ATS_DESC_CHARS", "") or "2000")
 
 
 def _strip_html(s):
@@ -143,24 +151,27 @@ def _is_tech(title: str) -> bool:
 
 def _norm(title, company, location, url, desc, posted, source):
     return {"title": title or "", "company": company or "", "location": location or "Remote",
-            "url": url or "", "description": (desc or "")[:2000], "posted_at": posted or "",
+            "url": url or "", "description": (desc or "")[:_DESC_CHARS], "posted_at": posted or "",
             "salary": "", "source": source}
 
 
 def _greenhouse(slug):
-    # Fetch the LIGHTWEIGHT listing (no content=true). content=true returns full JD HTML for every
-    # job on the board (~8MB for a big board), which across many concurrent boards blew the 512MB
-    # memory limit. Descriptions are backfilled lazily for just the top candidates (see fetch_detail).
+    # Lightweight listing by default (content=true returns ~8MB/board and blew 512MB on Render across
+    # many concurrent boards; JDs are then backfilled lazily for top candidates). On a roomy host set
+    # ATS_FULL_CONTENT=1 to fetch full JDs inline instead.
     try:
-        r = requests.get(f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs", timeout=12)
+        suffix = "?content=true" if _FULL_CONTENT else ""
+        r = requests.get(f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs{suffix}", timeout=15)
         if not r.ok:
             return []
         out = []
         for j in r.json().get("jobs", []):
             loc = (j.get("location") or {}).get("name", "")
-            d = _norm(j.get("title"), slug, loc, j.get("absolute_url"), "",
+            desc = _strip_html(j.get("content", "")) if _FULL_CONTENT else ""
+            d = _norm(j.get("title"), slug, loc, j.get("absolute_url"), desc,
                       j.get("updated_at", ""), f"greenhouse:{slug}")
-            d["_gh_id"] = j.get("id")  # transient: lets fetch_detail backfill the JD body later
+            if not _FULL_CONTENT:
+                d["_gh_id"] = j.get("id")  # transient: lets fetch_detail backfill the JD body later
             out.append(d)
         return out
     except Exception:
@@ -267,7 +278,7 @@ def fetch(limit_companies: int = 0) -> list:
     jobs = []
     # Don't use `with` here: its shutdown(wait=True) on exit blocks on in-flight requests past our
     # budget. We collect whatever finished within the timeout, then abandon stragglers immediately.
-    ex = concurrent.futures.ThreadPoolExecutor(max_workers=20)
+    ex = concurrent.futures.ThreadPoolExecutor(max_workers=_WORKERS)
     try:
         futures = [ex.submit(fn, slug) for fn, slug in tasks]
         for f in concurrent.futures.as_completed(futures, timeout=25):

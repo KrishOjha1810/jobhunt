@@ -1,0 +1,37 @@
+# JobHunt on a single always-on VM (e.g. Oracle Cloud Always Free ARM, 24GB).
+# App container + Caddy reverse proxy with automatic HTTPS. The database stays on Neon (external),
+# so there is no data to migrate, just point DATABASE_URL at the same Neon URL in .env.
+#
+#   cp .env.example .env   # then fill it in
+#   docker compose up -d --build
+#   docker compose logs -f app
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORT: "8080"
+    volumes:
+      - jobhunt-data:/data        # transient resume files / docx cache (DB is external on Neon)
+    expose:
+      - "8080"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    env_file: .env                # reads SITE_ADDRESS for the auto-HTTPS hostname
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - app
+
+volumes:
+  jobhunt-data:
+  caddy-data:
+  caddy-config:
