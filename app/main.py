@@ -489,12 +489,15 @@ def api_catalog(request: Request, category: str = "", q: str = "", sort: str = "
         mine = db.matched_urls(u["id"])
         for j in jobs:
             j["matched"] = j.get("url") in mine
-    # tag each job's implied experience level (title + JD) so Browse can filter by Entry/Mid/Senior
+    # tag each job's experience level (title + JD) and region (india/global-remote/foreign/unknown)
+    # so Browse can filter by Entry/Mid/Senior and by location.
     for j in jobs:
         try:
             j["req_years"] = matcher.required_experience(j)
+            j["region"] = matcher.job_region(j.get("location", "") or "")
         except Exception:
             j["req_years"] = 0
+            j["region"] = "unknown"
     return {
         "ok": True,
         "categories": db.catalog_categories(),

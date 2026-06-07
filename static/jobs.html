@@ -145,7 +145,8 @@
     <div class="cattiles" id="catTiles"></div>
     <div class="filters" id="filters"></div>
     <div class="filters" id="levelFilters" style="margin-top:-4px"></div>
-    <input class="search" id="search" placeholder="Search title or company..." />
+    <div class="filters" id="locFilters" style="margin-top:-4px"></div>
+    <input class="search" id="search" placeholder="Search title, company, or a city (e.g. Bangalore, Pune)..." />
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
       <p class="count" id="count"></p>
       <button id="recoBtn" type="button" class="chipbtn" style="display:none">✨ Recommended for you</button>
@@ -228,6 +229,14 @@
     let selLevel = localStorage.getItem('jh_browse_level') || '';   // '' | entry | mid | senior
     const levelOf = j => { const r = j.req_years || 0; return r >= 5 ? 'senior' : (r >= 3 ? 'mid' : 'entry'); };
     const levelLabel = j => { const r = j.req_years || 0; return r >= 5 ? 'Senior' : (r >= 3 ? 'Mid' : 'Entry'); };
+    let selLoc = localStorage.getItem('jh_browse_loc') || 'india_remote';   // india_remote | india | remote | anywhere
+    const locOk = j => { const r = j.region || 'unknown';
+      if(selLoc==='anywhere') return true;
+      if(selLoc==='india')  return r==='india';
+      if(selLoc==='remote') return r==='global';
+      return r==='india' || r==='global'; };   // india_remote (default): India + true-remote only
+      // (note: 'unknown' = an unrecognized city, usually foreign like Hong Kong/Karlsruhe, so the
+      //  India+Remote default hides it; switch to Anywhere to see everything.)
     let selRoles = new Set((()=>{ try{ return JSON.parse(localStorage.getItem('jh_browse_roles')||'[]'); }catch{ return []; } })());
     function persistRoles(){ localStorage.setItem('jh_browse_roles', JSON.stringify([...selRoles])); }
     function syncRoleUI(){
@@ -286,6 +295,13 @@
           selLevel=b.dataset.l; localStorage.setItem('jh_browse_level',selLevel); syncLevelUI(); render();
         });
         syncLevelUI();
+        // location filter (single-select): default India + Remote for our audience; one click to Anywhere
+        document.getElementById('locFilters').innerHTML =
+          [['india_remote','India + Remote'],['india','India only'],['remote','Remote'],['anywhere','🌍 Anywhere']]
+            .map(([v,l])=>`<button class="chipbtn loc" data-loc="${v}">${l}</button>`).join('');
+        const syncLocUI=()=>document.querySelectorAll('.loc').forEach(x=>x.classList.toggle('active', x.dataset.loc===selLoc));
+        document.querySelectorAll('.loc').forEach(b=>b.onclick=()=>{ selLoc=b.dataset.loc; localStorage.setItem('jh_browse_loc',selLoc); syncLocUI(); render(); });
+        syncLocUI();
         maybeGreet(cats);
         render();
         setupTriage();
@@ -365,10 +381,14 @@
       const rows = all.filter(j => {
         const roleOk = matchedOnly ? j.matched : (selRoles.size===0 || selRoles.has(j.category));
         const levelOk = !selLevel || levelOf(j)===selLevel;
-        return roleOk && levelOk && (!q || (j.title||'').toLowerCase().includes(q) || (j.company||'').toLowerCase().includes(q));
+        const placeOk = locOk(j);
+        return roleOk && levelOk && placeOk && (!q || (j.title||'').toLowerCase().includes(q) || (j.company||'').toLowerCase().includes(q) || (j.location||'').toLowerCase().includes(q));
       });
-      // freshest postings first (unless the server already ranked them for "recommended")
-      if(!recoMode) rows.sort((a,b)=> freshTs(b)-freshTs(a));
+      // India first, then true-remote, then the rest; freshest within each (unless server-ranked)
+      if(!recoMode){
+        const rrank = x => x.region==='india' ? 0 : (x.region==='global' ? 1 : 2);
+        rows.sort((a,b)=>{ const d = rrank(a)-rrank(b); return d!==0 ? d : (freshTs(b)-freshTs(a)); });
+      }
       document.getElementById('empty').style.display = rows.length?'none':'block';
       document.getElementById('count').textContent = rows.length ? `${rows.length} job${rows.length===1?'':'s'}` : '';
       document.getElementById('list').innerHTML = rows.map(j=>{
