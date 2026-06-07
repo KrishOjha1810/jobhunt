@@ -229,7 +229,7 @@ def list_active_users():
             "whatsapp_phone": r["whatsapp_phone"], "whatsapp_apikey": r["whatsapp_apikey"],
             "dash_token": r["dash_token"], "embedding": r["embedding"],
             "categories": json.loads(r["categories"]) if r["categories"] else [],
-            "cadence": r["cadence"] or "twice",
+            "cadence": r["cadence"] or "daily",
             "experience": r["experience"] or "",
         })
     return out
@@ -1062,7 +1062,7 @@ def _row_to_user(r):
     d["locations"] = json.loads(d["locations"]) if d.get("locations") else []
     d["categories"] = json.loads(d["categories"]) if d.get("categories") else []
     d["channel"] = d.get("channel") or "telegram"
-    d["cadence"] = d.get("cadence") or "twice"
+    d["cadence"] = d.get("cadence") or "daily"
     d["experience"] = d.get("experience") or ""
     return d
 

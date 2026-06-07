@@ -21,10 +21,11 @@ EPSILON = float(os.environ.get("EPSILON", "0.15"))  # exploration rate (surface 
 
 def _cadence_due(user, force):
     """Whether this user should receive a digest on this run, per their chosen cadence.
-    twice (default) = every run; daily = at most once / ~20h; weekly = Saturdays only."""
+    daily (default) = at most once / ~20h (one strong digest, also keeps email under provider quota);
+    twice = every run; weekly = Saturdays only."""
     if force:
         return True
-    cad = user.get("cadence") or "twice"
+    cad = user.get("cadence") or "daily"
     if cad == "twice":
         return True
     last = db.last_digest_at(user["id"])

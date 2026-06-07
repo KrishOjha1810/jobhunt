@@ -360,7 +360,7 @@ def me(request: Request):
             "subscribed": db.is_subscribed(u), "channel": u.get("channel"),
             "categories": u.get("categories") or [],
             "keywords": u.get("keywords") or [], "locations": u.get("locations") or [],
-            "cadence": u.get("cadence") or "twice",
+            "cadence": u.get("cadence") or "daily",
             "experience": u.get("experience") or "",
             "schedule": sched_info.describe(), "next_run": sched_info.next_run_label(),
             "dash_token": u.get("dash_token"), "version": APP_VERSION}
@@ -378,7 +378,7 @@ async def subscribe_post(
     locations: str = Form("remote,india"),
     extra_keywords: str = Form(""),
     categories: List[str] = Form([]),
-    cadence: str = Form("twice"),
+    cadence: str = Form("daily"),
     experience: str = Form(""),
     resume_file: List[UploadFile] = File([]),
 ):
@@ -411,7 +411,7 @@ async def subscribe_post(
         db.update_subscription(
             user["id"], kw, loc_list, channel, resume_path=None, resume_text=None,
             telegram_chat_id=telegram_chat_id.strip(), email=eff_email or None, categories=cat_list,
-            cadence=cadence if cadence in ("twice", "daily", "weekly") else "twice",
+            cadence=cadence if cadence in ("twice", "daily", "weekly") else "daily",
             experience=experience if experience in ("fresher", "junior", "mid", "senior", "lead") else None)
         from . import schedule as sched_info2
         return {"ok": True, "detected_keywords": kw[:30], "channel": channel,
@@ -453,7 +453,7 @@ async def subscribe_post(
         resume_text=resume_text, telegram_chat_id=telegram_chat_id.strip(),
         whatsapp_phone=whatsapp_phone.strip() or None, whatsapp_apikey=whatsapp_apikey.strip() or None,
         email=eff_email or None, categories=cat_list,
-        cadence=cadence if cadence in ("twice", "daily", "weekly") else "twice",
+        cadence=cadence if cadence in ("twice", "daily", "weekly") else "daily",
         experience=experience if experience in ("fresher", "junior", "mid", "senior", "lead") else None,
     )
     # Seed the dashboard with ~20 ranked matches + store the docx + send the first digest , ALL in the
