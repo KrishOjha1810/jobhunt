@@ -233,11 +233,13 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
             exp_years = {"fresher": 0, "junior": 1, "mid": 3, "senior": 7, "lead": 11}
             uyears = exp_years.get(user.get("experience") or "",
                                    _resume.years_experience(user.get("resume_text") or "") or 0)
-            ranked = matcher.rank_matches(pool, user["keywords"], user["locations"], MIN_SCORE, uyears)
+            cats = user.get("categories") or []
+            # Pass the chosen roles so in-role jobs aren't dropped by the keyword overlap floor (aligns
+            # matched with Browse-by-role, which was surfacing good jobs the matcher was discarding).
+            ranked = matcher.rank_matches(pool, user["keywords"], user["locations"], MIN_SCORE, uyears, cats)
             d["matched"] = len(ranked)
             # Role filter: if the user picked specific role categories, keep ONLY those (strict , a
             # Data person should not get AI/ML roles). For breadth, the user selects more categories.
-            cats = user.get("categories") or []
             if cats:
                 ranked = [j for j in ranked if (j.get("category") or matcher.categorize(j)) in cats]
                 d["matched"] = len(ranked)
@@ -264,7 +266,7 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
                 sem_baseline = sems[len(sems) // 2] if sems else None
                 ctx = {"theta": theta, "trending": g_trending, "collab": g_collab,
                        "user_top_cats": [c for _, c in top_cats[:3]], "uyears": uyears,
-                       "sem_baseline": sem_baseline,
+                       "sem_baseline": sem_baseline, "user_cats": cats,
                        "india_user": any((l or "").lower() in ("india",) or "india" in (l or "").lower()
                                          for l in (user.get("locations") or []))}
                 try:

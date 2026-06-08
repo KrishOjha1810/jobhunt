@@ -437,7 +437,7 @@ def list_catalog_ranked(user, category=None, q=None, limit=200):
                        if k.startswith("cat:") and w > 0], reverse=True)
     exp_map = {"fresher": 0, "junior": 1, "mid": 3, "senior": 7, "lead": 11}
     ctx = {"theta": theta, "trending": trending_scores(), "collab": collab_category_prefs(),
-           "user_top_cats": [c for _, c in top_cats[:3]],
+           "user_top_cats": [c for _, c in top_cats[:3]], "user_cats": user.get("categories") or [],
            "uyears": exp_map.get(user.get("experience") or "", 0),
            "india_user": any("india" in (l or "").lower() for l in (user.get("locations") or []))}
     for j in rows:

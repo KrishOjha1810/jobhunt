@@ -227,7 +227,8 @@ import math as _math
 # Blended selection-score weights (the prior, before any per-user learning). Content dominates so a
 # brand-new user's ranking ~= the old keyword behaviour; learned/global signals only re-sort within.
 SCORE_WEIGHTS = {"content": 4.2, "pref": 1.4, "seniority": 1.2, "location": 1.0,
-                 "recency": 0.5, "collab": 0.7, "trending": 0.5, "semantic": 1.3, "source": 1.0}
+                 "recency": 0.5, "collab": 0.7, "trending": 0.5, "semantic": 1.3, "source": 1.0,
+                 "category": 1.5}
 # Baseline subtracted from the logistic input so a SHALLOW match (one common keyword like "java")
 # scores low, not ~50%+. Tuned with content=4.2 so 1 skill ~30%, 3 skills ~70%, 5+ skills ~90%.
 SCORE_BIAS = 2.8
@@ -321,6 +322,9 @@ def blended_score(job: dict, ctx: dict) -> tuple:
     if isinstance(sem, float) and base is not None:
         Sem = max(-1.0, min(1.0, (sem - base) * 4.0))
 
+    # role relevance: a job in a role the user explicitly chose is relevant by role even with thin
+    # keyword overlap (keeps the matched feed aligned with what Browse-by-role surfaces).
+    Cat = 0.6 if (job.get("category") in (ctx.get("user_cats") or ())) else 0.0
     # source quality: direct company boards are freshest + rarely closed; Adzuna is the stalest source
     src = (job.get("source") or "").split(":")[0]
     if src in ("greenhouse", "lever", "ashby", "smartrecruiters", "workday"):
@@ -334,7 +338,8 @@ def blended_score(job: dict, ctx: dict) -> tuple:
     contrib = {"content": w["content"] * C, "pref": w["pref"] * Pf, "seniority": w["seniority"] * S,
                "location": w["location"] * L, "recency": w["recency"] * R,
                "collab": w["collab"] * Co, "trending": w["trending"] * Tr,
-               "semantic": w["semantic"] * Sem, "source": w["source"] * Sq}
+               "semantic": w["semantic"] * Sem, "source": w["source"] * Sq,
+               "category": w["category"] * Cat}
     z = sum(contrib.values()) - SCORE_BIAS
     score = int(round(100 / (1 + _math.exp(-max(-30, min(30, z))))))
     score = max(15, min(100, score))
@@ -344,7 +349,7 @@ def blended_score(job: dict, ctx: dict) -> tuple:
 _CONTRIB_LABEL = {"content": "skills match", "pref": "roles you favour", "seniority": "seniority fit",
                   "location": "location fit", "recency": "freshly posted", "collab": "popular with similar users",
                   "trending": "trending role", "semantic": "matches your resume",
-                  "source": "from a company board"}
+                  "source": "from a company board", "category": "a role you chose"}
 
 
 def blended_reason(job: dict, score: int, contrib: dict) -> str:
@@ -363,14 +368,18 @@ def blended_reason(job: dict, score: int, contrib: dict) -> str:
 
 
 def rank_matches(jobs: list, keywords: list, locations: list, min_score: int,
-                 user_years: int = 0) -> list:
+                 user_years: int = 0, user_cats: list = None) -> list:
     """Return jobs that clear min_score and pass the location filter, sorted by fit desc.
 
     user_years (from the resume) drives a seniority-GAP penalty: a job asking far more experience
-    than the candidate has is deprioritized, but a senior candidate is NOT penalized for senior
-    roles (the old code penalized any 6+ yr role regardless of the candidate)."""
+    than the candidate has is deprioritized, but a senior candidate is NOT penalized for senior roles.
+
+    user_cats (the user's chosen role categories): a job IN one of those roles is relevant by role even
+    with thin keyword overlap, so it bypasses the keyword overlap floor (this is why Browse, which
+    filters by role, surfaced good jobs the matcher was dropping)."""
     wants = [w.lower().strip() for w in (locations or [])]
     india_user = any(w == "india" or w in INDIA_CITIES for w in wants)
+    cats_set = set(user_cats or [])
     results = []
     for job in jobs:
         if not location_ok(job.get("location", ""), locations):
@@ -378,9 +387,12 @@ def rank_matches(jobs: list, keywords: list, locations: list, min_score: int,
         score, matched = score_job(job, keywords)
         title_l = (job.get("title", "") or "").lower()
         title_bonus = sum(1 for k in keywords if _matches(title_l, k))
-        # overlap floor: drop jobs that merely brushed one incidental keyword (the source of the
-        # "20 matched, none worth applying to" noise). Need real overlap or a title-role hit.
-        if score >= min_score and (len(matched) >= 2 or title_bonus >= 1):
+        cat = categorize(job)
+        in_cat = bool(cats_set) and cat in cats_set
+        # Relevance = real keyword overlap (>=2 or a title-role hit) OR the job is in a role the user
+        # explicitly chose. The latter keeps role-relevant jobs the old overlap floor was dropping,
+        # while the floor still kills incidental one-keyword noise for users with no role filter.
+        if in_cat or (score >= min_score and (len(matched) >= 2 or title_bonus >= 1)):
             req = required_experience(job)  # stated years OR title level (Senior/Staff/Lead/...)
             # Drop clearly-senior roles for fresher/junior users (<=2 yrs): a Senior/Staff/Lead/5+yr
             # role is noise for them. This is the "I set 0-2 but get Senior Data Engineer" complaint.
@@ -400,7 +412,7 @@ def rank_matches(jobs: list, keywords: list, locations: list, min_score: int,
             job["score"] = fit
             job["region"] = region
             job["matched"] = matched
-            job["category"] = categorize(job)
+            job["category"] = cat
             job["req_years"] = req  # used by blended_score + the browse experience filter
             job["seniority_note"] = f"~{req}+ yrs" if req >= 5 else ""
             tier = "Strong fit" if fit >= 75 else ("Good fit" if fit >= 50 else "Possible fit")

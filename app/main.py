@@ -66,8 +66,8 @@ def _seed_matches(user_id):
             pool = [j for j in pool if j.get("url") not in blocked]
         exp = {"fresher": 0, "junior": 1, "mid": 3, "senior": 7, "lead": 11}
         uyears = exp.get(u.get("experience") or "", 0)
-        ranked = matcher.rank_matches(pool, u["keywords"], u["locations"], MIN_SCORE, uyears)
         cats = u.get("categories") or []
+        ranked = matcher.rank_matches(pool, u["keywords"], u["locations"], MIN_SCORE, uyears, cats)
         if cats:
             ranked = [j for j in ranked if (j.get("category") or matcher.categorize(j)) in cats]
         # LLM-rerank the top candidates for true fit (strongest signal); degrade cleanly with no key
