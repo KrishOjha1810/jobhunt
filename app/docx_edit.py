@@ -68,6 +68,7 @@ def apply_edits(b64, edits):
     rewrites = {_norm(b.get("old")): b.get("new") for b in pairs if b.get("old") and b.get("new")}
     skills_add = [s for s in (edits.get("skills_add") or []) if s]
     skills_done = False
+    summary_done = False
     used = set()
     for p in doc.paragraphs:
         raw = p.text
@@ -75,7 +76,7 @@ def apply_edits(b64, edits):
         if not t:
             continue
         if sum_new and sum_old and t == sum_old:
-            _set_text(p, sum_new); continue
+            _set_text(p, sum_new); summary_done = True; continue
         if t in rewrites and rewrites[t] and t not in used:
             _set_text(p, rewrites[t]); used.add(t); continue
         if skills_add and not skills_done and ("skill" in t or ("," in raw and len(raw.split(",")) >= 4)):
@@ -83,6 +84,30 @@ def apply_edits(b64, edits):
             if add:
                 _set_text(p, raw.rstrip(" .;,") + ", " + ", ".join(add))
                 skills_done = True
+    # summary often isn't byte-identical to the docx (the parser cleans/rephrases it), so the exact
+    # match above can miss. Fall back to (1) the closest longish paragraph, then (2) the paragraph
+    # right after a Summary/Objective/Profile heading. This was the "edit didn't apply on export" bug.
+    if sum_new and sum_old and not summary_done:
+        best, score = None, 0.0
+        for p in doc.paragraphs:
+            t = _norm(p.text)
+            if len(t) < 40 or t in rewrites:
+                continue
+            r = difflib.SequenceMatcher(None, t, sum_old).ratio()
+            if r > score:
+                best, score = p, r
+        if best is not None and score >= 0.55:
+            _set_text(best, sum_new); summary_done = True
+    if sum_new and not summary_done:
+        import re as _re
+        paras = doc.paragraphs
+        for i, p in enumerate(paras):
+            if _re.match(r"(professional\s+)?(summary|objective|profile|about)\b", _norm(p.text)):
+                for q in paras[i + 1:]:
+                    if _norm(q.text):
+                        _set_text(q, sum_new); summary_done = True
+                        break
+                break
     # pass 2: fuzzy-match any rewrites that didn't hit exactly (lightly-reformatted / lossy text)
     remaining = {k: v for k, v in rewrites.items() if k not in used}
     if remaining:
