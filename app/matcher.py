@@ -226,8 +226,11 @@ import math as _math
 
 # Blended selection-score weights (the prior, before any per-user learning). Content dominates so a
 # brand-new user's ranking ~= the old keyword behaviour; learned/global signals only re-sort within.
-SCORE_WEIGHTS = {"content": 3.0, "pref": 1.4, "seniority": 1.2, "location": 1.0,
+SCORE_WEIGHTS = {"content": 4.2, "pref": 1.4, "seniority": 1.2, "location": 1.0,
                  "recency": 0.5, "collab": 0.7, "trending": 0.5, "semantic": 1.3}
+# Baseline subtracted from the logistic input so a SHALLOW match (one common keyword like "java")
+# scores low, not ~50%+. Tuned with content=4.2 so 1 skill ~30%, 3 skills ~70%, 5+ skills ~90%.
+SCORE_BIAS = 2.8
 
 
 def pref_update(theta: dict, phi: dict, reward: float, lr=0.1, l2=1e-3) -> dict:
@@ -276,7 +279,11 @@ def blended_score(job: dict, ctx: dict) -> tuple:
     Expects job already through rank_matches (has raw_score, region, category, matched). ctx carries
     the per-user/learned signals: theta, trending, collab, user_top_cats, uyears, india_user."""
     raw = job.get("raw_score") or 0
-    C = min(1.0, raw / 5.0)
+    n = len(job.get("matched") or [])
+    # Content = BREADTH of genuine skill overlap. A single common keyword (e.g. "java") must NOT look
+    # like a strong match, so scale by the count of distinct overlapping skills; title/repeat emphasis
+    # (raw beyond the plain match count) adds only a small capped bonus on top.
+    C = min(1.0, n / 5.0 + min(0.20, max(0, raw - n) * 0.04))
     # learned preference
     theta = ctx.get("theta") or {}
     phi = pref_features(job)
@@ -319,7 +326,7 @@ def blended_score(job: dict, ctx: dict) -> tuple:
                "location": w["location"] * L, "recency": w["recency"] * R,
                "collab": w["collab"] * Co, "trending": w["trending"] * Tr,
                "semantic": w["semantic"] * Sem}
-    z = sum(contrib.values())
+    z = sum(contrib.values()) - SCORE_BIAS
     score = int(round(100 / (1 + _math.exp(-max(-30, min(30, z))))))
     score = max(15, min(100, score))
     return score, contrib

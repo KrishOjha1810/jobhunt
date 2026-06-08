@@ -16,6 +16,8 @@ def fetch(query: str, country: str = "in", limit: int = 50) -> list:
         "app_key": ADZUNA_APP_KEY,
         "what": query,
         "results_per_page": min(limit, 50),
+        "max_days_old": 21,       # skip stale listings (Adzuna otherwise returns long-expired/closed jobs)
+        "sort_by": "date",        # freshest first
         "content-type": "application/json",
     }
     try:
