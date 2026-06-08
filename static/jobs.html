@@ -208,6 +208,16 @@
     function catIcon(c){ return CAT_ICONS[String(c||'').toLowerCase()]||'▣'; }
     function catGrad(c){ let h=0; const s=String(c||''); for(let i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))>>>0; return CAT_GRADS[h%CAT_GRADS.length]; }
     function safeUrl(u){ u=String(u||''); return /^https?:\/\//i.test(u)?u:''; }
+    // Save a browse job into the user's tracker. silent=true (on Apply) fires-and-forgets; the explicit
+    // "Track" button updates its own label. Needs login (dashToken).
+    function saveJob(el, silent){
+      if(!dashToken || !el) return;
+      if(!silent){ el.disabled=true; el.textContent='Saving...'; }
+      fetch('/api/save-job?token='+encodeURIComponent(dashToken),{method:'POST',headers:{'content-type':'application/json'},
+        body:JSON.stringify({url:el.dataset.u, title:el.dataset.t, company:el.dataset.co})})
+        .then(r=>r.json()).then(d=>{ if(!silent) el.textContent=(d&&d.ok)?'✓ In tracker':'Track'; })
+        .catch(()=>{ if(!silent){ el.disabled=false; el.textContent='✚ Track'; } });
+    }
     function logClick(url, cat){
       if(!dashToken) return;
       try{ fetch('/api/event?token='+encodeURIComponent(dashToken),{method:'POST',keepalive:true,
@@ -406,11 +416,16 @@
             ${a?`<span class="ago">${a}</span>`:''}
           </div></div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
-            ${u?`<a class="apply" href="${esc(u)}" target="_blank" rel="noopener" onclick="logClick('${esc(u)}','${esc(j.category||'')}')">Apply</a>`:''}
+            ${u?`<a class="apply applybtn" data-u="${esc(u)}" data-t="${esc(j.title||'')}" data-co="${esc(j.company||'')}" data-cat="${esc(j.category||'')}" href="${esc(u)}" target="_blank" rel="noopener">Apply</a>`:''}
             ${u?`<a class="apply" style="background:var(--field);color:var(--ink);border:1px solid var(--field-border)" href="/resume?url=${encodeURIComponent(u)}">Tailor resume</a>`:''}
+            ${u&&dashToken?`<button class="apply trackbtn" data-u="${esc(u)}" data-t="${esc(j.title||'')}" data-co="${esc(j.company||'')}" style="background:var(--field);color:var(--accent);border:1px solid var(--field-border)">✚ Track</button>`:''}
           </div>
         </div>`;
       }).join('');
+      // Apply also silently saves the job to the tracker (you applied = you want it tracked); the
+      // explicit Track button saves without applying.
+      document.querySelectorAll('#list .applybtn').forEach(a=>a.addEventListener('click',()=>{ logClick(a.dataset.u,a.dataset.cat); saveJob(a,true); }));
+      document.querySelectorAll('#list .trackbtn').forEach(b=>b.onclick=()=>saveJob(b,false));
     }
     document.getElementById('search').addEventListener('input', render);
     document.getElementById('recoBtn').addEventListener('click', (e)=>{
