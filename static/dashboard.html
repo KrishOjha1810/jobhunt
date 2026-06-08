@@ -42,8 +42,9 @@
     /* LEFT control rail: filters + streak live here (sticky), so the job list is the main column and
        the page no longer stacks five control blocks above the table. The rail stays in view while
        the list scrolls, so it never reads as empty. */
-    .grid-side{grid-template-columns:240px minmax(0,1fr)}
-    .side{position:sticky;top:var(--sp-4);align-self:start;display:flex;flex-direction:column;gap:var(--sp-4);max-height:calc(100dvh - 90px);overflow:auto}
+    .grid-side{grid-template-columns:minmax(0,1fr) 240px}
+    .main{order:1}
+    .side{order:2;position:sticky;top:var(--sp-4);align-self:start;display:flex;flex-direction:column;gap:var(--sp-4);max-height:calc(100dvh - 90px);overflow:auto}
     .side .card{padding:var(--sp-4)}
     #heroCard{margin-bottom:var(--sp-4)}
     .filtsec{margin-bottom:var(--sp-4)}
@@ -125,19 +126,8 @@
     </div>
 
     <div class="grid-side">
-      <!-- LEFT RAIL: streak + filters + track-a-link + insights (sticky, stays in view) -->
+      <!-- RIGHT RAIL: filters first (always visible) + streak + track-a-link + insights (sticky) -->
       <aside class="side">
-        <div class="card">
-          <div class="card-kicker">apply streak</div>
-          <div class="streaks">
-            <div class="s"><b id="curStreak">0</b><span>current</span></div>
-            <div class="s"><b id="maxStreak">0</b><span>best</span></div>
-          </div>
-          <div class="cal-head"><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span></div>
-          <div class="cal" id="cal"></div>
-          <div class="sub" id="calMonth" style="margin-top:8px;text-align:center"></div>
-        </div>
-
         <div class="card">
           <div class="card-kicker" style="margin-bottom:var(--sp-3)">filter &amp; sort</div>
           <div class="filtsec"><label>Posted</label>
@@ -169,6 +159,17 @@
               <option value="date-asc">Oldest first</option>
             </select>
           </div>
+        </div>
+
+        <div class="card">
+          <div class="card-kicker">apply streak</div>
+          <div class="streaks">
+            <div class="s"><b id="curStreak">0</b><span>current</span></div>
+            <div class="s"><b id="maxStreak">0</b><span>best</span></div>
+          </div>
+          <div class="cal-head"><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span></div>
+          <div class="cal" id="cal"></div>
+          <div class="sub" id="calMonth" style="margin-top:8px;text-align:center"></div>
         </div>
 
         <div class="card">
