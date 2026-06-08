@@ -46,17 +46,20 @@ MIN_SCORE = int(os.environ.get("MIN_SCORE", "3"))
 
 # V2: LLM resume tailoring. Optional; if LLM_API_KEY is empty, enrichment is skipped.
 # LLM_PROVIDER: "openai" | "groq" | "gemini" | "anthropic"  (first three use the OpenAI-style API)
-LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "groq").lower()
-LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
+# Default is Gemini (generous free tier; replaced Groq). One GEMINI_API_KEY powers both tailoring
+# and semantic matching, so there's nothing extra to configure.
+LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "gemini").lower()
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+# When the provider is gemini, the chat key falls back to GEMINI_API_KEY (one key does everything).
+LLM_API_KEY = os.environ.get("LLM_API_KEY", "") or (GEMINI_API_KEY if LLM_PROVIDER == "gemini" else "")
 LLM_MODEL = os.environ.get("LLM_MODEL", "")
 
 # Semantic (embedding) matching. OFF by default; needs SEMANTIC_MATCHING=1 plus a Gemini key.
-# The embedding key is decoupled from the tailoring key: use GEMINI_API_KEY for embeddings, so you
-# can run tailoring on a different provider (e.g. Groq) without turning semantic matching off.
-# Falls back to LLM_API_KEY when LLM_PROVIDER=gemini, for backwards compatibility.
+# The embedding key is decoupled from the tailoring key, but for the common single-key Gemini setup
+# GEMINI_API_KEY also falls back to LLM_API_KEY (older configs that only set LLM_API_KEY=<gemini key>).
 SEMANTIC_MATCHING = os.environ.get("SEMANTIC_MATCHING", "") == "1"
 EMBED_MODEL = os.environ.get("EMBED_MODEL", "") or "text-embedding-004"
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "") or (LLM_API_KEY if LLM_PROVIDER == "gemini" else "")
+GEMINI_API_KEY = GEMINI_API_KEY or (LLM_API_KEY if LLM_PROVIDER == "gemini" else "")
 
 # App version. Bump this on a deploy to re-show the walkthrough to every user once.
 APP_VERSION = os.environ.get("APP_VERSION", "") or "2026-06-04.10"

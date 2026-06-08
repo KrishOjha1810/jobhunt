@@ -13,6 +13,10 @@ from .config import MIN_SCORE, MAX_MATCHES_PER_RUN, BASE_URL
 # key is set; set LLM_RERANK=0 to disable. Bounded to the top N candidates to cap cost/latency.
 LLM_RERANK = os.environ.get("LLM_RERANK", "1") != "0"
 RERANK_N = int(os.environ.get("RERANK_N", "") or "12")
+# Also send this many BORDERLINE candidates (mid-scored, just outside the top) through the LLM rerank.
+# The batched rerank is ~one call, so this is nearly free, and it's where hidden gems live: jobs the
+# keyword scorer ranked low but the LLM rescues ("I couldn't have found this myself").
+RERANK_BORDERLINE = int(os.environ.get("RERANK_BORDERLINE", "") or "12")
 # Recommendation engine v2: blended selection score + online preference learning + exploration.
 SCORE_V2 = os.environ.get("SCORE_V2", "1") != "0"
 PREF_LEARNING = os.environ.get("PREF_LEARNING", "1") != "0"
@@ -197,11 +201,12 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
     sent = 0
     detail = []  # non-sensitive per-user breakdown for diagnosing coverage (ids + counts only)
     # Global signals for the v2 scorer, computed ONCE per run (cheap grouped queries).
-    g_trending, g_collab = {}, {}
+    g_trending, g_collab, g_source_q = {}, {}, {}
     if SCORE_V2 and PREF_LEARNING:
         try:
             g_trending = db.trending_scores()
             g_collab = db.collab_category_prefs()
+            g_source_q = db.source_quality_stats()  # learned per-board quality (nudges the source prior)
         except Exception as e:
             print(f"[runner] trending/collab build failed: {e}")
     for user in users:
@@ -265,6 +270,7 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
                 sems = sorted(j["_sem"] for j in ranked if isinstance(j.get("_sem"), float))
                 sem_baseline = sems[len(sems) // 2] if sems else None
                 ctx = {"theta": theta, "trending": g_trending, "collab": g_collab,
+                       "source_q": g_source_q,
                        "user_top_cats": [c for _, c in top_cats[:3]], "uyears": uyears,
                        "sem_baseline": sem_baseline, "user_cats": cats,
                        "india_user": any((l or "").lower() in ("india",) or "india" in (l or "").lower()
@@ -296,13 +302,19 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
                         ranked.sort(key=lambda j: j.get("score", 0), reverse=True)
                 except Exception as e:
                     print(f"[runner] personalization skipped for {user.get('id')}: {e}")
-            # Backfill JD bodies for sources whose listing omits them (SmartRecruiters/Workday), for
-            # just the top candidates we're about to rerank/deliver, so the LLM judges the real
-            # description, not a bare title. Persisted to the catalog so browse + tailoring reuse it.
+            # Rerank pool = the confident top + borderline gems just outside it. The borderline band is
+            # mid-scored jobs the keyword scorer ranked lower; the LLM (our strongest signal) gets to
+            # rescue them, which is exactly where "I couldn't have found this myself" jobs hide.
+            border = [j for j in ranked[RERANK_N:RERANK_N + RERANK_BORDERLINE * 2]
+                      if 40 <= (j.get("score") or 0) < 78][:RERANK_BORDERLINE]
+            rerank_pool = ranked[:RERANK_N] + border
+            # Backfill JD bodies for sources whose listing omits them (SmartRecruiters/Workday/Greenhouse),
+            # for the whole rerank pool, so the LLM judges the real description, not a bare title.
+            # Persisted to the catalog so browse + tailoring reuse it.
             try:
                 from .sources import ats as _ats
                 enriched = []
-                for j in ranked[:RERANK_N]:
+                for j in rerank_pool:
                     if (j.get("source") or "").split(":")[0] in ("workday", "smartrecruiters", "greenhouse") \
                             and len(j.get("description") or "") < 200:
                         body = _ats.fetch_detail(j)
@@ -313,18 +325,17 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
                     db.upsert_jobs(enriched)
             except Exception as e:
                 print(f"[runner] jd backfill skipped for {user.get('id')}: {e}")
-            # LLM re-rank of the top candidates by true fit (best matching signal). Blends 50/50 with
-            # the keyword/semantic fit so it sharpens order without throwing away the base score.
+            # LLM re-rank by true fit (best matching signal). Blends 50/50 with the keyword/semantic fit
+            # so it sharpens order without discarding the base score. Pool jobs are references INTO
+            # `ranked`, so updating their score and re-sorting the full list lets gems rise into delivery.
             try:
                 if LLM_RERANK and len(ranked) >= 3:
-                    top = ranked[:RERANK_N]
-                    scores = enrich.rerank(user.get("resume_text") or "", top)
+                    scores = enrich.rerank(user.get("resume_text") or "", rerank_pool)
                     if scores:
-                        for jb, s in zip(top, scores):
+                        for jb, s in zip(rerank_pool, scores):
                             if s is not None:
                                 jb["score"] = round(0.5 * (jb.get("score") or 0) + 0.5 * s)
-                        top.sort(key=lambda jb: jb.get("score", 0), reverse=True)
-                        ranked = top + ranked[RERANK_N:]
+                        ranked.sort(key=lambda jb: jb.get("score", 0), reverse=True)
             except Exception as e:
                 print(f"[runner] llm rerank skipped for {user.get('id')}: {e}")
             # Coverage fallback: a subscribed user whose (often thin) resume matched nothing still

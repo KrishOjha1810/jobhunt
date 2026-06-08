@@ -58,7 +58,26 @@ def _canon_url(u: str) -> str:
         return u
 
 
+# Source quality rank (lower = better, kept on a duplicate). Direct company boards beat aggregators:
+# served from the careers page, expire server-side (rarely closed), and carry real timestamps. Adzuna
+# is the stalest. When the SAME role appears on a company board AND an aggregator, we keep the board
+# copy , so source-priority actually wins instead of luck-of-arrival-order.
+_SOURCE_RANK = {
+    "greenhouse": 0, "lever": 0, "ashby": 0, "smartrecruiters": 0, "workday": 0,
+    "remotive": 1, "remoteok": 1, "arbeitnow": 1, "jobicy": 1, "himalayas": 1,
+    "telegram": 2, "jsearch": 2, "adzuna": 3,
+}
+
+
+def _src_rank(j) -> int:
+    return _SOURCE_RANK.get((j.get("source") or "").split(":")[0], 2)
+
+
 def _dedup(jobs: list) -> list:
+    # Best source first (and freshest within a source), so when the same role appears on a company
+    # board and an aggregator, the kept (first-seen) copy is the higher-quality board listing.
+    jobs = sorted(jobs, key=lambda j: str(j.get("posted_at") or ""), reverse=True)
+    jobs = sorted(jobs, key=_src_rank)  # stable sort: preserves freshness order within each rank
     # Strip common seniority/level words from titles so "Senior Backend Engineer" and "Backend
     # Engineer" at the same company collapse (aggregators repost the same role many ways).
     _LEVEL = _re.compile(r"\b(senior|sr|junior|jr|lead|staff|principal|mid|i{1,3}|1|2|3|ii|iii)\b")
@@ -164,10 +183,32 @@ def _fetch(terms: list, india_wanted: bool, max_adzuna_terms: int = 3) -> list:
         except concurrent.futures.TimeoutError:
             pass  # take whatever finished in budget
     jobs = _dedup(jobs)
+    jobs = _drop_stale(jobs)  # drop dated aggregator listings older than the freshness window
     jobs = _cap_source(jobs, "adzuna", ADZUNA_CAP)  # rein in the stalest source so it can't flood
     # keep the freshest, capped, so the run stays quick (str() guards mixed int/str posted_at)
     jobs.sort(key=lambda j: str(j.get("posted_at") or ""), reverse=True)
     return jobs[:POOL_CAP]
+
+
+# Drop aggregator listings older than this many days (they're the ones that turn out closed). Company
+# boards are exempt , they expire server-side, so an old-but-listed board job is still genuinely open.
+STALE_DAYS = int(_os.environ.get("STALE_DAYS", "") or "45")
+_STALE_SOURCES = {"adzuna", "jsearch"}
+
+
+def _drop_stale(jobs: list) -> list:
+    try:
+        from ..db import posted_age_days
+    except Exception:
+        return jobs
+    out = []
+    for j in jobs:
+        if (j.get("source") or "").split(":")[0] in _STALE_SOURCES:
+            age = posted_age_days(j.get("posted_at"))
+            if age is not None and age > STALE_DAYS:
+                continue  # known-old aggregator listing , most likely already closed
+        out.append(j)
+    return out
 
 
 def fetch_all(keywords: list, locations: list) -> list:

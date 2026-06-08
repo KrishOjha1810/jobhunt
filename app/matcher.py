@@ -222,6 +222,22 @@ def score_job(job: dict, keywords: list) -> tuple:
     return len(matched) + 2 * title_bonus + core_bonus, matched
 
 
+def core_overlap(job: dict, matched: list) -> int:
+    """How many of the MATCHED skills are CORE to this JD , named in the title or repeated 2+ times
+    in the body, i.e. central to the role rather than an incidental tag. This is the importance
+    signal Jobscan-style matching needs: a job built around your top 2 skills should rank high even
+    with modest breadth, while a job that merely brushes one common keyword should not."""
+    if not matched:
+        return 0
+    title = (job.get("title", "") or "").lower()
+    body = title + " " + (job.get("description", "") or "").lower()
+    n = 0
+    for k in matched:
+        if _matches(title, k) or _occurrences(body, k) >= 2:
+            n += 1
+    return n
+
+
 import math as _math
 
 # Blended selection-score weights (the prior, before any per-user learning). Content dominates so a
@@ -281,10 +297,14 @@ def blended_score(job: dict, ctx: dict) -> tuple:
     the per-user/learned signals: theta, trending, collab, user_top_cats, uyears, india_user."""
     raw = job.get("raw_score") or 0
     n = len(job.get("matched") or [])
-    # Content = BREADTH of genuine skill overlap. A single common keyword (e.g. "java") must NOT look
-    # like a strong match, so scale by the count of distinct overlapping skills; title/repeat emphasis
-    # (raw beyond the plain match count) adds only a small capped bonus on top.
-    C = min(1.0, n / 5.0 + min(0.20, max(0, raw - n) * 0.04))
+    # Content = breadth of overlap WEIGHTED by importance. A single common keyword (e.g. "java") must
+    # NOT look like a strong match (breadth term stays small), but a job built around your top skills
+    # , the ones named in its title or repeated through the JD (core_overlap) , should score high even
+    # with modest breadth. This fixes both over-matching (1 generic tag) and under-matching (2 core skills).
+    core = job.get("core_overlap")
+    if core is None:
+        core = core_overlap(job, job.get("matched") or [])
+    C = min(1.0, n / 6.0 + core * 0.18 + min(0.08, max(0, raw - n) * 0.02))
     # learned preference
     theta = ctx.get("theta") or {}
     phi = pref_features(job)
@@ -325,7 +345,10 @@ def blended_score(job: dict, ctx: dict) -> tuple:
     # role relevance: a job in a role the user explicitly chose is relevant by role even with thin
     # keyword overlap (keeps the matched feed aligned with what Browse-by-role surfaces).
     Cat = 0.6 if (job.get("category") in (ctx.get("user_cats") or ())) else 0.0
-    # source quality: direct company boards are freshest + rarely closed; Adzuna is the stalest source
+    # source quality: a hardcoded PRIOR (company boards freshest + rarely closed; Adzuna stalest),
+    # nudged by what we've LEARNED , which sources actually land jobs for users (ctx.source_q, the net
+    # positive-action rate per board). So a source that performs gets promoted past its prior, and one
+    # that only draws dismissals gets buried, even if the guess said otherwise.
     src = (job.get("source") or "").split(":")[0]
     if src in ("greenhouse", "lever", "ashby", "smartrecruiters", "workday"):
         Sq = 0.5
@@ -333,6 +356,9 @@ def blended_score(job: dict, ctx: dict) -> tuple:
         Sq = -0.6
     else:
         Sq = 0.0
+    adj = (ctx.get("source_q") or {}).get(src)
+    if adj is not None:
+        Sq = max(-1.2, min(1.2, Sq + adj * 0.6))  # learned net-action rate moves the prior, doesn't replace it
 
     w = SCORE_WEIGHTS
     contrib = {"content": w["content"] * C, "pref": w["pref"] * Pf, "seniority": w["seniority"] * S,
@@ -412,6 +438,7 @@ def rank_matches(jobs: list, keywords: list, locations: list, min_score: int,
             job["score"] = fit
             job["region"] = region
             job["matched"] = matched
+            job["core_overlap"] = core_overlap(job, matched)
             job["category"] = cat
             job["req_years"] = req  # used by blended_score + the browse experience filter
             job["seniority_note"] = f"~{req}+ yrs" if req >= 5 else ""

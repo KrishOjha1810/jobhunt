@@ -438,6 +438,7 @@ def list_catalog_ranked(user, category=None, q=None, limit=200):
                        if k.startswith("cat:") and w > 0], reverse=True)
     exp_map = {"fresher": 0, "junior": 1, "mid": 3, "senior": 7, "lead": 11}
     ctx = {"theta": theta, "trending": trending_scores(), "collab": collab_category_prefs(),
+           "source_q": source_quality_stats(),
            "user_top_cats": [c for _, c in top_cats[:3]], "user_cats": user.get("categories") or [],
            "uyears": exp_map.get(user.get("experience") or "", 0),
            "india_user": any("india" in (l or "").lower() for l in (user.get("locations") or []))}
@@ -445,6 +446,7 @@ def list_catalog_ranked(user, category=None, q=None, limit=200):
         sc, matched = matcher.score_job(j, kw)
         j["raw_score"] = sc
         j["matched"] = matched  # transient: blended_score reads this; replaced with matched_skills below
+        j["core_overlap"] = matcher.core_overlap(j, matched)
         j["region"] = matcher.job_region(j.get("location", ""))
         s, _ = matcher.blended_score(j, ctx)
         j["rec_score"] = s
@@ -472,6 +474,7 @@ def set_job_meta_by_url(user_id, url, **fields):
 def add_external_application(user_id, url, title, company, category, description=""):
     """Track a job the user applied to ELSEWHERE: create an applied row (stamps applied_at so the
     streak counts), enrich the shared catalog, dedup against existing rows. Returns a small status."""
+    _discover_board_from_url(url)  # a pasted Greenhouse/Lever/Ashby link grows our crawl set
     if is_seen(user_id, url):
         set_status_by_url(user_id, url, "applied")  # stamps applied_at if not already
         return {"ok": True, "updated": True}
@@ -763,6 +766,51 @@ def leaderboard(user_id=None):
     return out[:20]
 
 
+# ---- auto-discovered company boards (grow the ATS crawl set from what users engage with) ----
+
+def get_discovered_boards():
+    """{provider: [slug,...]} of ATS boards auto-added from jobs users saved/applied to. Best-effort."""
+    raw = get_meta("discovered_boards")
+    if not raw:
+        return {}
+    try:
+        d = json.loads(raw)
+        return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
+def add_discovered_board(provider, slug, cap=400):
+    """Persist a newly-seen company board so the next crawl includes it. Returns True if it's new.
+    Capped per provider (keep the most recent) so the set can't grow without bound."""
+    if not provider or not slug:
+        return False
+    data = get_discovered_boards()
+    lst = data.get(provider) or []
+    if slug in lst:
+        return False
+    lst.append(slug)
+    data[provider] = lst[-cap:]
+    try:
+        set_meta("discovered_boards", json.dumps(data))
+        return True
+    except Exception:
+        return False
+
+
+def _discover_board_from_url(url):
+    """If `url` is a known ATS job link for a company we don't crawl yet, add it to the crawl set.
+    This is how coverage grows organically: a user tracks/applies to a Greenhouse/Lever/Ashby job and
+    we start polling that whole company's board on the next run. Best-effort, never raises."""
+    try:
+        from .sources import ats
+        b = ats.board_from_url(url)
+        if b:
+            add_discovered_board(*b)
+    except Exception:
+        pass
+
+
 # ---- events (recommendation learning signal) ----
 
 def log_event(user_id, url, event, *, category=None, source=None, rank_shown=None):
@@ -776,6 +824,9 @@ def log_event(user_id, url, event, *, category=None, source=None, rank_shown=Non
                 source=source, rank_shown=rank_shown))
     except Exception:
         pass
+    # strong intent (save/apply) on a job from a company board we don't crawl yet -> start crawling it
+    if event in ("saved", "applied", "external_applied") and url:
+        _discover_board_from_url(url)
 
 
 def log_events_bulk(rows):
@@ -837,6 +888,40 @@ def match_quality_stats(days=30):
         "saved": counts.get("saved", 0),
         "marked_not_interested": counts.get("not_interested", 0),
     }
+
+
+def source_quality_stats(days=90, min_signals=8):
+    """Learn which job BOARDS actually land jobs for our users. Joins each interaction back to the
+    job's source (jobs_catalog.source) and returns {source_prefix: adj in [-1,1]} where adj is the
+    net positive-vs-negative action rate. blended_score uses this to nudge the hardcoded source prior,
+    so a board that genuinely produces clicks/saves/applies/thumbs-up gets promoted and one that only
+    draws dismissals gets buried , regardless of the fixed guess. Only sources with enough signal
+    (>= min_signals) are returned, so a brand-new system keeps the prior until data accumulates."""
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    pos = {"clicked", "saved", "applied", "external_applied", "good_match"}
+    neg = {"not_interested", "bad_match", "ignored"}
+    agg = {}
+    with engine.connect() as c:
+        rows = c.execute(
+            select(jobs_catalog.c.source, events.c.event)
+            .select_from(events.join(jobs_catalog, events.c.url == jobs_catalog.c.url))
+            .where(events.c.created_at >= cutoff)
+        ).all()
+    for src, ev in rows:
+        pref = (src or "").split(":")[0]
+        if not pref:
+            continue
+        a = agg.setdefault(pref, [0, 0])
+        if ev in pos:
+            a[0] += 1
+        elif ev in neg:
+            a[1] += 1
+    out = {}
+    for pref, (p, n) in agg.items():
+        tot = p + n
+        if tot >= min_signals:
+            out[pref] = round((p - n) / tot, 3)
+    return out
 
 
 def trending_scores(days=7):

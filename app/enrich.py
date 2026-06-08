@@ -6,8 +6,8 @@ Providers:
 - openai / groq / gemini : OpenAI-compatible /chat/completions endpoint
 - anthropic              : Anthropic /v1/messages endpoint
 
-Free options worth knowing: Groq (free, fast) and Google Gemini (generous free tier) are the
-cheapest way to run this. OpenAI and Anthropic are paid (cheap, but not free).
+Default provider is Google Gemini (generous free tier; one GEMINI_API_KEY also powers semantic
+matching). OpenAI and Anthropic are paid (cheap, but not free).
 """
 import requests
 from .config import LLM_PROVIDER, LLM_API_KEY, LLM_MODEL

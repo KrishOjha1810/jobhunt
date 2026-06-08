@@ -149,6 +149,37 @@ def _is_tech(title: str) -> bool:
     return any(k in t for k in _TECH_TITLE)
 
 
+def board_from_url(url):
+    """Detect a known ATS board (provider, slug) from a job URL, so we can auto-add companies users
+    engage with to the crawl set. Returns (provider, slug) or None. Workday is skipped (it needs a
+    tenant/datacenter/site tuple, not a single slug, so it can't be derived from a URL safely).
+    SmartRecruiters slugs are case-sensitive, so we capture them with original casing."""
+    u = (url or "").strip()
+    if not u:
+        return None
+    for pat, prov in (
+        (r"(?:boards|job-boards|boards-api|api)\.greenhouse\.io/(?:v1/boards/|embed/job_app\?for=)?([A-Za-z0-9_.-]+)", "greenhouse"),
+        (r"jobs\.lever\.co/([A-Za-z0-9_.-]+)", "lever"),
+        (r"jobs\.ashbyhq\.com/([A-Za-z0-9_.-]+)", "ashby"),
+        (r"(?:jobs|careers|api)\.smartrecruiters\.com/([A-Za-z0-9_.-]+)", "smartrecruiters"),
+    ):
+        m = re.search(pat, u, re.I)
+        if m:
+            slug = m.group(1).strip("/")
+            if slug and slug.lower() not in ("v1", "v2", "embed", "search"):
+                return (prov, slug)
+    return None
+
+
+def _discovered():
+    """Boards auto-added from jobs users saved/applied to (persisted in db). {provider: [slug,...]}."""
+    try:
+        from .. import db
+        return db.get_discovered_boards()
+    except Exception:
+        return {}
+
+
 def _norm(title, company, location, url, desc, posted, source):
     return {"title": title or "", "company": company or "", "location": location or "Remote",
             "url": url or "", "description": (desc or "")[:_DESC_CHARS], "posted_at": posted or "",
@@ -270,6 +301,12 @@ def fetch(limit_companies: int = 0) -> list:
     ab = ASHBY[:limit_companies] if limit_companies else ASHBY
     sr = SMARTRECRUITERS[:limit_companies] if limit_companies else SMARTRECRUITERS
     wd = WORKDAY[:limit_companies] if limit_companies else WORKDAY
+    # Fold in boards auto-discovered from jobs users engaged with (coverage grows organically).
+    disc = _discovered()
+    gh = list(gh) + [s for s in disc.get("greenhouse", []) if s not in gh]
+    lv = list(lv) + [s for s in disc.get("lever", []) if s not in lv]
+    ab = list(ab) + [s for s in disc.get("ashby", []) if s not in ab]
+    sr = list(sr) + [s for s in disc.get("smartrecruiters", []) if s not in sr]
     tasks += [(_greenhouse, s) for s in gh]
     tasks += [(_lever, s) for s in lv]
     tasks += [(_ashby, s) for s in ab]
