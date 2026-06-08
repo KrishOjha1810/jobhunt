@@ -177,10 +177,6 @@
           <div class="cal" id="cal"></div>
           <div class="sub" id="calMonth" style="margin-top:8px;text-align:center"></div>
         </div>
-        <div class="card">
-          <div class="card-kicker">friends leaderboard , this week</div>
-          <div id="lb" style="margin-top:8px"><div class="sub">Loading...</div></div>
-        </div>
       </aside>
     </div>
   </div>
@@ -304,7 +300,7 @@
       try{
         const r = await fetch(`/api/gamify?token=${encodeURIComponent(token)}`);
         if(!r.ok) return; const d = await r.json();
-        renderHero(d.stats); renderStreak(d.streak, d.calendar, d.year, d.month); renderLeaderboard(d.leaderboard);
+        renderHero(d.stats); renderStreak(d.streak, d.calendar, d.year, d.month);
       }catch(e){}
     }
 

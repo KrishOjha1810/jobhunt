@@ -618,8 +618,9 @@ def admin_reset_users(token: str = ""):
 
 @app.get("/api/gamify")
 def api_gamify(request: Request, token: str = "", year: int = 0, month: int = 0):
-    """Everything the gamified tracker sidebar needs: funnel stats, apply streak, this month's
-    apply calendar, and the friends leaderboard. All free, derived from existing data."""
+    """Everything the gamified tracker sidebar needs: funnel stats, apply streak, and this month's
+    apply calendar. All private to the user. (The peer leaderboard was removed: people didn't want
+    friends seeing their application counts.)"""
     user = _resolve_user(request, token)
     if not user:
         return JSONResponse({"error": "unauthorized"}, status_code=403)
@@ -627,8 +628,7 @@ def api_gamify(request: Request, token: str = "", year: int = 0, month: int = 0)
     y, m = (year or now.year), (month or now.month)
     return {"ok": True, "name": user["name"], "stats": db.stats(user["id"]),
             "streak": db.streak(user["id"]),
-            "calendar": db.applied_calendar(user["id"], y, m), "year": y, "month": m,
-            "leaderboard": db.leaderboard(user["id"])}
+            "calendar": db.applied_calendar(user["id"], y, m), "year": y, "month": m}
 
 
 @app.post("/api/jobs/{job_id}")

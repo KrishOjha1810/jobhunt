@@ -233,15 +233,13 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
             exp_years = {"fresher": 0, "junior": 1, "mid": 3, "senior": 7, "lead": 11}
             uyears = exp_years.get(user.get("experience") or "",
                                    _resume.years_experience(user.get("resume_text") or "") or 0)
-            ranked_all = matcher.rank_matches(pool, user["keywords"], user["locations"], MIN_SCORE, uyears)
-            ranked = ranked_all
+            ranked = matcher.rank_matches(pool, user["keywords"], user["locations"], MIN_SCORE, uyears)
             d["matched"] = len(ranked)
-            # Role filter: if the user picked specific role categories, keep only those, then take
-            # the merged best-of across all of them (one top-N list, not N per role). We keep the
-            # full skill-matched set (ranked_all) for the graceful top-up below.
+            # Role filter: if the user picked specific role categories, keep ONLY those (strict , a
+            # Data person should not get AI/ML roles). For breadth, the user selects more categories.
             cats = user.get("categories") or []
             if cats:
-                ranked = [j for j in ranked_all if (j.get("category") or matcher.categorize(j)) in cats]
+                ranked = [j for j in ranked if (j.get("category") or matcher.categorize(j)) in cats]
                 d["matched"] = len(ranked)
             ranked = _semantic_rerank(user, ranked, verbose)  # cached-only, no network here
             if SCORE_V2:
@@ -275,23 +273,9 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
                         j["score"] = s
                         j["reason"] = matcher.blended_reason(j, s, contrib)
                     ranked.sort(key=lambda j: j.get("score", 0), reverse=True)
-                    # Graceful top-up: a narrow category pick (or a thin resume) can leave very few
-                    # strong in-scope matches (this is the id-18 case). Rather than dropping straight to
-                    # a generic recency fallback, fill toward the target with the user's best STRONG
-                    # cross-category skill matches, clearly labelled, so they still get real matches.
-                    _STRONG, _FLOOR = 50, 5
-                    if cats and sum(1 for j in ranked if (j.get("score") or 0) >= _STRONG) < _FLOOR:
-                        have = {j.get("url") for j in ranked}
-                        extra = [j for j in ranked_all if j.get("url") not in have]
-                        for j in extra:
-                            es, ec = matcher.blended_score(j, ctx)
-                            j["score"] = es
-                            j["reason"] = matcher.blended_reason(j, es, ec) + " (related role)"
-                        extra = sorted([j for j in extra if (j.get("score") or 0) >= _STRONG],
-                                       key=lambda j: j.get("score", 0), reverse=True)
-                        need = MAX_MATCHES_PER_RUN - sum(1 for j in ranked if (j.get("score") or 0) >= _STRONG)
-                        if need > 0:
-                            ranked = ranked + extra[:need]
+                    # NOTE: we intentionally do NOT top up with cross-category roles. Users want strictly
+                    # the roles they chose (a Data person should not get AI/ML roles). If they want more
+                    # breadth, they select more categories on subscribe.
                     # epsilon-greedy: occasionally surface a fresh role the model hasn't favoured
                     if EPSILON > 0 and len(ranked) > 6 and random.random() < EPSILON:
                         i = random.randint(5, len(ranked) - 1)
