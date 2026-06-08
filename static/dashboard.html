@@ -42,6 +42,14 @@
     /* sticky sidebar: streak/calendar stay in view (and fill the right space) as the job list scrolls */
     .side{position:sticky;top:var(--sp-4);align-self:start;max-height:calc(100vh - 84px);overflow:auto}
     @media (max-width:900px){ .side{position:static;max-height:none;overflow:visible} }
+    /* desktop: only the job LIST scrolls; the page itself doesn't, so the right rail never goes empty */
+    @media (min-width:901px){
+      .grid-side{height:calc(100dvh - 96px);align-items:stretch}
+      .main{display:flex;flex-direction:column;min-height:0}
+      .table-wrap{flex:1;min-height:0;display:flex;flex-direction:column;margin-top:var(--sp-3)}
+      .scroll{flex:1;min-height:0;overflow-y:auto}
+      .side{position:static;height:100%;max-height:none}
+    }
     .applylink{color:var(--accent-ink);background:var(--accent)}
     .applylink:hover{background:var(--accent-2);transform:translateY(-1px)}
     .applylink svg{width:13px;height:13px}

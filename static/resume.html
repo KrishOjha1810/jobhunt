@@ -90,7 +90,7 @@
     </div>
 
     <h1 id="pageTitle">Tailor your resume for a job</h1>
-    <p class="sub" id="pageSub">You already have a resume , we don't rebuild it. Tell us the job and we suggest exactly what to change and what to add (only if you have the experience). Accept what you like, reject the rest, export, and apply.</p>
+    <p class="sub" id="pageSub">We tailor the resume you already uploaded , rewriting your real bullets to quantify impact and match this job, never inventing experience. Accept what fits, reject the rest, export in your exact format.</p>
 
     <!-- No-job intake: shown only when NOT launched from a specific job -->
     <div class="card card--accent" id="jobIntake" style="display:none">
@@ -117,7 +117,7 @@
     </div>
 
     <details class="card" id="importCard">
-      <summary style="cursor:pointer;font-weight:700;font-family:var(--font-display)">Update your resume (upload or paste)</summary>
+      <summary style="cursor:pointer;font-weight:700;font-family:var(--font-display)">Applying with a different resume? Swap it here</summary>
       <div style="margin-top:12px">
         <div class="row">
           <input type="file" id="impFile" accept=".pdf,.docx,.doc,.txt" style="flex:1;min-width:160px" />
@@ -261,13 +261,21 @@
       R.links=$('cLinks').value.split('\n').map(s=>s.trim()).filter(Boolean);
       R.summary=$('summary').value; R.skills=$('skills').value.split(',').map(s=>s.trim()).filter(Boolean);
     }
+    function catBars(cats){
+      if(!cats || !cats.length) return '';
+      const bar = (label,v)=>{ const c=v>=75?'var(--ok)':(v>=50?'var(--accent)':'var(--c-notfit)');
+        return `<div style="flex:1;min-width:84px"><div style="display:flex;justify-content:space-between;font-size:.7rem;color:var(--muted)"><span>${esc(label)}</span><b style="color:var(--ink)">${v}</b></div><div class="bar" style="height:5px;margin-top:3px"><span style="width:${v}%;background:${c}"></span></div></div>`; };
+      return '<div style="display:flex;gap:12px;flex-wrap:wrap;margin:6px 0 10px">'+cats.map(c=>bar(c.name,c.score)).join('')+'</div>';
+    }
     function renderHealth(h){
       window.LAST_CHECKS = (h && h.checks) || [];
+      window.LAST_HEALTH = h || null;
       if(!h) return;
       $('score').textContent = h.score;
       const col = h.score>=80?'var(--ok)':(h.score>=60?'var(--accent)':'var(--c-notfit)');
       const ring = $('atsRing'); ring.style.setProperty('--val', h.score); ring.style.setProperty('--col', col);
-      $('checks').innerHTML = (h.checks||[]).map(c=>`<div class="chk ${c.ok?'ok':''}"><span class="dot">${c.ok?'✓':'•'}</span><span>${esc(c.label)}</span></div>`).join('');
+      $('checks').innerHTML = catBars(h.categories) +
+        (h.checks||[]).map(c=>`<div class="chk ${c.ok?'ok':''}"><span class="dot">${c.ok?'✓':'•'}</span><span>${esc(c.label)}</span></div>`).join('');
     }
 
     let HAS_RESUME = false, HAS_FORMAT = false, RESUME_CONFIRMED = false, PENDING_CTX = null;
@@ -423,10 +431,14 @@
         const bar = (label,v)=>{ const c=v>=75?'var(--ok)':(v>=50?'var(--accent)':'var(--c-notfit)');
           return `<div style="flex:1;min-width:90px"><div style="display:flex;justify-content:space-between;font-size:.7rem;color:var(--muted)"><span>${label}</span><b style="color:var(--ink)">${v}</b></div><div class="bar" style="height:5px;margin-top:3px"><span style="width:${v}%;background:${c}"></span></div></div>`; };
         $('jcSubs').innerHTML = bar('Must-have skills',ss.must_have)+bar('Nice-to-have',ss.nice_to_have)+bar('Resume quality',ss.resume_quality);
-        // make the quality number actionable: list exactly which checks failed (usually parse gaps)
-        if(ss.resume_quality < 75 && (window.LAST_CHECKS||[]).some(c=>!c.ok)){
-          const fails=(window.LAST_CHECKS||[]).filter(c=>!c.ok).map(c=>esc(c.label));
-          $('jcSubs').innerHTML += `<div style="flex-basis:100%;font-size:.72rem;color:var(--muted);margin-top:6px"><b style="color:var(--ink)">To raise resume quality:</b> ${fails.join(' &middot; ')}</div>`;
+        // make the quality number actionable: break it into Impact/Brevity/Style + the exact failing checks
+        const H = window.LAST_HEALTH;
+        if(H && H.categories && H.categories.length){
+          $('jcSubs').innerHTML += '<div style="flex-basis:100%;margin-top:8px">'+catBars(H.categories)+'</div>';
+          const fails = H.categories.flatMap(c=>c.fails||[]).map(esc);
+          if(fails.length){
+            $('jcSubs').innerHTML += `<div style="flex-basis:100%;font-size:.72rem;color:var(--muted);margin-top:2px"><b style="color:var(--ink)">To raise quality:</b> ${fails.join(' &middot; ')}</div>`;
+          }
         }
       } else { $('jcSubs').innerHTML=''; }
       if(!miss.length){

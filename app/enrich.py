@@ -93,15 +93,17 @@ def _run(prompt: str, job: dict, resume_text: str, jd_chars: int = 3000):
         return "", f"{LLM_PROVIDER} request failed: {e}"
 
 
-def _json_call(system: str, user_msg: str):
+def _json_call(system: str, user_msg: str, max_tokens: int = 600):
     """Run an LLM call expected to return JSON; parse defensively. Returns (obj, error)."""
     if not available():
         return None, "No LLM key set (add a free Groq key)."
     try:
         if LLM_PROVIDER == "anthropic":
-            raw = _chat_anthropic(system, user_msg)
+            raw = _chat_anthropic(system, user_msg, max_tokens=max_tokens)
         else:
-            raw = _chat_openai_compat([{"role": "system", "content": system}, {"role": "user", "content": user_msg}])
+            raw = _chat_openai_compat(
+                [{"role": "system", "content": system}, {"role": "user", "content": user_msg}],
+                max_tokens=max_tokens)
         import json as _json
         import re as _re
         raw = _re.sub(r"^```(?:json)?|```$", "", raw.strip(), flags=_re.M).strip()  # strip code fences
@@ -165,29 +167,73 @@ def parse_resume_structured(resume_text: str):
 
 def tailor_edits(resume_json: dict, job_title: str, job_desc: str):
     """Produce concrete, reviewable edits to tailor the resume to a job. Returns (dict, error) where
-    dict = {summary: str, add_skills: [str], bullets: [{original, improved, why}]}."""
+    dict = {summary, add_skills:[...], bullets:[{original, improved, why}]}.
+
+    We pre-compute deterministic diagnostics (which bullets are weak and why) + the JD keywords the
+    resume is missing, and hand the model the EXACT lines to rewrite with the Google XYZ formula
+    ('Accomplished X as measured by Y by doing Z'). If the model misses a flagged line or is
+    offline/quota'd, we backfill with the deterministic rewrite so experience lines always get a
+    concrete suggestion , the thing that was missing before."""
     import json as _json
+    from . import ats_rules
+    from .resume import ats_job_match
+
+    # what the JD wants that the resume lacks, and which existing bullets are weak
+    match = ats_job_match(resume_json, job_desc or "") if (job_desc or "").strip() else {}
+    missing_kw = [m["term"] for m in (match.get("missing") or [])][:14]
+    diags = ats_rules.bullet_diagnostics(resume_json, job_desc or "", missing_kw=missing_kw)
+    weak = diags[:14]  # rewrite the worst lines first; keeps the prompt focused and the call cheap
+    weak_block = "\n".join(
+        f'- ["{w["original"]}"] problems: {", ".join(i["msg"] for i in w["issues"])}'
+        + (f'; could naturally carry: {", ".join(w["carry_keywords"])}' if w.get("carry_keywords") else "")
+        for w in weak
+    ) or "(no obviously weak bullets , still improve any that can be sharper)"
+
     sys = (
-        "You tailor a resume to a specific job. Given the candidate's structured resume (JSON, which "
-        "may include experience, projects, and other sections) and a job, return JSON with keys: "
-        "summary (a SPECIFIC 2-3 line professional summary grounded in the candidate's REAL experience "
-        "and tuned to THIS job's actual stack and responsibilities; lead with their strongest relevant "
-        "proof , years, concrete technologies, a notable outcome. "
-        "HARD BANS: do NOT use the words/phrases 'highly motivated', 'passionate', 'dynamic team', "
-        "'innovative projects', 'looking to collaborate', 'results-driven', 'team player', or any generic "
-        "filler. Do NOT mention any location, market, or country unless the candidate's own resume states "
-        "it. Every clause must be concrete and specific to this candidate and this role, not a template), "
-        "add_skills (array of real skills the candidate already evidences that this JD wants but the "
-        "skills list omits, [] if none), "
-        "bullets (array of objects {original, improved, why} that rewrite EXISTING bullets , from "
-        "experience AND projects AND any other section , to mirror the JD's language and quantify "
-        "impact). Include EVERY bullet worth improving (do not cap the count); 'original' MUST be the "
-        "exact existing bullet text so it can be located. Never fabricate; improve only what the "
-        "resume supports. No em dashes. Output ONLY the JSON object."
+        "You are an expert resume writer who rewrites bullets the way ResumeWorded and Jobscan teach. "
+        "Rewrite using the Google XYZ formula: 'Accomplished [X] as measured by [Y], by doing [Z]' , "
+        "lead with a strong action verb, then the concrete result with a NUMBER, then how. "
+        "RULES: (1) Every rewritten experience/project bullet MUST contain a measurable result. If the "
+        "candidate's text implies a number but doesn't state one, keep their real number; if there is "
+        "genuinely no number, insert a clearly-bracketed placeholder like '[add metric: ~X% / $Y / N "
+        "users / Z hrs saved]' so they fill it , NEVER invent a specific figure. (2) Open with a strong, "
+        "varied action verb (Led, Built, Shipped, Reduced, Drove, Automated...), never 'Responsible for', "
+        "'Worked on', 'Helped', 'Assisted'. (3) Weave in the JD keywords listed below ONLY where the "
+        "candidate's experience truly supports them. (4) Active voice, no personal pronouns, one to two "
+        "lines. (5) BANNED words: passionate, results-driven, dynamic, team player, detail-oriented, "
+        "hardworking, motivated, self-starter, go-getter, synergy, and similar filler. No location/country "
+        "unless the resume states it. No em dashes. Never fabricate employers, projects, or metrics.\n"
+        "Return ONLY a JSON object with keys: "
+        "summary (a specific 2-3 line summary grounded in the candidate's real experience and tuned to "
+        "this role's stack; lead with strongest proof , years, concrete tech, a notable outcome), "
+        "add_skills (array of skills the candidate already evidences that the JD wants but the skills "
+        "list omits; [] if none), "
+        "bullets (array of {original, improved, why}; 'original' MUST be the verbatim existing bullet "
+        "text so we can locate it; rewrite EVERY bullet listed under WEAK BULLETS plus any other that "
+        "can be sharper; 'why' names the specific fix, e.g. 'added a metric + JD keyword Kafka')."
     )
-    user_msg = (f"RESUME JSON:\n{_json.dumps(resume_json)[:9000]}\n\n"
-                f"JOB: {job_title}\n{(job_desc or '')[:2800]}")
-    return _json_call(sys, user_msg)
+    user_msg = (
+        f"RESUME JSON:\n{_json.dumps(resume_json)[:8000]}\n\n"
+        f"TARGET JOB: {job_title}\n{(job_desc or '')[:2600]}\n\n"
+        f"JD KEYWORDS MISSING FROM RESUME (weave in only where truthful): "
+        f"{', '.join(missing_kw) or '(none , resume already covers the JD)'}\n\n"
+        f"WEAK BULLETS TO REWRITE (verbatim original in brackets):\n{weak_block}"
+    )
+    obj, err = _json_call(sys, user_msg, max_tokens=2200)
+    if not obj:
+        # AI offline/quota'd , still return the deterministic rewrites so the user gets real help
+        if not weak:
+            return None, err
+        return ({"summary": "", "add_skills": [],
+                 "bullets": [{"original": w["original"], "improved": w["suggestion"],
+                              "why": w["issues"][0]["msg"]} for w in weak]}, "")
+    # backfill any flagged bullet the model skipped, so experience lines are never left untouched
+    covered = {(b.get("original") or "").strip().lower() for b in (obj.get("bullets") or [])}
+    extra = [{"original": w["original"], "improved": w["suggestion"], "why": w["issues"][0]["msg"]}
+             for w in weak if w["original"].strip().lower() not in covered]
+    if extra:
+        obj.setdefault("bullets", []).extend(extra)
+    return obj, ""
 
 
 def phrasings(resume_json: dict, keyword: str, role: str = "", jd: str = ""):
@@ -330,20 +376,20 @@ def booster(job: dict, resume_text: str):
         return "", f"{LLM_PROVIDER} request failed: {e}"
 
 
-def _chat_openai_compat(messages: list) -> str:
+def _chat_openai_compat(messages: list, max_tokens: int = 600) -> str:
     url, default_model = OPENAI_COMPAT.get(LLM_PROVIDER, OPENAI_COMPAT["groq"])
     model = LLM_MODEL or default_model
     r = requests.post(
         url,
         headers={"Authorization": f"Bearer {LLM_API_KEY}", "Content-Type": "application/json"},
-        json={"model": model, "messages": messages, "temperature": 0.4, "max_tokens": 600},
-        timeout=40,
+        json={"model": model, "messages": messages, "temperature": 0.4, "max_tokens": max_tokens},
+        timeout=60,
     )
     r.raise_for_status()
     return r.json()["choices"][0]["message"]["content"].strip()
 
 
-def _chat_anthropic(system: str, user: str) -> str:
+def _chat_anthropic(system: str, user: str, max_tokens: int = 600) -> str:
     model = LLM_MODEL or "claude-haiku-4-5-20251001"
     r = requests.post(
         "https://api.anthropic.com/v1/messages",
@@ -354,11 +400,11 @@ def _chat_anthropic(system: str, user: str) -> str:
         },
         json={
             "model": model,
-            "max_tokens": 600,
+            "max_tokens": max_tokens,
             "system": system,
             "messages": [{"role": "user", "content": user}],
         },
-        timeout=40,
+        timeout=60,
     )
     r.raise_for_status()
     return r.json()["content"][0]["text"].strip()
