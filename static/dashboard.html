@@ -36,8 +36,12 @@
     .company{font-weight:600}
     .date{color:var(--muted);font-size:var(--fs-xs);white-space:nowrap}
     .tag{display:inline-block;padding:3px 10px;border-radius:var(--r-pill);font-size:var(--fs-xs);font-weight:600;border:1px solid transparent}
-    .actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
-    .applylink,.tailorbtn{display:inline-flex;align-items:center;justify-content:center;gap:5px;height:32px;padding:0 13px;border-radius:var(--r-sm);font-weight:600;font-size:var(--fs-sm);cursor:pointer;white-space:nowrap;transition:.15s;line-height:1;font-family:inherit;border:0;text-decoration:none}
+    .actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;max-width:320px}
+    .applylink,.tailorbtn{display:inline-flex;align-items:center;justify-content:center;gap:5px;height:29px;padding:0 10px;border-radius:var(--r-sm);font-weight:600;font-size:var(--fs-xs);cursor:pointer;white-space:nowrap;transition:.15s;line-height:1;font-family:inherit;border:0;text-decoration:none}
+    .fbb{padding:0 8px!important;font-size:.9rem}
+    /* sticky sidebar: streak/calendar stay in view (and fill the right space) as the job list scrolls */
+    .side{position:sticky;top:var(--sp-4);align-self:start;max-height:calc(100vh - 84px);overflow:auto}
+    @media (max-width:900px){ .side{position:static;max-height:none;overflow:visible} }
     .applylink{color:var(--accent-ink);background:var(--accent)}
     .applylink:hover{background:var(--accent-2);transform:translateY(-1px)}
     .applylink svg{width:13px;height:13px}
@@ -81,7 +85,7 @@
   <div class="wrap">
     <div class="head">
       <h1 id="hello">My JobHunt tracker</h1>
-      <p class="sub">Every job we matched you. Mark what you applied to, keep your streak alive, climb the friends board.</p>
+      <p class="sub">Every job we matched you. Mark what you applied to and keep your streak alive.</p>
       <p class="sub" id="schedNote" style="display:none;margin-top:4px"></p>
     </div>
 
