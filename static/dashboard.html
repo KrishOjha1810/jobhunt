@@ -395,6 +395,7 @@
             <select class="statussel" style="${statusStyle(j.status)}" onchange="updStatus(${j.id}, this)">${STATUS_OPTS.map(o=>`<option value="${o.v}" ${ (j.status||'saved')===o.v ? 'selected':''}>${o.label}</option>`).join('')}</select>
             <a class="tailorbtn" href="/resume?job_id=${j.id}">✨ Tailor resume</a>
             <button class="tailorbtn" onclick="aiMenu(${j.id})">More AI</button>
+            ${safeUrl(j.url)?`<button class="tailorbtn fbb" title="Good match" onclick="dbFb('${esc(safeUrl(j.url))}','${esc(j.category||'')}','good',this)">👍</button><button class="tailorbtn fbb" title="Not for me" onclick="dbFb('${esc(safeUrl(j.url))}','${esc(j.category||'')}','bad',this)">👎</button>`:''}
           </div></td>
           <td data-label="Resume"><select class="res" onchange="upd(${j.id},'resume_used',this.value)">
             ${resumeOpts(j.resume_used).map(r=>`<option value="${esc(r)}" ${ (j.resume_used||'')===r ? 'selected':''}>${esc(resumeLabel(r))}</option>`).join('')}
@@ -422,6 +423,14 @@
       try{ fetch('/api/event?token='+encodeURIComponent(token),{method:'POST',keepalive:true,
         headers:{'content-type':'application/json'},
         body:JSON.stringify({url,event:'clicked',category:cat,source:'tracker'})}).catch(()=>{}); }catch(e){}
+    }
+    // 👍/👎 match feedback , trains the recommender + feeds the /diag quality metric
+    function dbFb(url, cat, v, btn){
+      if(!token || !url) return;
+      const ev = v==='good' ? 'good_match' : 'bad_match';
+      fetch('/api/event?token='+encodeURIComponent(token),{method:'POST',headers:{'content-type':'application/json'},
+        body:JSON.stringify({url, event:ev, category:cat, source:'tracker'})}).catch(()=>{});
+      if(btn){ const p=btn.parentElement; if(p) p.querySelectorAll('.fbb').forEach(b=>{b.disabled=true;b.style.opacity=.35;}); btn.style.opacity=1; }
     }
     async function upd(id, field, value) {
       const p = new URLSearchParams({ token }); p.set(field, value);

@@ -218,6 +218,15 @@
         .then(r=>r.json()).then(d=>{ if(!silent) el.textContent=(d&&d.ok)?'✓ In tracker':'Track'; })
         .catch(()=>{ if(!silent){ el.disabled=false; el.textContent='✚ Track'; } });
     }
+    // 👍/👎 on a matched job , trains the recommender + feeds the quality metric (same as the digest)
+    function fbJob(el){
+      if(!dashToken || !el) return;
+      const ev = el.dataset.v==='good' ? 'good_match' : 'bad_match';
+      fetch('/api/event?token='+encodeURIComponent(dashToken),{method:'POST',headers:{'content-type':'application/json'},
+        body:JSON.stringify({url:el.dataset.u, event:ev, category:el.dataset.cat||'', source:'browse'})}).catch(()=>{});
+      const wrap=el.parentElement; if(wrap) wrap.querySelectorAll('.fbbtn').forEach(b=>{ b.disabled=true; b.style.opacity=.35; });
+      el.style.opacity=1; el.textContent = el.dataset.v==='good' ? '👍 thanks' : '👎 noted';
+    }
     function logClick(url, cat){
       if(!dashToken) return;
       try{ fetch('/api/event?token='+encodeURIComponent(dashToken),{method:'POST',keepalive:true,
@@ -420,12 +429,14 @@
             ${u?`<a class="apply" style="background:var(--field);color:var(--ink);border:1px solid var(--field-border)" href="/resume?url=${encodeURIComponent(u)}">Tailor resume</a>`:''}
             ${u&&dashToken?`<button class="apply trackbtn" data-u="${esc(u)}" data-t="${esc(j.title||'')}" data-co="${esc(j.company||'')}" style="background:var(--field);color:var(--accent);border:1px solid var(--field-border)">✚ Track</button>`:''}
           </div>
+          ${j.matched&&dashToken?`<div style="margin-top:7px;font-size:.74rem;color:var(--muted);display:flex;align-items:center;gap:6px">Good match for you? <button class="fbbtn" data-u="${esc(u)}" data-cat="${esc(j.category||'')}" data-v="good" style="border:1px solid var(--field-border);background:var(--field);border-radius:8px;padding:2px 8px;cursor:pointer">👍</button><button class="fbbtn" data-u="${esc(u)}" data-cat="${esc(j.category||'')}" data-v="bad" style="border:1px solid var(--field-border);background:var(--field);border-radius:8px;padding:2px 8px;cursor:pointer">👎</button></div>`:''}
         </div>`;
       }).join('');
       // Apply also silently saves the job to the tracker (you applied = you want it tracked); the
       // explicit Track button saves without applying.
       document.querySelectorAll('#list .applybtn').forEach(a=>a.addEventListener('click',()=>{ logClick(a.dataset.u,a.dataset.cat); saveJob(a,true); }));
       document.querySelectorAll('#list .trackbtn').forEach(b=>b.onclick=()=>saveJob(b,false));
+      document.querySelectorAll('#list .fbbtn').forEach(b=>b.onclick=()=>fbJob(b));
     }
     document.getElementById('search').addEventListener('input', render);
     document.getElementById('recoBtn').addEventListener('click', (e)=>{
