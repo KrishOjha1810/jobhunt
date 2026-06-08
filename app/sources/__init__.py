@@ -40,6 +40,24 @@ def build_query(keywords: list) -> str:
     return " ".join(query_terms(keywords)[:3]) or "software engineer"
 
 
+import urllib.parse as _urlparse
+# Tracking params that vary per fetch (Adzuna's i/se/v, utm_*, LinkedIn trk, ...). Dropping them gives
+# a stable URL so the SAME job re-listed with new tokens isn't treated as new , this was causing the
+# same Adzuna/LinkedIn job to be delivered twice across runs.
+_TRACK_PARAMS = {"utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "utm_id",
+                 "i", "se", "v", "trk", "ref", "src", "gh_src", "source"}
+
+
+def _canon_url(u: str) -> str:
+    try:
+        p = _urlparse.urlsplit(u)
+        q = [(k, val) for k, val in _urlparse.parse_qsl(p.query)
+             if k.lower() not in _TRACK_PARAMS]
+        return _urlparse.urlunsplit((p.scheme, p.netloc, p.path.rstrip("/"), _urlparse.urlencode(q), ""))
+    except Exception:
+        return u
+
+
 def _dedup(jobs: list) -> list:
     # Strip common seniority/level words from titles so "Senior Backend Engineer" and "Backend
     # Engineer" at the same company collapse (aggregators repost the same role many ways).
@@ -57,7 +75,9 @@ def _dedup(jobs: list) -> list:
 
     seen_urls, seen_keys, seen_fps, unique = set(), set(), set(), []
     for j in jobs:
-        u = (j.get("url") or "").strip()
+        u = _canon_url((j.get("url") or "").strip())
+        if u:
+            j["url"] = u  # persist the canonical url so 'seen'/dedup stays stable across runs
         if not u or u in seen_urls:
             continue
         key = title_key(j)
@@ -83,12 +103,28 @@ POOL_CAP = int(_os.environ.get("POOL_CAP", "") or "500")
 # Cap each high-volume source's contribution so no single one crowds out the others under POOL_CAP.
 # ATS = direct-from-company boards (highest quality, keyless), so give it a larger share than aggregators.
 ATS_CAP = int(_os.environ.get("ATS_CAP", "") or "300")
+# Adzuna is the stalest source (aggregator, lots of closed listings), so cap how much it can flood the
+# pool. The user reported "almost all jobs were from Adzuna" , this reins it in.
+ADZUNA_CAP = int(_os.environ.get("ADZUNA_CAP", "") or "60")
 
 
 def _ats_capped():
     aj = ats.fetch()
     aj.sort(key=lambda j: str(j.get("posted_at") or ""), reverse=True)
     return aj[:ATS_CAP]
+
+
+def _cap_source(jobs: list, prefix: str, cap: int) -> list:
+    """Keep at most `cap` of the freshest jobs whose source starts with `prefix`; drop the rest."""
+    jobs.sort(key=lambda j: str(j.get("posted_at") or ""), reverse=True)
+    out, n = [], 0
+    for j in jobs:
+        if (j.get("source") or "").split(":")[0] == prefix:
+            n += 1
+            if n > cap:
+                continue
+        out.append(j)
+    return out
 
 
 def _fetch(terms: list, india_wanted: bool, max_adzuna_terms: int = 3) -> list:
@@ -128,6 +164,7 @@ def _fetch(terms: list, india_wanted: bool, max_adzuna_terms: int = 3) -> list:
         except concurrent.futures.TimeoutError:
             pass  # take whatever finished in budget
     jobs = _dedup(jobs)
+    jobs = _cap_source(jobs, "adzuna", ADZUNA_CAP)  # rein in the stalest source so it can't flood
     # keep the freshest, capped, so the run stays quick (str() guards mixed int/str posted_at)
     jobs.sort(key=lambda j: str(j.get("posted_at") or ""), reverse=True)
     return jobs[:POOL_CAP]

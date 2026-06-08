@@ -227,7 +227,7 @@ import math as _math
 # Blended selection-score weights (the prior, before any per-user learning). Content dominates so a
 # brand-new user's ranking ~= the old keyword behaviour; learned/global signals only re-sort within.
 SCORE_WEIGHTS = {"content": 4.2, "pref": 1.4, "seniority": 1.2, "location": 1.0,
-                 "recency": 0.5, "collab": 0.7, "trending": 0.5, "semantic": 1.3}
+                 "recency": 0.5, "collab": 0.7, "trending": 0.5, "semantic": 1.3, "source": 1.0}
 # Baseline subtracted from the logistic input so a SHALLOW match (one common keyword like "java")
 # scores low, not ~50%+. Tuned with content=4.2 so 1 skill ~30%, 3 skills ~70%, 5+ skills ~90%.
 SCORE_BIAS = 2.8
@@ -321,11 +321,20 @@ def blended_score(job: dict, ctx: dict) -> tuple:
     if isinstance(sem, float) and base is not None:
         Sem = max(-1.0, min(1.0, (sem - base) * 4.0))
 
+    # source quality: direct company boards are freshest + rarely closed; Adzuna is the stalest source
+    src = (job.get("source") or "").split(":")[0]
+    if src in ("greenhouse", "lever", "ashby", "smartrecruiters", "workday"):
+        Sq = 0.5
+    elif src == "adzuna":
+        Sq = -0.6
+    else:
+        Sq = 0.0
+
     w = SCORE_WEIGHTS
     contrib = {"content": w["content"] * C, "pref": w["pref"] * Pf, "seniority": w["seniority"] * S,
                "location": w["location"] * L, "recency": w["recency"] * R,
                "collab": w["collab"] * Co, "trending": w["trending"] * Tr,
-               "semantic": w["semantic"] * Sem}
+               "semantic": w["semantic"] * Sem, "source": w["source"] * Sq}
     z = sum(contrib.values()) - SCORE_BIAS
     score = int(round(100 / (1 + _math.exp(-max(-30, min(30, z))))))
     score = max(15, min(100, score))
@@ -334,7 +343,8 @@ def blended_score(job: dict, ctx: dict) -> tuple:
 
 _CONTRIB_LABEL = {"content": "skills match", "pref": "roles you favour", "seniority": "seniority fit",
                   "location": "location fit", "recency": "freshly posted", "collab": "popular with similar users",
-                  "trending": "trending role", "semantic": "matches your resume"}
+                  "trending": "trending role", "semantic": "matches your resume",
+                  "source": "from a company board"}
 
 
 def blended_reason(job: dict, score: int, contrib: dict) -> str:
