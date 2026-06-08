@@ -1041,6 +1041,31 @@ def track(t: str = "", u: str = "", s: str = "applied"):
         f"<div>{body}</div>")
 
 
+@app.get("/feedback", response_class=HTMLResponse)
+def feedback(t: str = "", u: str = "", v: str = ""):
+    """One-tap match feedback from the digest: t=dash_token, u=job url, v=good|bad. Records a
+    good_match/bad_match event , trains the recommender AND feeds the /diag quality metric."""
+    user = db.user_by_token(t) if t else None
+    ev = {"good": "good_match", "bad": "bad_match"}.get(v)
+    if user and u and ev:
+        try:
+            db.log_event(user["id"], u, ev, source="digest")
+        except Exception:
+            pass
+        body = ("<h2>Thanks ✓</h2><p>We'll send more matches like this.</p>" if ev == "good_match"
+                else "<h2>Got it ✓</h2><p>We'll show fewer like this.</p>")
+        body += "<p><a class='btn' href='/dashboard?token=" + t + "'>Open tracker</a></p>"
+    else:
+        body = "<h2>Link expired</h2><p>Open your tracker to give feedback.</p>"
+    return HTMLResponse(
+        f"<!doctype html><meta name='viewport' content='width=device-width,initial-scale=1'>"
+        f"<style>body{{font-family:-apple-system,Inter,sans-serif;background:#0f1117;color:#e8eaf0;"
+        f"display:flex;align-items:center;justify-content:center;min-height:90vh;text-align:center;padding:20px}}"
+        f"a.btn{{display:inline-block;padding:11px 18px;border-radius:10px;background:linear-gradient(135deg,#6366f1,#8b5cf6);"
+        f"color:#fff;text-decoration:none;font-weight:700;margin:6px}}</style>"
+        f"<div>{body}</div>")
+
+
 @app.get("/resume", response_class=HTMLResponse)
 def resume_page(request: Request):
     if not current_user(request):
@@ -1447,7 +1472,8 @@ def diag():
         "why_breakdown": dict(Counter(d.get("why", "?") for d in detail)),
     }
     return {"last_run": db.get_meta("last_run"), "sent": db.get_meta("last_run_sent"),
-            "users": db.get_meta("last_run_users"), "summary": summary, "detail": detail}
+            "users": db.get_meta("last_run_users"), "summary": summary,
+            "quality": db.match_quality_stats(), "detail": detail}
 
 
 @app.get("/telegram/info")

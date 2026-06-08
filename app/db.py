@@ -112,6 +112,7 @@ Index("ix_events_cat_time", events.c.category, events.c.created_at)
 EVENT_REWARD = {
     "shown": -0.1, "ignored": -0.3, "clicked": 0.4, "saved": 0.6,
     "applied": 1.0, "external_applied": 1.0, "not_interested": -1.0, "rejected": -0.2,
+    "good_match": 0.8, "bad_match": -1.0,   # explicit thumbs feedback (also trains the pref model)
 }
 
 # URLs reported as closed (job no longer open). Global blocklist: removed from the catalog, kept out
@@ -806,6 +807,36 @@ def prune_events(max_age_days=180):
             return c.execute(delete(events).where(events.c.created_at < cutoff)).rowcount or 0
     except Exception:
         return 0
+
+
+def match_quality_stats(days=30):
+    """Global signal-quality of delivered matches over the last `days` (for /diag): of the jobs we
+    SENT (shown via digest), how many drew a positive signal (click/save/apply/thumbs-up) vs negative
+    (thumbs-down/not-interested). This is the 'are the matches actually landing' metric , the real
+    proof that matching quality is good, not just that we found jobs."""
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    counts = {}
+    with engine.connect() as c:
+        for ev, n in c.execute(
+            select(events.c.event, func.count())
+            .where(events.c.created_at >= cutoff)
+            .group_by(events.c.event)
+        ).all():
+            counts[ev] = n or 0
+    shown = counts.get("shown", 0)
+    applied = counts.get("applied", 0) + counts.get("external_applied", 0)
+    up, down = counts.get("good_match", 0), counts.get("bad_match", 0)
+    return {
+        "days": days,
+        "matches_sent": shown,
+        "applied": applied,
+        "apply_rate": round(applied / shown, 3) if shown else None,
+        "thumbs_up": up,
+        "thumbs_down": down,
+        "clicked": counts.get("clicked", 0),
+        "saved": counts.get("saved", 0),
+        "marked_not_interested": counts.get("not_interested", 0),
+    }
 
 
 def trending_scores(days=7):

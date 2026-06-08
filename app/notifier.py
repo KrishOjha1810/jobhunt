@@ -180,10 +180,13 @@ def format_digest(user: dict, jobs: list) -> str:
         if j.get("reason"):
             lines.append(f"   {j['reason']}")
         lines.append(f"   Apply: {j.get('url','')}")
-        # one-tap: mark this applied straight from the alert (token-gated, reversible)
+        # one-tap: mark applied + give a quick good/bad signal straight from the alert (token-gated).
+        # The feedback trains the matcher AND feeds the quality metric (are these matches landing?).
         if tok and j.get("url"):
             u = urllib.parse.quote(j["url"], safe="")
             lines.append(f"   Mark applied: {BASE_URL}/track?t={tok}&u={u}&s=applied")
+            lines.append(f"   Good match: {BASE_URL}/feedback?t={tok}&u={u}&v=good"
+                         f"   |   Not for me: {BASE_URL}/feedback?t={tok}&u={u}&v=bad")
         lines.append("")
     if tok:
         lines.append(f"Your tracker: {BASE_URL}/dashboard?token={tok}")
