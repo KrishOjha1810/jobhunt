@@ -84,6 +84,7 @@
       <div class="row" style="align-items:center">
         <input type="file" id="gateFile" accept=".docx,.doc" style="flex:1;min-width:200px" />
         <button id="gateUpload">Upload &amp; tailor</button>
+        <button id="gateContinue" class="ghost" style="display:none">Continue with my uploaded resume</button>
       </div>
       <div id="gateOut" class="sub" style="margin-top:8px"></div>
     </div>
@@ -261,6 +262,7 @@
       R.summary=$('summary').value; R.skills=$('skills').value.split(',').map(s=>s.trim()).filter(Boolean);
     }
     function renderHealth(h){
+      window.LAST_CHECKS = (h && h.checks) || [];
       if(!h) return;
       $('score').textContent = h.score;
       const col = h.score>=80?'var(--ok)':(h.score>=60?'var(--accent)':'var(--c-notfit)');
@@ -268,7 +270,7 @@
       $('checks').innerHTML = (h.checks||[]).map(c=>`<div class="chk ${c.ok?'ok':''}"><span class="dot">${c.ok?'✓':'•'}</span><span>${esc(c.label)}</span></div>`).join('');
     }
 
-    let HAS_RESUME = false, HAS_FORMAT = false;
+    let HAS_RESUME = false, HAS_FORMAT = false, RESUME_CONFIRMED = false, PENDING_CTX = null;
     function updateExportUI(){
       const eo=$('exportOrigBtn'), eb=$('exportBtn'), hint=$('exportHint');
       if(!eo||!eb) return;
@@ -287,13 +289,27 @@
       $('pageSub').style.display = gate ? 'none' : '';
       if (gate) { $('jobContext').style.display='none'; $('jobIntake').style.display='none'; }
     }
-    function showUploadGate(msg){ $('gateMsg').innerHTML = msg || DOCX_GATE_MSG; setView('gate');
-      window.scrollTo({top:0, behavior:'smooth'}); }
+    function showUploadGate(msg){ $('gateMsg').innerHTML = msg || DOCX_GATE_MSG;
+      $('gateContinue').style.display='none'; setView('gate'); window.scrollTo({top:0, behavior:'smooth'}); }
+    // Mandatory first step: confirm the resume you're applying with. onFile=true means a .docx is
+    // already stored, so offer a one-click "continue"; otherwise an upload is required.
+    function showResumeGate(onFile, ctx){
+      PENDING_CTX = ctx;
+      $('gateMsg').innerHTML = onFile
+        ? 'Tailoring edits the exact resume you give us. Upload the <b>.docx</b> for this job, or continue with the one you already uploaded.'
+        : DOCX_GATE_MSG;
+      $('gateContinue').style.display = onFile ? 'inline-block' : 'none';
+      setView('gate'); window.scrollTo({top:0, behavior:'smooth'});
+    }
+    $('gateContinue').onclick = ()=>{ RESUME_CONFIRMED = true;
+      if (PENDING_CTX && PENDING_CTX.ok){ renderResult(PENDING_CTX, [PENDING_CTX.job.company, PENDING_CTX.job.title].filter(Boolean).join(' , ') || 'This job'); }
+      else { initJobContext(); } };
     // gate's own uploader -> stores the .docx, then continues the tailor automatically
     $('gateUpload').onclick = ()=>{ const f = $('gateFile').files[0];
       if (!f) { $('gateOut').innerHTML='<span class="err">Choose your .docx file first.</span>'; return; }
       if (!/\.docx?$/i.test(f.name)) { $('gateOut').innerHTML='<span class="err">Please upload a .docx (not a PDF) to keep your exact format.</span>'; return; }
       $('gateOut').innerHTML='<span class="spinner"></span> Uploading and tailoring...';
+      RESUME_CONFIRMED = true;  // they explicitly chose this resume for this application
       const fd=new FormData(); fd.append('file', f); importResume({method:'POST', body:fd}); };
     async function load(){
       const r = await fetch('/api/resume'); const d = await r.json();
@@ -407,6 +423,11 @@
         const bar = (label,v)=>{ const c=v>=75?'var(--ok)':(v>=50?'var(--accent)':'var(--c-notfit)');
           return `<div style="flex:1;min-width:90px"><div style="display:flex;justify-content:space-between;font-size:.7rem;color:var(--muted)"><span>${label}</span><b style="color:var(--ink)">${v}</b></div><div class="bar" style="height:5px;margin-top:3px"><span style="width:${v}%;background:${c}"></span></div></div>`; };
         $('jcSubs').innerHTML = bar('Must-have skills',ss.must_have)+bar('Nice-to-have',ss.nice_to_have)+bar('Resume quality',ss.resume_quality);
+        // make the quality number actionable: list exactly which checks failed (usually parse gaps)
+        if(ss.resume_quality < 75 && (window.LAST_CHECKS||[]).some(c=>!c.ok)){
+          const fails=(window.LAST_CHECKS||[]).filter(c=>!c.ok).map(c=>esc(c.label));
+          $('jcSubs').innerHTML += `<div style="flex-basis:100%;font-size:.72rem;color:var(--muted);margin-top:6px"><b style="color:var(--ink)">To raise resume quality:</b> ${fails.join(' &middot; ')}</div>`;
+        }
       } else { $('jcSubs').innerHTML=''; }
       if(!miss.length){
         $('jcMissing').innerHTML = '<span class="ok">Your resume covers the key skills in this job.</span>';
@@ -527,10 +548,13 @@
         const r = await fetch('/api/resume/context?'+ctxQuery());
         if(!r.ok){ $('jcTitle').textContent='Could not load this job.'; return; }
         const d = await r.json();
-        if(d.needs_docx){ CTX_JOB=d.job||null; showUploadGate(DOCX_GATE_MSG); return; }
         if(d.needs_upload){ showUploadGate(); return; }
+        CTX_JOB = d.job || null;
+        // Mandatory step 1: confirm the resume you're applying with. If none on file -> must upload.
+        // If one IS on file, show the gate first with a one-click "continue" (so it's always explicit).
+        if(d.needs_docx){ showResumeGate(false, null); return; }
+        if(!RESUME_CONFIRMED){ showResumeGate(true, d); return; }
         if(!d.ok){ $('jcTitle').textContent = d.reason||'Job not found.'; return; }
-        CTX_JOB = d.job;
         renderResult(d, [d.job.company, d.job.title].filter(Boolean).join(' , ') || 'This job');
         return;
       }
