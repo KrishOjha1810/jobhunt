@@ -143,7 +143,37 @@ def _user_prefs(user, uyears):
             prefs["avoid"] = av if isinstance(av, list) else [s.strip() for s in str(av).split(",") if s.strip()]
     except Exception:
         pass
+    try:
+        prefs["avoid_companies"] = db.suppressed_companies(user["id"])  # rejected companies -> hard-hidden
+    except Exception:
+        pass
     return prefs
+
+
+_REMOTE_HINTS = ("remote", "anywhere", "work from home", "wfh", "distributed", "work-from-home")
+
+
+def _apply_dealbreakers(jobs, prefs):
+    """Hard filter , a stated deal-breaker is non-negotiable (this is what 'only my match' means).
+    Drops jobs matching the avoid-list, and (if remote_only) anything not clearly remote."""
+    avoid = prefs.get("avoid") or []
+    remote_only = prefs.get("remote_only")
+    avoid_co = prefs.get("avoid_companies") or set()
+    if not avoid and not remote_only and not avoid_co:
+        return jobs
+    out = []
+    for j in jobs:
+        if avoid_co and (j.get("company", "") or "").strip().lower() in avoid_co:
+            continue  # company the user rejected , never show again
+        hay = (f"{j.get('title','')} {j.get('company','')} {j.get('description','') or ''}").lower()
+        if avoid and any(a in hay for a in avoid):
+            continue
+        if remote_only:
+            loc = (j.get("location", "") or "").lower()
+            if not any(t in loc for t in _REMOTE_HINTS) and "remote" not in hay:
+                continue
+        out.append(j)
+    return out
 
 
 def _semantic_rerank(user, ranked, verbose=False):
@@ -328,11 +358,16 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
             if extra:
                 ranked += extra
                 d["matched"] = len(ranked)
+            # hard deal-breakers (remote-only / avoid-list) , non-negotiable, filtered before scoring
+            prefs = _user_prefs(user, uyears)
+            ranked = _apply_dealbreakers(ranked, prefs)
             ranked = _semantic_rerank(user, ranked, verbose)  # cached-only, no network here
             if SCORE_V2:
                 # v2: rebuild the user's preference vector from their event history (idempotent replay),
                 # then re-score every candidate with the blended selection score + reason.
-                theta = {}
+                # warm-start from the user's chosen/auto-detected roles so the FIRST digest is already
+                # personal (cold-start) , real events then refine/override these seeds over time.
+                theta = {("cat:" + c): 0.35 for c in cats}
                 if PREF_LEARNING:
                     try:
                         evs = db.recent_events(user["id"], days=120)
@@ -411,7 +446,6 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
             screened = False
             if PRECISION and enrich.available() and len(ranked) >= 1:
                 try:
-                    prefs = _user_prefs(user, uyears)
                     screen = enrich.recruiter_screen(user.get("resume_text") or "",
                                                      rerank_pool[:SCREEN_N], prefs)
                     if screen:

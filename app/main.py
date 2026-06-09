@@ -380,7 +380,8 @@ async def api_profile(request: Request, token: str = ""):
         body = await request.json()
     except Exception:
         body = {}
-    data = db.set_profile_extra(user["id"], body.get("achievements", ""), body.get("projects", ""))
+    data = db.set_profile_extra(user["id"], body.get("achievements", ""), body.get("projects", ""),
+                                remote_only=body.get("remote_only"), avoid=body.get("avoid"))
     return {"ok": True, "profile_extra": data}
 
 

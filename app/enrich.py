@@ -337,25 +337,22 @@ def recruiter_screen(resume_text: str, jobs: list, prefs: dict = None):
         (("CANDIDATE CONSTRAINTS:\n" + "\n".join(constraints) + "\n\n") if constraints else "")
         + f"RESUME:\n{resume_text[:5000]}\n\nJOBS:\n{listing}"
     )
-    obj, err = _json_call(sys, user_msg, max_tokens=2400)
-    # _json_call expects an object; arrays come back as None -> retry parse here.
-    if obj is None:
-        try:
-            if LLM_PROVIDER == "anthropic":
-                raw = _chat_anthropic(sys, user_msg, max_tokens=2400)
-            else:
-                raw = _chat_openai_compat(
-                    [{"role": "system", "content": sys}, {"role": "user", "content": user_msg}], max_tokens=2400)
-            import json as _json
-            import re as _re
-            raw = _re.sub(r"^```(?:json)?|```$", "", raw.strip(), flags=_re.M).strip()
-            m = _re.search(r"\[.*\]", raw, _re.S)
-            arr = _json.loads(m.group(0)) if m else []
-        except Exception as e:
-            print(f"[enrich] recruiter_screen failed: {e}")
-            return []
-    else:
-        arr = obj if isinstance(obj, list) else (obj.get("jobs") or obj.get("results") or [])
+    # ONE call (the output is a JSON array, so we parse it directly rather than via _json_call which
+    # expects an object , avoids a wasted second call/quota hit).
+    try:
+        if LLM_PROVIDER == "anthropic":
+            raw = _chat_anthropic(sys, user_msg, max_tokens=2400)
+        else:
+            raw = _chat_openai_compat(
+                [{"role": "system", "content": sys}, {"role": "user", "content": user_msg}], max_tokens=2400)
+        import json as _json
+        import re as _re
+        raw = _re.sub(r"^```(?:json)?|```$", "", raw.strip(), flags=_re.M).strip()
+        m = _re.search(r"\[.*\]", raw, _re.S)
+        arr = _json.loads(m.group(0)) if m else []
+    except Exception as e:
+        print(f"[enrich] recruiter_screen failed: {e}")
+        return []
     # normalize -> list aligned to jobs by index
     out = [None] * len(jobs)
     for item in (arr or []):

@@ -198,7 +198,15 @@
             <textarea id="pfAch" rows="3" placeholder="e.g. Cut API latency 40%, led a team of 5, shipped a feature used by 10k users" style="width:100%"></textarea>
             <label style="font-size:var(--fs-xs);color:var(--muted);display:block;margin:8px 0 4px">Notable projects</label>
             <textarea id="pfProj" rows="3" placeholder="Projects worth highlighting (impact + tech)" style="width:100%"></textarea>
-            <button class="applylink" id="pfSave" style="border:0;width:100%;margin-top:8px;justify-content:center">Save</button>
+            <div style="border-top:1px solid var(--line);margin:12px 0 8px;padding-top:10px">
+              <div class="card-kicker" style="margin-bottom:6px">deal-breakers (hard filters)</div>
+              <label style="display:flex;align-items:center;gap:8px;font-size:var(--fs-sm);cursor:pointer">
+                <input type="checkbox" id="pfRemote" style="width:auto"> Remote roles only
+              </label>
+              <label style="font-size:var(--fs-xs);color:var(--muted);display:block;margin:8px 0 4px">Never show (companies / words, comma-separated)</label>
+              <input type="text" id="pfAvoid" placeholder="e.g. crypto scam, Acme Corp, unpaid" style="width:100%">
+            </div>
+            <button class="applylink" id="pfSave" style="border:0;width:100%;margin-top:4px;justify-content:center">Save</button>
             <span class="sub" id="pfMsg" style="margin:6px 0 0;display:block"></span>
           </div>
         </details>
@@ -581,17 +589,21 @@
       const ach = document.getElementById('pfAch'), proj = document.getElementById('pfProj');
       const msg = document.getElementById('pfMsg'), save = document.getElementById('pfSave');
       if (!ach || !save) return;
+      const remote = document.getElementById('pfRemote'), avoid = document.getElementById('pfAvoid');
       fetch('/api/profile?token=' + encodeURIComponent(token)).then(r => r.ok ? r.json() : null).then(d => {
         const p = (d && d.profile_extra) || {};
         ach.value = p.achievements || ''; proj.value = p.projects || '';
+        if (remote) remote.checked = !!p.remote_only;
+        if (avoid) avoid.value = (p.avoid || []).join(', ');
       }).catch(() => {});
       save.onclick = async () => {
         save.disabled = true; msg.textContent = 'Saving...';
         try {
           await fetch('/api/profile?token=' + encodeURIComponent(token), { method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ achievements: ach.value, projects: proj.value }) });
-          msg.innerHTML = '<span class="ok">Saved , we\'ll use this when tailoring.</span>';
+            body: JSON.stringify({ achievements: ach.value, projects: proj.value,
+              remote_only: remote ? remote.checked : false, avoid: avoid ? avoid.value : '' }) });
+          msg.innerHTML = '<span class="ok">Saved , we\'ll use this when matching + tailoring.</span>';
         } catch (e) { msg.innerHTML = '<span class="err">Could not save.</span>'; }
         save.disabled = false;
       };

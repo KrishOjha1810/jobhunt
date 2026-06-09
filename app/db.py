@@ -696,9 +696,17 @@ def get_profile_extra(user_id):
     return {}
 
 
-def set_profile_extra(user_id, achievements="", projects=""):
-    data = {"achievements": (achievements or "").strip()[:4000],
-            "projects": (projects or "").strip()[:4000]}
+def set_profile_extra(user_id, achievements="", projects="", remote_only=None, avoid=None):
+    """Store the user's achievements + projects AND hard deal-breakers (remote_only, avoid-list).
+    Merges with what's there so a partial save (e.g. only deal-breakers) doesn't wipe the rest."""
+    data = get_profile_extra(user_id)
+    data["achievements"] = (achievements or "").strip()[:4000]
+    data["projects"] = (projects or "").strip()[:4000]
+    if remote_only is not None:
+        data["remote_only"] = bool(remote_only)
+    if avoid is not None:
+        items = avoid if isinstance(avoid, list) else str(avoid).split(",")
+        data["avoid"] = [s.strip().lower() for s in items if s.strip()][:20]
     with engine.begin() as c:
         c.execute(update(users).where(users.c.id == user_id).values(profile_extra=json.dumps(data)))
     return data
@@ -1138,6 +1146,32 @@ def category_signal(user_id):
             raw[cat] = pos.get(cat, 0) - neg.get(cat, 0)
     m = max((abs(v) for v in raw.values()), default=0)
     return {cat: v / m for cat, v in raw.items()} if m else {}
+
+
+def suppressed_companies(user_id, days=120):
+    """Companies the user explicitly rejected , status not_interested/rejected on the tracker, or a
+    'bad_match' thumbs-down , so we stop surfacing them. One 👎 should visibly reshape the next batch
+    (the big boards adapt slowly because they want to keep showing promoted posts; we overfit to YOU)."""
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    out = set()
+    with engine.connect() as c:
+        for (co,) in c.execute(
+            select(job_log.c.company).where(
+                job_log.c.user_id == user_id,
+                job_log.c.status.in_(["not_interested", "rejected"]),
+                job_log.c.company.isnot(None))
+        ).all():
+            if co:
+                out.add(co.strip().lower())
+        for (co,) in c.execute(
+            select(jobs_catalog.c.company)
+            .select_from(events.join(jobs_catalog, events.c.url == jobs_catalog.c.url))
+            .where(events.c.user_id == user_id, events.c.event == "bad_match",
+                   events.c.created_at >= cutoff)
+        ).all():
+            if co:
+                out.add(co.strip().lower())
+    return out
 
 
 def pending_saved_count(user_id, days=30):
