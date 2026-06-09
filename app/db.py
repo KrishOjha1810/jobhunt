@@ -1219,8 +1219,17 @@ def global_stats():
                 users.c.active == 1, users.c.resume_text.isnot(None)
             )
         ).scalar() or 0
+        # source breakdown of the catalog (collapsed to provider prefix) , so we can SEE whether the
+        # ATS/company boards are actually being fetched, or the pool is all aggregator (Adzuna).
+        sources = {}
+        for s, n in c.execute(
+            select(jobs_catalog.c.source, func.count()).group_by(jobs_catalog.c.source)
+        ).all():
+            pref = (s or "?").split(":")[0]
+            sources[pref] = sources.get(pref, 0) + (n or 0)
     return {
         "jobs_in_catalog": jobs,
+        "catalog_sources": dict(sorted(sources.items(), key=lambda kv: -kv[1])),
         "active_users": active,
         "subscribed_users": subscribed,
         "last_run": get_meta("last_run"),
