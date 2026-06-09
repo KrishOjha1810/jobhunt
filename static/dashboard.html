@@ -45,8 +45,9 @@
        the list scrolls, so it never reads as empty. */
     .grid-side{grid-template-columns:minmax(0,1fr) 240px}
     .main{order:1}
-    /* the rail is ONE long view (no nested scrollbar); only the job list scrolls */
-    .side{order:2;position:sticky;top:var(--sp-4);align-self:start;display:flex;flex-direction:column;gap:var(--sp-4)}
+    /* the page scrolls normally; the right rail is just STICKY (stays in view as the jobs scroll past)
+       with NO scrollbar of its own. */
+    .side{order:2;position:sticky;top:70px;align-self:start;display:flex;flex-direction:column;gap:var(--sp-4)}
     .side .card{padding:var(--sp-4)}
     #heroCard{margin-bottom:var(--sp-4)}
     .filtsec{margin-bottom:var(--sp-4)}
@@ -67,21 +68,6 @@
     /* status bar sits with the table (it's a mode switch, not a sidebar filter) */
     #statusGroup{margin:0 0 var(--sp-3)}
     .main>.table-wrap{margin-top:0}
-    /* DESKTOP: lock the page to the viewport so ONLY the job list scrolls; the right rail
-       (filters + streak) is completely static, never scrolls. body is a flex column (nav + wrap),
-       so the nav height is accounted for automatically , no magic offsets. */
-    @media (min-width:901px){
-      body{height:100dvh;overflow:hidden;display:flex;flex-direction:column}
-      .nav{flex:0 0 auto}
-      .wrap{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden;padding-bottom:var(--sp-3)}
-      .head{flex:0 0 auto}
-      #heroCard{flex:0 0 auto}
-      .grid-side{flex:1;min-height:0;align-items:stretch}
-      .side{position:static;height:100%;overflow:hidden}      /* right rail: NO scroll */
-      .main{display:flex;flex-direction:column;min-height:0}
-      .main>.table-wrap{flex:1;min-height:0;display:flex;flex-direction:column}
-      .scroll{flex:1;min-height:0;overflow-y:auto}            /* ONLY the jobs scroll */
-    }
     @media (max-width:900px){
       /* one flat column: collapsed Filters drawer on top, then the table, then streak/track/insights */
       .grid-side{display:flex;flex-direction:column;gap:var(--sp-4)}
