@@ -1576,11 +1576,12 @@ def healthz():
 @app.get("/status")
 def status():
     """Public health/observability snapshot: last run time, catalog size, user counts."""
-    from .config import APP_VERSION, BUILD
+    from .config import APP_VERSION, BUILD, GIT_COMMIT
     from . import schedule as sched_info
     s = db.global_stats()
     s["version"] = APP_VERSION
     s["build"] = BUILD  # which code build is live (bumped every push) , deploy-lag check
+    s["commit"] = GIT_COMMIT  # exact deployed git SHA (Render-injected); compare to origin/main HEAD
     s["schedule"] = sched_info.describe()
     s["next_run"] = sched_info.next_run_label()
     return s

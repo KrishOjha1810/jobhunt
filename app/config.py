@@ -66,7 +66,11 @@ APP_VERSION = os.environ.get("APP_VERSION", "") or "2026-06-04.10"
 # Build marker , bumped on every code push and shown on /status, so you can tell at a glance which
 # build Render is actually serving (deploy lag / stalled-deploy check). Decoupled from APP_VERSION on
 # purpose: this must NOT re-show the walkthrough or trigger anything , it's purely a deploy fingerprint.
-BUILD = os.environ.get("BUILD", "") or "2026-06-10.2"
+BUILD = os.environ.get("BUILD", "") or "2026-06-10.3"
+# The exact git commit Render deployed (Render injects RENDER_GIT_COMMIT at build+runtime). Shown on
+# /status so you can compare it to `git rev-parse origin/main` and KNOW the latest code is live ,
+# this can't drift like a hand-bumped version. Empty when not on Render (local).
+GIT_COMMIT = (os.environ.get("RENDER_GIT_COMMIT", "") or "")[:7]
 
 # In-process scheduler (for cloud, where launchd/cron don't exist). Set ENABLE_SCHEDULER=1.
 ENABLE_SCHEDULER = os.environ.get("ENABLE_SCHEDULER", "") == "1"
