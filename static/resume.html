@@ -29,6 +29,27 @@
     #msg { font-size:var(--fs-sm); margin-top:8px; min-height:16px; }
     .skillchips span { display:inline-block; background:var(--accent-soft); color:var(--accent); border-radius:var(--r-pill); padding:3px 9px; font-size:.78rem; margin:0 5px 5px 0; }
     .vbar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:16px; }
+    /* ATS score gauge (semicircular red->amber->green odometer; animates as the score changes) */
+    .gauge{position:relative;width:220px;max-width:100%;flex:0 0 auto}
+    .gauge svg{width:100%;height:auto;display:block;overflow:visible}
+    .gauge path{fill:none;stroke-width:14;stroke-linecap:round}
+    .gauge-track{stroke:var(--ring-track)}
+    .gauge-scale{stroke:url(#gaugeScale);opacity:.18}
+    .gauge-val{stroke:var(--col,var(--accent));stroke-dasharray:263.9;
+      stroke-dashoffset:calc(263.9 * (1 - var(--val,0)/100));
+      transition:stroke-dashoffset .8s cubic-bezier(.2,.7,.3,1),stroke .5s ease;
+      filter:drop-shadow(0 0 4px color-mix(in srgb,var(--col,var(--accent)) 45%,transparent))}
+    .gauge-tick{transform-box:view-box;transform-origin:100px 100px;
+      transform:rotate(calc(-90deg + var(--val,0) * 1.8deg));
+      transition:transform .8s cubic-bezier(.2,.7,.3,1)}
+    .gauge-tick line{stroke:var(--ink);stroke-width:3;stroke-linecap:round;opacity:.55}
+    .gauge-center{position:absolute;left:0;right:0;bottom:6%;text-align:center;line-height:1}
+    .gauge-center b{font-family:var(--font-display);font-size:2.4rem;font-weight:800;color:var(--col,var(--ink));
+      font-variant-numeric:tabular-nums;transition:color .5s ease}
+    .gauge-center span{font-size:.95rem;color:var(--muted);margin-left:2px}
+    .gauge-center small{display:block;font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.07em;
+      font-weight:700;color:var(--col,var(--muted));margin-top:4px;transition:color .5s ease}
+    @media (prefers-reduced-motion:reduce){.gauge-val,.gauge-tick,.gauge-center b,.gauge-center small{transition:none}}
     /* Live preview , a paper-look resume on screen; the only thing shown when printing. */
     #preview { background:#fff; color:#111; border-radius:8px; padding:16px; font-family:Calibri,Arial,sans-serif;
       font-size:11px; line-height:1.4; max-height:540px; overflow:auto; }
@@ -176,9 +197,18 @@
         <div class="card" style="position:sticky;top:80px">
           <h2>ATS health</h2>
           <div style="display:flex;justify-content:center;margin:6px 0 14px">
-            <div class="ring sm" id="atsRing" style="--val:0;--col:var(--accent)">
-              <svg viewBox="0 0 120 120"><circle class="ring-track" cx="60" cy="60" r="52"/><circle class="ring-val" cx="60" cy="60" r="52"/></svg>
-              <div class="ring-center"><b id="score">--</b><small>/ 100</small></div>
+            <div class="gauge" id="atsGauge" style="--val:0;--col:var(--accent)">
+              <svg viewBox="0 0 200 116" aria-hidden="true">
+                <defs><linearGradient id="gaugeScale" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%" stop-color="var(--danger)"/><stop offset="55%" stop-color="var(--accent)"/><stop offset="100%" stop-color="var(--ok)"/>
+                </linearGradient></defs>
+                <path class="gauge-track" d="M16 100 A84 84 0 0 1 184 100"/>
+                <path class="gauge-scale" d="M16 100 A84 84 0 0 1 184 100"/>
+                <path class="gauge-val" d="M16 100 A84 84 0 0 1 184 100"/>
+                <g class="gauge-tick"><line x1="100" y1="22" x2="100" y2="6"/></g>
+              </svg>
+              <div class="gauge-center"><b id="score">--</b><span>/ 100</span>
+                <small id="scoreLabel" role="status" aria-live="polite">Score</small></div>
             </div>
           </div>
           <div id="checks"></div>
@@ -261,19 +291,29 @@
       R.links=$('cLinks').value.split('\n').map(s=>s.trim()).filter(Boolean);
       R.summary=$('summary').value; R.skills=$('skills').value.split(',').map(s=>s.trim()).filter(Boolean);
     }
+    // shared score scale: <50 red, 50-79 amber, >=80 green , used by the gauge AND every bar
+    function scoreColor(v){ return v>=80?'var(--ok)':(v>=50?'var(--accent)':'var(--danger)'); }
+    function scoreLabel(v){ return v>=80?'Strong':(v>=60?'Getting there':(v>=35?'Needs work':'Just starting')); }
+    function renderGauge(score){
+      const v = Math.max(0, Math.min(100, Math.round(score||0)));
+      const g = $('atsGauge'); if(!g) return;
+      const col = scoreColor(v);
+      g.style.setProperty('--val', v); g.style.setProperty('--col', col);
+      $('score').textContent = v;
+      const lab = $('scoreLabel'); if(lab) lab.textContent = scoreLabel(v);
+      g.setAttribute('aria-label', `ATS health score ${v} out of 100, ${scoreLabel(v)}`);
+    }
     function catBars(cats){
       if(!cats || !cats.length) return '';
-      const bar = (label,v)=>{ const c=v>=75?'var(--ok)':(v>=50?'var(--accent)':'var(--c-notfit)');
-        return `<div style="flex:1;min-width:84px"><div style="display:flex;justify-content:space-between;font-size:.7rem;color:var(--muted)"><span>${esc(label)}</span><b style="color:var(--ink)">${v}</b></div><div class="bar" style="height:5px;margin-top:3px"><span style="width:${v}%;background:${c}"></span></div></div>`; };
+      const bar = (label,v)=>{ const c=scoreColor(v);
+        return `<div style="flex:1;min-width:84px"><div style="display:flex;justify-content:space-between;font-size:.7rem;color:var(--muted)"><span>${esc(label)}</span><b style="color:${c}">${v}</b></div><div class="bar" style="height:5px;margin-top:3px" role="img" aria-label="${esc(label)} ${v} out of 100"><span style="width:${v}%;background:${c}"></span></div></div>`; };
       return '<div style="display:flex;gap:12px;flex-wrap:wrap;margin:6px 0 10px">'+cats.map(c=>bar(c.name,c.score)).join('')+'</div>';
     }
     function renderHealth(h){
       window.LAST_CHECKS = (h && h.checks) || [];
       window.LAST_HEALTH = h || null;
       if(!h) return;
-      $('score').textContent = h.score;
-      const col = h.score>=80?'var(--ok)':(h.score>=60?'var(--accent)':'var(--c-notfit)');
-      const ring = $('atsRing'); ring.style.setProperty('--val', h.score); ring.style.setProperty('--col', col);
+      renderGauge(h.score);
       $('checks').innerHTML = catBars(h.categories) +
         (h.checks||[]).map(c=>`<div class="chk ${c.ok?'ok':''}"><span class="dot">${c.ok?'✓':'•'}</span><span>${esc(c.label)}</span></div>`).join('');
     }
@@ -428,7 +468,7 @@
       // credible sub-scores (so the number isn't a vanity metric)
       const ss = m.subscores;
       if(ss){
-        const bar = (label,v)=>{ const c=v>=75?'var(--ok)':(v>=50?'var(--accent)':'var(--c-notfit)');
+        const bar = (label,v)=>{ const c=scoreColor(v);
           return `<div style="flex:1;min-width:90px"><div style="display:flex;justify-content:space-between;font-size:.7rem;color:var(--muted)"><span>${label}</span><b style="color:var(--ink)">${v}</b></div><div class="bar" style="height:5px;margin-top:3px"><span style="width:${v}%;background:${c}"></span></div></div>`; };
         $('jcSubs').innerHTML = bar('Must-have skills',ss.must_have)+bar('Nice-to-have',ss.nice_to_have)+bar('Resume quality',ss.resume_quality);
         // make the quality number actionable: break it into Impact/Brevity/Style + the exact failing checks

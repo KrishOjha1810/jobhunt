@@ -62,6 +62,21 @@
     /* status bar sits with the table (it's a mode switch, not a sidebar filter) */
     #statusGroup{margin:0 0 var(--sp-3)}
     .main>.table-wrap{margin-top:0}
+    /* DESKTOP: lock the page to the viewport so ONLY the job list scrolls; the right rail
+       (filters + streak) is completely static, never scrolls. body is a flex column (nav + wrap),
+       so the nav height is accounted for automatically , no magic offsets. */
+    @media (min-width:901px){
+      body{height:100dvh;overflow:hidden;display:flex;flex-direction:column}
+      .nav{flex:0 0 auto}
+      .wrap{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden;padding-bottom:var(--sp-3)}
+      .head{flex:0 0 auto}
+      #heroCard{flex:0 0 auto}
+      .grid-side{flex:1;min-height:0;align-items:stretch}
+      .side{position:static;height:100%;overflow:hidden}      /* right rail: NO scroll */
+      .main{display:flex;flex-direction:column;min-height:0}
+      .main>.table-wrap{flex:1;min-height:0;display:flex;flex-direction:column}
+      .scroll{flex:1;min-height:0;overflow-y:auto}            /* ONLY the jobs scroll */
+    }
     @media (max-width:900px){
       /* one flat column: collapsed Filters drawer on top, then the table, then streak/track/insights */
       .grid-side{display:flex;flex-direction:column;gap:var(--sp-4)}
@@ -184,12 +199,14 @@
           <div class="sub" id="calMonth" style="margin-top:8px;text-align:center"></div>
         </div>
 
-        <div class="card" id="trackCard">
-          <div class="card-kicker" style="margin-bottom:var(--sp-2)">applied elsewhere?</div>
-          <input id="extUrl" placeholder="Paste a job link to track it" style="width:100%">
-          <button class="applylink" id="extBtn" style="border:0;width:100%;margin-top:8px;justify-content:center">Track it</button>
-          <span class="sub" id="extMsg" style="margin:6px 0 0;display:block"></span>
-        </div>
+        <details class="card" id="trackCard">
+          <summary style="cursor:pointer;color:var(--muted);font-size:var(--fs-sm);font-weight:600">Applied elsewhere? Track it</summary>
+          <div style="margin-top:10px">
+            <input id="extUrl" placeholder="Paste a job link to track it" style="width:100%">
+            <button class="applylink" id="extBtn" style="border:0;width:100%;margin-top:8px;justify-content:center">Track it</button>
+            <span class="sub" id="extMsg" style="margin:6px 0 0;display:block"></span>
+          </div>
+        </details>
 
         <details id="profileCard" class="card">
           <summary style="cursor:pointer;color:var(--muted);font-size:var(--fs-sm);font-weight:600">Profile , sharpens your tailoring</summary>
