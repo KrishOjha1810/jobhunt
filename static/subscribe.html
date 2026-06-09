@@ -55,6 +55,12 @@
     .rolechip input:checked + span::before { background:#fff; border-color:var(--accent-ink);
       content:'✓'; color:var(--accent2); font-size:11px; line-height:13px; text-align:center; font-weight:900; }
     .rolechip input:focus-visible + span { outline:2px solid var(--accent); outline-offset:2px; }
+    .tagchips { display:flex; flex-wrap:wrap; gap:7px; margin:2px 0 8px; }
+    .tagchips:empty { display:none; }
+    .tagchip { display:inline-flex; align-items:center; gap:6px; padding:5px 10px; border-radius:999px; font-size:.84rem; font-weight:600;
+      background:var(--accent-soft); color:var(--accent); border:1px solid transparent; }
+    .tagchip button { background:none; border:0; color:inherit; cursor:pointer; font-size:1rem; line-height:1; padding:0; opacity:.7; }
+    .tagchip button:hover { opacity:1; }
     button.submit { margin-top:30px; width:100%; padding:14px; border:0; border-radius:14px; cursor:pointer; font-size:1rem; font-weight:700;
       font-family:inherit; color:var(--accent-ink); letter-spacing:.01em; background:var(--grad); box-shadow:0 12px 30px var(--accent-soft);
       transition:transform .1s, box-shadow .2s, opacity .15s; }
@@ -101,6 +107,11 @@
       </div>
 
       <form id="form">
+        <label>1. Upload your resume <span style="font-weight:400;color:var(--muted)">(PDF or DOCX, up to 3)</span></label>
+        <input type="file" name="resume_file" id="resumeInput" accept=".pdf,.docx,.doc,.txt" multiple required />
+        <small>We read it to auto-pick your roles and skill tags below , edit them freely. A <b>.docx</b> lets us tailor in your exact format. Add more than one resume (e.g. backend + blockchain) and we match across all.</small>
+        <div id="parseStatus" style="margin:7px 0 0;font-size:.85rem;color:var(--muted)"></div>
+
         <label>Send alerts to</label>
         <div class="seg">
           <label><input type="radio" name="channel" value="email" checked /><span>
@@ -177,12 +188,11 @@
         <input type="text" name="locations" value="remote,india" />
         <small>Comma separated, e.g. remote, india, bangalore</small>
 
-        <label>Extra keywords <span style="font-weight:400;color:var(--muted)">(optional)</span></label>
-        <input type="text" name="extra_keywords" placeholder="rust, solidity, defi" />
-
-        <label>Resume(s) <span style="font-weight:400;color:var(--muted)">(PDF or DOCX, up to 3)</span></label>
-        <input type="file" name="resume_file" accept=".pdf,.docx,.doc,.txt" multiple required />
-        <small>Attach more than one (e.g. blockchain, backend, full-stack) and we match the best jobs across all of them in a single digest. Tip: a <b>.docx</b> lets us tailor edits in your exact format.</small>
+        <label>Skills &amp; tags <span style="font-weight:400;color:var(--muted)">(auto-detected from your resume , remove or add any)</span></label>
+        <div id="tagChips" class="tagchips"></div>
+        <input type="text" id="tagAdd" placeholder="Add a tag, press Enter (e.g. rust, solidity, defi)" />
+        <input type="hidden" name="tags" id="tagsField" />
+        <small>These are the skills we match on. Upload your resume above and they fill in automatically.</small>
 
         <label>GitHub username <span style="font-weight:400;color:var(--muted)">(optional, sharpens your matches)</span></label>
         <input type="text" name="github_username" id="github_username" placeholder="e.g. KrishOjha1810" />
@@ -208,6 +218,42 @@
       localStorage.setItem('theme', next); applyTheme(next);
     });
 
+    // ----- Skills/tags editor (auto-filled from the resume, fully editable) -----
+    let TAGS = [];
+    const tagsField = document.getElementById('tagsField');
+    const tagChips = document.getElementById('tagChips');
+    function renderTags(){
+      tagChips.innerHTML = TAGS.map((t,i)=>`<span class="tagchip">${esc(t)}<button type="button" data-i="${i}" aria-label="Remove">&times;</button></span>`).join('');
+      tagChips.querySelectorAll('button').forEach(b=>b.onclick=()=>{ TAGS.splice(+b.dataset.i,1); renderTags(); });
+      tagsField.value = TAGS.join(',');
+    }
+    function addTag(raw){ (raw||'').split(',').forEach(t=>{ t=t.trim().toLowerCase(); if(t && !TAGS.includes(t)) TAGS.push(t); }); renderTags(); }
+    const tagAdd = document.getElementById('tagAdd');
+    tagAdd.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); addTag(tagAdd.value); tagAdd.value=''; } });
+    tagAdd.addEventListener('blur', ()=>{ if(tagAdd.value.trim()){ addTag(tagAdd.value); tagAdd.value=''; } });
+
+    // ----- Resume upload -> auto-detect skills (tags) + roles -----
+    const resumeInput = document.getElementById('resumeInput');
+    const parseStatus = document.getElementById('parseStatus');
+    resumeInput.addEventListener('change', async ()=>{
+      if(!resumeInput.files || !resumeInput.files.length) return;
+      parseStatus.innerHTML = '<span class="spinner"></span> Reading your resume...';
+      const fd = new FormData();
+      [...resumeInput.files].slice(0,3).forEach(f=>fd.append('resume_file', f));
+      try{
+        const r = await fetch('/api/subscribe/parse', {method:'POST', body:fd});
+        const d = await r.json();
+        if(d.ok){
+          (d.keywords||[]).forEach(addTag);
+          let picked = 0;
+          (d.categories||[]).forEach(c=>{ const box=document.querySelector('#roles input[value="'+c+'"]'); if(box && !box.checked){ box.checked=true; picked++; } });
+          parseStatus.innerHTML = `Detected <b>${(d.keywords||[]).length}</b> skills`+(picked?` and pre-selected <b>${picked}</b> role${picked>1?'s':''}`:'')+`. Edit anything below.`;
+        } else {
+          parseStatus.innerHTML = `<span style="color:var(--err-ink)">${esc(d.reason||'Could not read that file.')}</span>`;
+        }
+      }catch(e){ parseStatus.textContent = 'Could not parse right now , you can still add tags manually below.'; }
+    });
+
     // ----- Prefill email from /me -----
     fetch('/me').then(r => r.ok ? r.json() : null).then(me => {
       if (!me) return;
@@ -218,6 +264,7 @@
         const box = document.querySelector('#roles input[value="' + c + '"]');
         if (box) box.checked = true;
       });
+      if ((me.keywords || []).length) { TAGS = me.keywords.slice(); renderTags(); }
       if (me.cadence) {
         const cad = document.querySelector('#cadence input[value="' + me.cadence + '"]');
         if (cad) cad.checked = true;

@@ -200,6 +200,21 @@ def categorize(job: dict) -> str:
     return "Other"
 
 
+def categories_for_resume(text: str, keywords: list = None, top: int = 4) -> list:
+    """Suggest role categories from a resume by counting CATEGORY_RULES term hits in its text (and
+    keywords). Returns ranked labels, best first, capped to `top`. Deterministic + cheap , powers the
+    subscribe flow's 'upload resume -> roles auto-selected' step. The user edits the result."""
+    blob = ((text or "") + " " + " ".join(keywords or [])).lower()
+    if not blob.strip():
+        return []
+    scores = {}
+    for label, terms in CATEGORY_RULES:
+        s = sum(blob.count(t) for t in terms)
+        if s:
+            scores[label] = s
+    return sorted(scores, key=lambda k: -scores[k])[:top]
+
+
 def score_job(job: dict, keywords: list) -> tuple:
     """Return (score, matched_keywords). Synonym-aware skill overlap, with two emphases:
     - title hits weighted heavily (a role in the title is a far stronger fit signal than a keyword

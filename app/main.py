@@ -366,6 +366,41 @@ def me(request: Request):
             "dash_token": u.get("dash_token"), "version": APP_VERSION}
 
 
+@app.post("/api/subscribe/parse")
+async def api_subscribe_parse(request: Request):
+    """Parse an uploaded resume for the SUBSCRIBE flow WITHOUT subscribing: returns detected skills
+    (tags) + suggested role categories so the UI can pre-fill them for the user to edit. Saves nothing
+    (temp file is removed immediately to stay light on the 512MB host)."""
+    from . import resume as _resume
+    kws, text = [], ""
+    try:
+        form = await request.form()
+        files = [f for k in ("resume_file", "file") for f in form.getlist(k) if getattr(f, "filename", "")]
+        for rf in files[:3]:
+            raw = os.path.basename(rf.filename or "resume")
+            safe = "".join(c for c in raw if c.isalnum() or c in "-_.") or "resume"
+            dest = RESUME_DIR / f"parse_{safe}"
+            with open(dest, "wb") as out:
+                shutil.copyfileobj(rf.file, out)
+            try:
+                prof = _resume.profile_from_resume(str(dest))
+                for k in prof.get("keywords", []):
+                    if k not in kws:
+                        kws.append(k)
+                text += " " + (prof.get("text", "") or "")
+            finally:
+                try:
+                    os.remove(dest)
+                except Exception:
+                    pass
+    except Exception as e:
+        return {"ok": False, "reason": f"could not read resume: {e}"}
+    if not kws:
+        return {"ok": False, "reason": "We couldn't read skills from that file (scanned image or odd "
+                                       "format). Try a text-based PDF/DOCX, or add tags manually."}
+    return {"ok": True, "keywords": kws[:30], "categories": matcher.categories_for_resume(text, kws)}
+
+
 @app.post("/subscribe")
 async def subscribe_post(
     request: Request,
@@ -377,11 +412,15 @@ async def subscribe_post(
     email: str = Form(""),
     locations: str = Form("remote,india"),
     extra_keywords: str = Form(""),
+    tags: str = Form(""),
     categories: List[str] = Form([]),
     cadence: str = Form("daily"),
     experience: str = Form(""),
     resume_file: List[UploadFile] = File([]),
 ):
+    # `tags` (when provided) is the user's CURATED skill list from the subscribe UI , authoritative,
+    # so removing an auto-detected tag actually sticks (instead of being re-derived from the resume).
+    _curated = [t.strip().lower() for t in tags.split(",") if t.strip()]
     user = current_user(request)
     if not user:
         return JSONResponse({"error": "please log in first"}, status_code=401)
@@ -407,7 +446,8 @@ async def subscribe_post(
         allowed = {c[0] for c in matcher.CATEGORY_RULES}
         cat_list = [c for c in categories if c in allowed]
         extra = [k.strip().lower() for k in extra_keywords.split(",") if k.strip()]
-        kw = list(dict.fromkeys((user.get("keywords") or []) + extra))
+        # curated tags from the UI win; else keep existing keywords + any extras
+        kw = list(dict.fromkeys(_curated)) if _curated else list(dict.fromkeys((user.get("keywords") or []) + extra))
         db.update_subscription(
             user["id"], kw, loc_list, channel, resume_path=None, resume_text=None,
             telegram_chat_id=telegram_chat_id.strip(), email=eff_email or None, categories=cat_list,
@@ -438,6 +478,9 @@ async def subscribe_post(
         kw = kw.strip().lower()
         if kw and kw not in keywords:
             keywords.append(kw)
+    # curated tags from the subscribe UI are authoritative (so removing an auto-detected tag sticks)
+    if _curated:
+        keywords = list(dict.fromkeys(_curated))
     # Reject resumes that parsed to zero skills (scanned image / odd format) so we never create a
     # silently un-matchable subscriber, the user gets told how to fix it instead.
     if not keywords:
