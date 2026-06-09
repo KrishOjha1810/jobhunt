@@ -21,6 +21,14 @@ RERANK_BORDERLINE = int(os.environ.get("RERANK_BORDERLINE", "") or "12")
 SCORE_V2 = os.environ.get("SCORE_V2", "1") != "0"
 PREF_LEARNING = os.environ.get("PREF_LEARNING", "1") != "0"
 EPSILON = float(os.environ.get("EPSILON", "0.15"))  # exploration rate (surface a fresh role sometimes)
+# Precision mode: the LLM screens each top candidate like a recruiter (fit + callback odds + why +
+# catch) and REJECTS off-target/mis-leveled jobs, so we deliver FEW genuinely-great matches instead of
+# a padded list. This is our edge over the big boards (they can't afford a per-user read at scale).
+PRECISION = os.environ.get("PRECISION_MODE", "1") != "0"
+# Max matches per digest in precision mode (we'd rather send 3 great than 10 ok). Env-tunable.
+PRECISION_MAX = int(os.environ.get("PRECISION_MAX", "") or "7")
+# How many candidates to screen with the recruiter LLM (one batched call regardless of count).
+SCREEN_N = int(os.environ.get("SCREEN_N", "") or "16")
 
 
 def _cadence_due(user, force):
@@ -69,6 +77,73 @@ def _nudge_no_resume(user):
     except Exception as e:
         print(f"[runner] nudge send failed for {user.get('id')}: {e}")
     return False
+
+
+EMBED_RETRIEVE = os.environ.get("EMBED_RETRIEVE", "1") != "0"
+EMBED_RETRIEVE_K = int(os.environ.get("EMBED_RETRIEVE_K", "") or "30")
+
+
+def _embedding_retrieve(user, pool, have_urls, cats, uyears, limit=EMBED_RETRIEVE_K):
+    """Embedding-FIRST candidate generation: pull the jobs most semantically similar to the user's
+    resume that the keyword floor DIDN'T already surface, so a perfect-but-differently-worded role
+    still enters the funnel (the big-board two-tower retrieval idea). Generous recall , the recruiter
+    screen enforces precision downstream. Uses only CACHED job/user embeddings (zero network here)."""
+    if not (EMBED_RETRIEVE and embeddings.enabled()):
+        return []
+    uvec = db.get_user_embedding(user)
+    if not uvec:
+        return []
+    locs = user.get("locations") or []
+    cset = set(cats or [])
+    scored = []
+    for j in pool:
+        url = j.get("url")
+        if not url or url in have_urls:
+            continue
+        if not matcher.location_ok(j.get("location", ""), locs):
+            continue
+        jv = db.get_job_embedding(url)
+        if not jv:
+            continue
+        cat = j.get("category") or matcher.categorize(j)
+        if cset and cat not in cset:
+            continue
+        scored.append((embeddings.cosine(uvec, jv), j, cat))
+    scored.sort(key=lambda t: t[0], reverse=True)
+    out = []
+    for sim, j, cat in scored[:limit]:
+        req = matcher.required_experience(j)
+        if uyears <= 2 and req >= 5:
+            continue  # don't drag in clearly-senior roles for a fresher/junior
+        jj = dict(j)
+        sc, matched = matcher.score_job(jj, user["keywords"])
+        jj["raw_score"] = sc
+        jj["matched"] = matched
+        jj["core_overlap"] = matcher.core_overlap(jj, matched)
+        jj["region"] = matcher.job_region(jj.get("location", ""))
+        jj["category"] = cat
+        jj["req_years"] = req
+        jj["_sem"] = sim
+        jj["score"] = max(15, min(100, int(round(sim * 100))))  # provisional; blended_score overwrites
+        jj["_via"] = "embedding"
+        out.append(jj)
+    return out
+
+
+def _user_prefs(user, uyears):
+    """Recruiter-screen context: experience, acceptable locations, and any hard deal-breakers
+    (remote-only, avoid-list) the user set. Deal-breakers live in profile_extra (best-effort)."""
+    prefs = {"years": uyears, "locations": user.get("locations") or []}
+    try:
+        px = db.get_profile_extra(user["id"]) or {}
+        if px.get("remote_only"):
+            prefs["remote_only"] = True
+        av = px.get("avoid")
+        if av:
+            prefs["avoid"] = av if isinstance(av, list) else [s.strip() for s in str(av).split(",") if s.strip()]
+    except Exception:
+        pass
+    return prefs
 
 
 def _semantic_rerank(user, ranked, verbose=False):
@@ -248,6 +323,11 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
             if cats:
                 ranked = [j for j in ranked if (j.get("category") or matcher.categorize(j)) in cats]
                 d["matched"] = len(ranked)
+            # embedding-first retrieval: add semantically-close jobs the keyword floor missed
+            extra = _embedding_retrieve(user, pool, {j.get("url") for j in ranked}, cats, uyears)
+            if extra:
+                ranked += extra
+                d["matched"] = len(ranked)
             ranked = _semantic_rerank(user, ranked, verbose)  # cached-only, no network here
             if SCORE_V2:
                 # v2: rebuild the user's preference vector from their event history (idempotent replay),
@@ -325,19 +405,42 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
                     db.upsert_jobs(enriched)
             except Exception as e:
                 print(f"[runner] jd backfill skipped for {user.get('id')}: {e}")
-            # LLM re-rank by true fit (best matching signal). Blends 50/50 with the keyword/semantic fit
-            # so it sharpens order without discarding the base score. Pool jobs are references INTO
-            # `ranked`, so updating their score and re-sorting the full list lets gems rise into delivery.
-            try:
-                if LLM_RERANK and len(ranked) >= 3:
-                    scores = enrich.rerank(user.get("resume_text") or "", rerank_pool)
-                    if scores:
-                        for jb, s in zip(rerank_pool, scores):
-                            if s is not None:
-                                jb["score"] = round(0.5 * (jb.get("score") or 0) + 0.5 * s)
+            # PRECISION SCREEN: the LLM reads each top candidate like a recruiter for THIS person and
+            # returns fit + verdict (strong/maybe/no) + why + catch in ONE batched call. Jobs it marks
+            # 'no' are rejected from delivery , this is what turns a "relevant-ish list" into "hand-picked".
+            screened = False
+            if PRECISION and enrich.available() and len(ranked) >= 1:
+                try:
+                    prefs = _user_prefs(user, uyears)
+                    screen = enrich.recruiter_screen(user.get("resume_text") or "",
+                                                     rerank_pool[:SCREEN_N], prefs)
+                    if screen:
+                        screened = True
+                        for jb, s in zip(rerank_pool[:SCREEN_N], screen):
+                            if not s:
+                                jb["verdict"] = "maybe"  # screen returned nothing for this one; don't reject
+                                continue
+                            jb["fit"] = s["fit"]; jb["verdict"] = s["verdict"]
+                            jb["why_fit"] = s["why"]; jb["catch"] = s["catch"]
+                            # headline score = recruiter fit (blended 70/30 with our score to keep signal)
+                            jb["score"] = round(0.7 * s["fit"] + 0.3 * (jb.get("score") or 0))
+                            if s["why"]:
+                                jb["reason"] = s["why"] + (f" (catch: {s['catch']})" if s["catch"] else "")
                         ranked.sort(key=lambda jb: jb.get("score", 0), reverse=True)
-            except Exception as e:
-                print(f"[runner] llm rerank skipped for {user.get('id')}: {e}")
+                except Exception as e:
+                    print(f"[runner] recruiter screen skipped for {user.get('id')}: {e}")
+            # Legacy integer rerank when precision is off / screen failed (sharpens order, keeps base).
+            if not screened:
+                try:
+                    if LLM_RERANK and len(ranked) >= 3:
+                        scores = enrich.rerank(user.get("resume_text") or "", rerank_pool)
+                        if scores:
+                            for jb, s in zip(rerank_pool, scores):
+                                if s is not None:
+                                    jb["score"] = round(0.5 * (jb.get("score") or 0) + 0.5 * s)
+                            ranked.sort(key=lambda jb: jb.get("score", 0), reverse=True)
+                except Exception as e:
+                    print(f"[runner] llm rerank skipped for {user.get('id')}: {e}")
             # Coverage fallback: a subscribed user whose (often thin) resume matched nothing still
             # gets the most recent jobs in their roles/locations, so everyone hears from us.
             used_fallback = False
@@ -352,11 +455,17 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
                 used_fallback = bool(ranked)
             # Normally only send unseen jobs; a forced run resends current top matches as a test.
             fresh = ranked if force else [j for j in ranked if not db.is_seen(user["id"], j["url"])]
-            # quality gate the digest: prefer strong matches, but if a coverage-fallback list is all
-            # we have, still send a few so the user hears from us.
-            strong = [j for j in fresh if (j.get("score") or 0) >= 50]
-            to_send = (strong[:MAX_MATCHES_PER_RUN] if strong
-                       else (fresh[:3] if used_fallback else fresh[:MAX_MATCHES_PER_RUN]))
+            # quality gate the digest. In precision mode we deliver ONLY recruiter-approved jobs
+            # (verdict strong/maybe), strong first, capped small , and send NOTHING rather than pad
+            # with junk (honest scarcity is the brand). Otherwise fall back to the score>=50 gate.
+            if screened and not used_fallback:
+                passers = [j for j in fresh if j.get("verdict") in ("strong", "maybe")]
+                passers.sort(key=lambda j: (0 if j.get("verdict") == "strong" else 1, -(j.get("score") or 0)))
+                to_send = passers[:PRECISION_MAX]
+            else:
+                strong = [j for j in fresh if (j.get("score") or 0) >= 50]
+                to_send = (strong[:MAX_MATCHES_PER_RUN] if strong
+                           else (fresh[:3] if used_fallback else fresh[:MAX_MATCHES_PER_RUN]))
             if verbose:
                 print(f"[runner] {user['name']}: {len(ranked)} matched, {len(fresh)} candidate, "
                       f"sending {len(to_send)}")

@@ -172,13 +172,22 @@ def send(chat_id: str, text: str) -> bool:
 def format_digest(user: dict, jobs: list) -> str:
     """One message listing all of a user's new matches (keeps us under send-rate/quota limits)."""
     tok = user.get("dash_token") or ""
-    lines = [f"\U0001F4CB {len(jobs)} new job match(es) for you:", ""]
+    strong = sum(1 for j in jobs if j.get("verdict") == "strong")
+    head = (f"\U0001F4CB {len(jobs)} hand-picked match(es) for you"
+            + (f" , {strong} we'd apply to today" if strong else "") + ":")
+    lines = [head, ""]
     for j in jobs:
         cat = f" [{j.get('category')}]" if j.get("category") else ""
+        badge = "⭐ Strong match , " if j.get("verdict") == "strong" else (
+            "\U0001F50E Worth a look , " if j.get("verdict") == "maybe" else "")
         lines.append(f"\U0001F539 {j.get('title','')} @ {j.get('company','')}{cat}")
         lines.append(f"   {j.get('location','')} | match {j.get('score','')}")
-        if j.get("reason"):
+        if j.get("why_fit"):
+            lines.append(f"   {badge}{j['why_fit']}")
+        elif j.get("reason"):
             lines.append(f"   {j['reason']}")
+        if j.get("catch"):
+            lines.append(f"   Heads up: {j['catch']}")
         lines.append(f"   Apply: {j.get('url','')}")
         # one-tap: mark applied + give a quick good/bad signal straight from the alert (token-gated).
         # The feedback trains the matcher AND feeds the quality metric (are these matches landing?).

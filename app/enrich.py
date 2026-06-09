@@ -297,6 +297,83 @@ def rerank(resume_text: str, jobs: list):
         return []
 
 
+def recruiter_screen(resume_text: str, jobs: list, prefs: dict = None):
+    """Screen each candidate job like a recruiter working ONLY for this candidate. ONE batched call.
+    Returns a list aligned to `jobs` of {fit:0-100, verdict:'strong'|'maybe'|'no', why, catch} (or []
+    on failure). Precision-first: it REJECTS (verdict 'no') off-target, mis-leveled, or deal-breaker-
+    violating jobs rather than politely ranking them , this is what makes our matches feel hand-picked
+    instead of 'relevant-ish', which the big boards can't do per-user at their scale."""
+    if not available() or not resume_text or not jobs:
+        return []
+    prefs = prefs or {}
+    listing = "\n".join(
+        f"{i+1}. {j.get('title','')} @ {j.get('company','')} | {j.get('location','') or 'n/a'} :: "
+        f"{(j.get('description','') or '')[:600]}"
+        for i, j in enumerate(jobs)
+    )
+    constraints = []
+    if prefs.get("years") is not None:
+        constraints.append(f"Candidate has ~{prefs['years']} years of experience.")
+    if prefs.get("locations"):
+        constraints.append("Candidate's acceptable locations: " + ", ".join(prefs["locations"]) + ".")
+    if prefs.get("remote_only"):
+        constraints.append("HARD: candidate wants REMOTE roles only , reject onsite-only roles.")
+    if prefs.get("avoid"):
+        constraints.append("HARD: reject anything matching these avoids: " + ", ".join(prefs["avoid"]) + ".")
+    sys = (
+        "You are a sharp technical recruiter screening jobs for ONE candidate. For EACH numbered job, "
+        "judge how good a match it REALLY is for THIS candidate's resume , and crucially, how likely "
+        "they are to actually get an interview (callback odds), not just topical relevance. Be strict: "
+        "a job the candidate is clearly under-qualified for (asks far more experience/seniority than "
+        "they have), over-qualified for, in the wrong domain, or that violates a stated hard constraint "
+        "is a REJECT, even if keywords overlap. Reserve 'strong' for jobs you'd genuinely tell them to "
+        "apply to today. Output ONLY a JSON array, one object per job IN ORDER, each: "
+        '{"i": <1-based index>, "fit": <0-100 honest match+callback score>, '
+        '"verdict": "strong"|"maybe"|"no", "why": "<=12 words, concrete & specific to this candidate", '
+        '"catch": "<=12 words, the main gap/risk, or empty string if none"}. '
+        "No prose, no fabrication, no em dashes."
+    )
+    user_msg = (
+        (("CANDIDATE CONSTRAINTS:\n" + "\n".join(constraints) + "\n\n") if constraints else "")
+        + f"RESUME:\n{resume_text[:5000]}\n\nJOBS:\n{listing}"
+    )
+    obj, err = _json_call(sys, user_msg, max_tokens=2400)
+    # _json_call expects an object; arrays come back as None -> retry parse here.
+    if obj is None:
+        try:
+            if LLM_PROVIDER == "anthropic":
+                raw = _chat_anthropic(sys, user_msg, max_tokens=2400)
+            else:
+                raw = _chat_openai_compat(
+                    [{"role": "system", "content": sys}, {"role": "user", "content": user_msg}], max_tokens=2400)
+            import json as _json
+            import re as _re
+            raw = _re.sub(r"^```(?:json)?|```$", "", raw.strip(), flags=_re.M).strip()
+            m = _re.search(r"\[.*\]", raw, _re.S)
+            arr = _json.loads(m.group(0)) if m else []
+        except Exception as e:
+            print(f"[enrich] recruiter_screen failed: {e}")
+            return []
+    else:
+        arr = obj if isinstance(obj, list) else (obj.get("jobs") or obj.get("results") or [])
+    # normalize -> list aligned to jobs by index
+    out = [None] * len(jobs)
+    for item in (arr or []):
+        try:
+            idx = int(item.get("i", 0)) - 1
+            if 0 <= idx < len(jobs):
+                v = (item.get("verdict") or "maybe").lower()
+                out[idx] = {
+                    "fit": max(0, min(100, int(round(float(item.get("fit", 0)))))),
+                    "verdict": v if v in ("strong", "maybe", "no") else "maybe",
+                    "why": (item.get("why") or "").strip()[:140],
+                    "catch": (item.get("catch") or "").strip()[:140],
+                }
+        except Exception:
+            continue
+    return out
+
+
 def interview_prep(job: dict, resume_text: str):
     return _run(INTERVIEW_PROMPT, job, resume_text)
 
