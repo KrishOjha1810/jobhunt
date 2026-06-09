@@ -44,12 +44,17 @@
        the list scrolls, so it never reads as empty. */
     .grid-side{grid-template-columns:minmax(0,1fr) 240px}
     .main{order:1}
-    .side{order:2;position:sticky;top:var(--sp-4);align-self:start;display:flex;flex-direction:column;gap:var(--sp-4);max-height:calc(100dvh - 90px);overflow:auto}
+    /* the rail is ONE long view (no nested scrollbar); only the job list scrolls */
+    .side{order:2;position:sticky;top:var(--sp-4);align-self:start;display:flex;flex-direction:column;gap:var(--sp-4)}
     .side .card{padding:var(--sp-4)}
     #heroCard{margin-bottom:var(--sp-4)}
     .filtsec{margin-bottom:var(--sp-4)}
     .filtsec:last-child{margin-bottom:0}
     .filtsec>label{display:block;font-size:var(--fs-xs);font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}
+    .filterbox>summary{cursor:pointer;list-style:none;font-size:var(--fs-xs);font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:var(--sp-3);display:flex;justify-content:space-between;align-items:center}
+    .filterbox>summary::-webkit-details-marker{display:none}
+    .filterbox>summary::after{content:'⌄';font-size:1rem;transition:transform .15s}
+    .filterbox[open]>summary::after{transform:rotate(180deg)}
     .filtsec select{width:100%;min-width:0}
     .side .toggle-group{display:flex;width:100%;flex-wrap:nowrap}
     .side .toggle-group .btn{flex:1;text-align:center;padding:6px 4px;font-size:var(--fs-xs)}
@@ -57,9 +62,14 @@
     #statusGroup{margin:0 0 var(--sp-3)}
     .main>.table-wrap{margin-top:0}
     @media (max-width:900px){
-      .grid-side{grid-template-columns:1fr}
-      .side{position:static;max-height:none;overflow:visible;order:2}
-      .main{order:1}
+      /* one flat column: collapsed Filters drawer on top, then the table, then streak/track/insights */
+      .grid-side{display:flex;flex-direction:column;gap:var(--sp-4)}
+      .side{display:contents}
+      #filterCard{order:1;position:static}
+      .main{order:2}
+      #streakCard{order:3}
+      #trackCard{order:4}
+      #insightsBox{order:5}
     }
     .applylink{color:var(--accent-ink);background:var(--accent)}
     .applylink:hover{background:var(--accent-2);transform:translateY(-1px)}
@@ -128,8 +138,8 @@
     <div class="grid-side">
       <!-- RIGHT RAIL: filters first (always visible) + streak + track-a-link + insights (sticky) -->
       <aside class="side">
-        <div class="card">
-          <div class="card-kicker" style="margin-bottom:var(--sp-3)">filter &amp; sort</div>
+        <details id="filterCard" class="card filterbox" open>
+          <summary>filter &amp; sort</summary>
           <div class="filtsec"><label>Posted</label>
             <div class="toggle-group" id="dateGroup">
               <button class="btn active" data-days="0">All</button>
@@ -159,9 +169,9 @@
               <option value="date-asc">Oldest first</option>
             </select>
           </div>
-        </div>
+        </details>
 
-        <div class="card">
+        <div class="card" id="streakCard">
           <div class="card-kicker">apply streak</div>
           <div class="streaks">
             <div class="s"><b id="curStreak">0</b><span>current</span></div>
@@ -172,7 +182,7 @@
           <div class="sub" id="calMonth" style="margin-top:8px;text-align:center"></div>
         </div>
 
-        <div class="card">
+        <div class="card" id="trackCard">
           <div class="card-kicker" style="margin-bottom:var(--sp-2)">applied elsewhere?</div>
           <input id="extUrl" placeholder="Paste a job link to track it" style="width:100%">
           <button class="applylink" id="extBtn" style="border:0;width:100%;margin-top:8px;justify-content:center">Track it</button>
@@ -545,6 +555,10 @@
       const [k, d] = e.target.value.split('-');
       state.sortKey = k; state.sortDir = d; syncHeaderCarets(); render();
     };
+    // Filters are a collapsible drawer on mobile (so they don't bury the table) and an open card on desktop.
+    function syncFilterDrawer() { const f = document.getElementById('filterCard'); if (f) f.open = window.innerWidth > 900; }
+    syncFilterDrawer();
+    window.addEventListener('resize', syncFilterDrawer);
     function clearFilters() {
       state = { days: 0, minScore: 0, sortKey: 'score', sortDir: 'desc', status: '' };
       document.getElementById('companyFilter').value = '';

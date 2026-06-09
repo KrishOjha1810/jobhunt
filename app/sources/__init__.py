@@ -154,7 +154,7 @@ def _fetch(terms: list, india_wanted: bool, max_adzuna_terms: int = 3) -> list:
     for term in terms[:8]:
         tasks.append(lambda t=term: remotive.fetch(t))
     tasks.append(lambda: remoteok.fetch(""))   # often blocked from datacenter IPs (e.g. Render)
-    tasks.append(lambda: arbeitnow.fetch(""))
+    # arbeitnow dropped , it returns almost exclusively Germany-based roles (low value for our users)
     tasks.append(lambda: jobicy.fetch(""))
     tasks.append(lambda: himalayas.fetch(""))
     tasks.append(_ats_capped)  # Greenhouse/Lever/Ashby niche roles (already concurrent internally)
