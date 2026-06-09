@@ -63,6 +63,10 @@ GEMINI_API_KEY = GEMINI_API_KEY or (LLM_API_KEY if LLM_PROVIDER == "gemini" else
 
 # App version. Bump this on a deploy to re-show the walkthrough to every user once.
 APP_VERSION = os.environ.get("APP_VERSION", "") or "2026-06-04.10"
+# Build marker , bumped on every code push and shown on /status, so you can tell at a glance which
+# build Render is actually serving (deploy lag / stalled-deploy check). Decoupled from APP_VERSION on
+# purpose: this must NOT re-show the walkthrough or trigger anything , it's purely a deploy fingerprint.
+BUILD = os.environ.get("BUILD", "") or "2026-06-10.1"
 
 # In-process scheduler (for cloud, where launchd/cron don't exist). Set ENABLE_SCHEDULER=1.
 ENABLE_SCHEDULER = os.environ.get("ENABLE_SCHEDULER", "") == "1"

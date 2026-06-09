@@ -90,7 +90,8 @@ def _seed_matches(user_id):
             if j.get("url"):
                 db.log_job(user_id, {"url": j["url"], "title": j.get("title"), "company": j.get("company"),
                                      "category": j.get("category"), "score": j.get("score"),
-                                     "posted_at": j.get("posted_at")})
+                                     "posted_at": j.get("posted_at"),
+                                     "region": j.get("region") or matcher.job_region(j.get("location", ""))})
     except Exception as e:
         print(f"[subscribe] seed matches failed: {e}")
 
@@ -1575,10 +1576,11 @@ def healthz():
 @app.get("/status")
 def status():
     """Public health/observability snapshot: last run time, catalog size, user counts."""
-    from .config import APP_VERSION
+    from .config import APP_VERSION, BUILD
     from . import schedule as sched_info
     s = db.global_stats()
     s["version"] = APP_VERSION
+    s["build"] = BUILD  # which code build is live (bumped every push) , deploy-lag check
     s["schedule"] = sched_info.describe()
     s["next_run"] = sched_info.next_run_label()
     return s
