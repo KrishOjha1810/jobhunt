@@ -1194,6 +1194,21 @@ def wipe_users():
     return n
 
 
+def reset_catalog_and_user_seen(user_id):
+    """Validation reset: wipe the shared jobs_catalog (re-fetched fresh on the next run, under the new
+    matching/sourcing logic) and clear the user's UNPROCESSED seen-markers , the auto-delivered
+    job_log rows still at status='saved' , so those jobs can be re-matched and re-delivered. KEEPS any
+    row the user acted on (applied/screening/interview/offer/rejected/ghosted/not_interested), so the
+    tracker history and negative signals survive. Returns counts."""
+    with engine.begin() as c:
+        cat = c.execute(delete(jobs_catalog)).rowcount or 0
+        seen = 0
+        if user_id:
+            seen = c.execute(delete(job_log).where(
+                job_log.c.user_id == user_id, job_log.c.status == "saved")).rowcount or 0
+    return {"catalog_deleted": cat, "seen_cleared": seen}
+
+
 def get_user_by_id(uid):
     with engine.connect() as c:
         r = c.execute(select(users).where(users.c.id == uid)).mappings().first()

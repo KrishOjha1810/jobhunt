@@ -616,6 +616,23 @@ def admin_reset_users(token: str = ""):
     return {"ok": True, "deleted_users": n, "message": "All users removed. The job catalog was kept."}
 
 
+@app.api_route("/admin/revalidate", methods=["GET", "POST"])
+def admin_revalidate(request: Request, token: str = "", email: str = ""):
+    """Validation reset (NON-destructive to tracker history): wipe the shared job catalog so it
+    re-fetches fresh under the new matching/sourcing logic, clear the target user's UNPROCESSED
+    (status='saved') seen-markers so new matches get re-delivered, KEEP applied/interview/rejected
+    rows, then trigger a fresh run. Requires RUN_TOKEN. Target = ?email= if given, else logged-in user."""
+    if not RUN_TOKEN or token != RUN_TOKEN:
+        return JSONResponse({"error": "valid token required (set RUN_TOKEN, pass ?token=...)"}, status_code=403)
+    target = (db.get_user_by_email(email) if email else None) or current_user(request)
+    uid = target["id"] if target else 0
+    res = db.reset_catalog_and_user_seen(uid)
+    _trigger_run(force=True)
+    return {"ok": True, **res, "user_id": uid, "ran": True,
+            "message": "Catalog cleared and your unprocessed matches reset; a fresh run was triggered. "
+                       "Give it a minute, then refresh your dashboard."}
+
+
 @app.get("/api/gamify")
 def api_gamify(request: Request, token: str = "", year: int = 0, month: int = 0):
     """Everything the gamified tracker sidebar needs: funnel stats, apply streak, and this month's
