@@ -139,7 +139,8 @@ def init_db():
     with engine.begin() as conn:
         for col in ("email", "dash_token", "password_hash", "ref_code", "embedding", "categories",
                     "cadence", "experience", "resume_json", "resume_versions",
-                    "pref_vector", "resume_docx", "github_username", "github_data", "github_fetched_at"):
+                    "pref_vector", "resume_docx", "github_username", "github_data", "github_fetched_at",
+                    "profile_extra"):
             if col not in existing:
                 conn.execute(text(f"ALTER TABLE users ADD COLUMN {col} TEXT"))
         if "referred_by" not in existing:
@@ -679,6 +680,39 @@ def delete_resume_version(user_id, name):
     with engine.begin() as c:
         c.execute(update(users).where(users.c.id == user_id).values(resume_versions=json.dumps(versions)))
     return versions
+
+
+def get_profile_extra(user_id):
+    """User-provided achievements + notable projects (dict {achievements, projects}) used to sharpen
+    resume tailoring + screening answers. Returns {} if unset."""
+    with engine.connect() as c:
+        r = c.execute(select(users.c.profile_extra).where(users.c.id == user_id)).first()
+    if r and r[0]:
+        try:
+            d = json.loads(r[0])
+            return d if isinstance(d, dict) else {}
+        except Exception:
+            return {}
+    return {}
+
+
+def set_profile_extra(user_id, achievements="", projects=""):
+    data = {"achievements": (achievements or "").strip()[:4000],
+            "projects": (projects or "").strip()[:4000]}
+    with engine.begin() as c:
+        c.execute(update(users).where(users.c.id == user_id).values(profile_extra=json.dumps(data)))
+    return data
+
+
+def profile_extra_text(user_id):
+    """Flatten the profile extras into a prompt-ready block (or '' if empty)."""
+    d = get_profile_extra(user_id)
+    parts = []
+    if d.get("achievements"):
+        parts.append("Key achievements:\n" + d["achievements"])
+    if d.get("projects"):
+        parts.append("Notable projects:\n" + d["projects"])
+    return "\n\n".join(parts)
 
 
 def set_keywords(user_id, keywords):

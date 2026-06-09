@@ -70,7 +70,8 @@
       .main{order:2}
       #streakCard{order:3}
       #trackCard{order:4}
-      #insightsBox{order:5}
+      #profileCard{order:5}
+      #insightsBox{order:6}
     }
     .applylink{color:var(--accent-ink);background:var(--accent)}
     .applylink:hover{background:var(--accent-2);transform:translateY(-1px)}
@@ -189,6 +190,18 @@
           <button class="applylink" id="extBtn" style="border:0;width:100%;margin-top:8px;justify-content:center">Track it</button>
           <span class="sub" id="extMsg" style="margin:6px 0 0;display:block"></span>
         </div>
+
+        <details id="profileCard" class="card">
+          <summary style="cursor:pointer;color:var(--muted);font-size:var(--fs-sm);font-weight:600">Profile , sharpens your tailoring</summary>
+          <div style="margin-top:10px">
+            <label style="font-size:var(--fs-xs);color:var(--muted);display:block;margin-bottom:4px">Key achievements</label>
+            <textarea id="pfAch" rows="3" placeholder="e.g. Cut API latency 40%, led a team of 5, shipped a feature used by 10k users" style="width:100%"></textarea>
+            <label style="font-size:var(--fs-xs);color:var(--muted);display:block;margin:8px 0 4px">Notable projects</label>
+            <textarea id="pfProj" rows="3" placeholder="Projects worth highlighting (impact + tech)" style="width:100%"></textarea>
+            <button class="applylink" id="pfSave" style="border:0;width:100%;margin-top:8px;justify-content:center">Save</button>
+            <span class="sub" id="pfMsg" style="margin:6px 0 0;display:block"></span>
+          </div>
+        </details>
 
         <details id="insightsBox" style="display:none">
           <summary style="cursor:pointer;color:var(--muted);font-size:var(--fs-sm);font-weight:600">Insights , what you pursue + which resume you use</summary>
@@ -562,6 +575,27 @@
     function syncFilterDrawer() { const f = document.getElementById('filterCard'); if (f) f.open = window.innerWidth > 900; }
     syncFilterDrawer();
     window.addEventListener('resize', syncFilterDrawer);
+
+    // Profile extras (achievements / projects) , feed the resume tailoring
+    (function initProfile(){
+      const ach = document.getElementById('pfAch'), proj = document.getElementById('pfProj');
+      const msg = document.getElementById('pfMsg'), save = document.getElementById('pfSave');
+      if (!ach || !save) return;
+      fetch('/api/profile?token=' + encodeURIComponent(token)).then(r => r.ok ? r.json() : null).then(d => {
+        const p = (d && d.profile_extra) || {};
+        ach.value = p.achievements || ''; proj.value = p.projects || '';
+      }).catch(() => {});
+      save.onclick = async () => {
+        save.disabled = true; msg.textContent = 'Saving...';
+        try {
+          await fetch('/api/profile?token=' + encodeURIComponent(token), { method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ achievements: ach.value, projects: proj.value }) });
+          msg.innerHTML = '<span class="ok">Saved , we\'ll use this when tailoring.</span>';
+        } catch (e) { msg.innerHTML = '<span class="err">Could not save.</span>'; }
+        save.disabled = false;
+      };
+    })();
     function clearFilters() {
       state = { days: 0, minScore: 0, sortKey: 'score', sortDir: 'desc', status: '' };
       document.getElementById('companyFilter').value = '';

@@ -165,7 +165,7 @@ def parse_resume_structured(resume_text: str):
     return obj, err
 
 
-def tailor_edits(resume_json: dict, job_title: str, job_desc: str):
+def tailor_edits(resume_json: dict, job_title: str, job_desc: str, extra: str = ""):
     """Produce concrete, reviewable edits to tailor the resume to a job. Returns (dict, error) where
     dict = {summary, add_skills:[...], bullets:[{original, improved, why}]}.
 
@@ -218,6 +218,9 @@ def tailor_edits(resume_json: dict, job_title: str, job_desc: str):
         f"JD KEYWORDS MISSING FROM RESUME (weave in only where truthful): "
         f"{', '.join(missing_kw) or '(none , resume already covers the JD)'}\n\n"
         f"WEAK BULLETS TO REWRITE (verbatim original in brackets):\n{weak_block}"
+        + (f"\n\nCANDIDATE-PROVIDED ACHIEVEMENTS / PROJECTS (real , weave a concrete metric or proof "
+           f"from here into a bullet or the summary where it genuinely fits; never copy verbatim, never "
+           f"fabricate):\n{extra[:1800]}" if (extra or '').strip() else "")
     )
     obj, err = _json_call(sys, user_msg, max_tokens=2200)
     if not obj:

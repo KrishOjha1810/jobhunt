@@ -362,8 +362,26 @@ def me(request: Request):
             "keywords": u.get("keywords") or [], "locations": u.get("locations") or [],
             "cadence": u.get("cadence") or "daily",
             "experience": u.get("experience") or "",
+            "profile_extra": db.get_profile_extra(u["id"]),
             "schedule": sched_info.describe(), "next_run": sched_info.next_run_label(),
             "dash_token": u.get("dash_token"), "version": APP_VERSION}
+
+
+@app.api_route("/api/profile", methods=["GET", "POST"])
+async def api_profile(request: Request, token: str = ""):
+    """GET returns the user's achievements + notable projects; POST {achievements, projects} saves them.
+    These are real extra context that sharpens resume tailoring and screening-answer drafts."""
+    user = _resolve_user(request, token)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    if request.method == "GET":
+        return {"ok": True, "profile_extra": db.get_profile_extra(user["id"])}
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    data = db.set_profile_extra(user["id"], body.get("achievements", ""), body.get("projects", ""))
+    return {"ok": True, "profile_extra": data}
 
 
 @app.post("/api/subscribe/parse")
@@ -1222,7 +1240,8 @@ def api_resume_tailor(request: Request, job_id: int = 0, token: str = ""):
     job = db.get_job_log(job_id, user["id"])
     if not job:
         return JSONResponse({"error": "job not found"}, status_code=404)
-    edits, err = enrich.tailor_edits(rj, job.get("title") or "", db.catalog_description(job.get("url")))
+    edits, err = enrich.tailor_edits(rj, job.get("title") or "", db.catalog_description(job.get("url")),
+                                     extra=db.profile_extra_text(user["id"]))
     if not edits:
         return {"ok": False, "reason": err or "Could not generate edits."}
     return {"ok": True, "edits": edits, "job": {"title": job.get("title"), "company": job.get("company")}}
@@ -1338,7 +1357,7 @@ def api_resume_context(request: Request, job_id: int = 0, url: str = "", token: 
                 "job": {"id": job["id"], "title": job.get("title"), "company": job.get("company"), "url": job.get("url")}}
     # tailor_edits returns concrete rewrites even with no LLM (deterministic XYZ-formula fallback),
     # so experience lines always get actionable suggestions, AI or not.
-    edits, _err = enrich.tailor_edits(rj, job.get("title") or "", jd)
+    edits, _err = enrich.tailor_edits(rj, job.get("title") or "", jd, extra=db.profile_extra_text(user["id"]))
     return {"ok": True, "job": jobinfo, "keeps_format": True,
             "resume": rj, "match": _resume.ats_job_match(rj, jd),
             "health": resume_export.ats_health(rj), "edits": edits, "llm": enrich.available()}
@@ -1396,7 +1415,7 @@ async def api_resume_tailor_adhoc(request: Request, token: str = ""):
     if rj is None:
         return {"ok": False, "needs_upload": True, "reason": "Upload your resume first, then paste the job description."}
     context = jd if not years else f"Candidate has about {years} years of experience.\n\n{jd}"
-    edits, _err = enrich.tailor_edits(rj, role, context)
+    edits, _err = enrich.tailor_edits(rj, role, context, extra=db.profile_extra_text(user["id"]))
     return {"ok": True, "role": role, "resume": rj, "keeps_format": True,
             "match": _resume.ats_job_match(rj, jd),
             "health": resume_export.ats_health(rj), "edits": edits, "llm": enrich.available()}
