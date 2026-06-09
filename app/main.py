@@ -676,6 +676,43 @@ def admin_revalidate(request: Request, token: str = "", email: str = ""):
                        "Give it a minute, then refresh your dashboard."}
 
 
+def _notice_page(title, body_html):
+    return HTMLResponse(
+        f"<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
+        f"<title>{title}</title><style>body{{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#0d0d10;"
+        f"color:#e7e7ea;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0;padding:24px}}"
+        f".c{{max-width:440px;text-align:center;background:#141418;border:1px solid #26262c;border-radius:16px;padding:32px}}"
+        f"h1{{font-size:1.3rem;margin:0 0 10px}}p{{color:#a9a9b2;line-height:1.6}}a{{color:#f5b041;font-weight:600}}</style></head>"
+        f"<body><div class='c'><h1>{title}</h1><p>{body_html}</p></div></body></html>")
+
+
+@app.get("/unsubscribe", response_class=HTMLResponse)
+def unsubscribe(request: Request, t: str = ""):
+    """One-click pause of job alerts (from the email footer or while logged in). Keeps the account +
+    tracker; the runner simply skips paused users. Reversible via /resubscribe."""
+    user = (db.user_by_token(t) if t else None) or current_user(request)
+    if not user:
+        return _notice_page("Link expired", "This unsubscribe link is invalid. <a href='/login'>Log in</a> to manage alerts.")
+    db.set_active(user["id"], False)
+    tok = user.get("dash_token") or ""
+    return _notice_page("Alerts paused",
+        "You won't get job-match emails anymore. Your account and tracker are kept. "
+        f"<br><br><a href='{BASE_URL}/resubscribe?t={tok}'>Resume alerts</a> &nbsp;·&nbsp; <a href='/subscribe'>Change settings</a>")
+
+
+@app.get("/resubscribe", response_class=HTMLResponse)
+def resubscribe(request: Request, t: str = ""):
+    """Undo an unsubscribe , re-activate the user's alerts."""
+    user = (db.user_by_token(t) if t else None) or current_user(request)
+    if not user:
+        return _notice_page("Link expired", "This link is invalid. <a href='/login'>Log in</a> to manage alerts.")
+    db.set_active(user["id"], True)
+    tok = user.get("dash_token") or ""
+    return _notice_page("Alerts resumed",
+        "You're back on , job matches will arrive on your usual schedule. "
+        f"<br><br><a href='{BASE_URL}/dashboard?token={tok}'>Open your tracker</a>")
+
+
 @app.get("/api/gamify")
 def api_gamify(request: Request, token: str = "", year: int = 0, month: int = 0):
     """Everything the gamified tracker sidebar needs: funnel stats, apply streak, and this month's

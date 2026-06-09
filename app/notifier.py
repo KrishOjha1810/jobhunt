@@ -190,6 +190,7 @@ def format_digest(user: dict, jobs: list) -> str:
         lines.append("")
     if tok:
         lines.append(f"Your tracker: {BASE_URL}/dashboard?token={tok}")
+        lines.append(f"Pause these alerts: {BASE_URL}/unsubscribe?t={tok}")
     return "\n".join(lines)
 
 

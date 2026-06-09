@@ -236,6 +236,13 @@ def list_active_users():
     return out
 
 
+def set_active(user_id, active):
+    """Pause/resume a user's job alerts without touching their account or tracker. active=0 makes the
+    runner skip them (list_active_users filters on active==1); active=1 resumes."""
+    with engine.begin() as c:
+        c.execute(update(users).where(users.c.id == user_id).values(active=1 if active else 0))
+
+
 def user_by_token(token):
     if not token:
         return None
@@ -1261,6 +1268,7 @@ def update_subscription(user_id, keywords, locations, channel, resume_path=None,
         "keywords": json.dumps(keywords), "locations": json.dumps(locations), "channel": channel,
         "telegram_chat_id": telegram_chat_id or "", "whatsapp_phone": whatsapp_phone,
         "whatsapp_apikey": whatsapp_apikey,
+        "active": 1,  # subscribing (or updating) always (re)activates alerts
     }
     if categories is not None:
         vals["categories"] = json.dumps(categories)

@@ -274,7 +274,10 @@
         if (ch) { ch.checked = true; if (typeof showChannel === 'function') showChannel(me.channel); } }
       if (me.subscribed) {
         const rf = document.querySelector('input[name="resume_file"]'); if (rf) { rf.required = false; }
-        const b = document.getElementById('subEditBanner'); if (b) b.style.display = 'block';
+        const b = document.getElementById('subEditBanner');
+        if (b) { b.style.display = 'block';
+          if (!document.getElementById('pauseLink')) b.insertAdjacentHTML('beforeend',
+            ' <a id="pauseLink" href="/unsubscribe" style="color:var(--accent);font-weight:700;white-space:nowrap">Pause alerts</a>'); }
         const lbl = document.querySelector('label[for], .reslabel');
       }
     }).catch(() => {});
