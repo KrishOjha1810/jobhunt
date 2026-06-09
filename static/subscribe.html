@@ -146,23 +146,7 @@
         </div>
 
         <label>Which roles do you want? <span style="font-weight:400;color:var(--muted)">(tick all that apply , you can pick several; none = all roles)</span></label>
-        <div class="roles" id="roles">
-          <label class="rolechip"><input type="checkbox" name="categories" value="Backend" /><span>Backend</span></label>
-          <label class="rolechip"><input type="checkbox" name="categories" value="Frontend" /><span>Frontend</span></label>
-          <label class="rolechip"><input type="checkbox" name="categories" value="Full-Stack" /><span>Full-Stack</span></label>
-          <label class="rolechip"><input type="checkbox" name="categories" value="Mobile" /><span>Mobile</span></label>
-          <label class="rolechip"><input type="checkbox" name="categories" value="Data Engineering" /><span>Data Engineering</span></label>
-          <label class="rolechip"><input type="checkbox" name="categories" value="Data Science" /><span>Data Science</span></label>
-          <label class="rolechip"><input type="checkbox" name="categories" value="Data Analyst" /><span>Data Analyst</span></label>
-          <label class="rolechip"><input type="checkbox" name="categories" value="AI / ML" /><span>AI / ML</span></label>
-          <label class="rolechip"><input type="checkbox" name="categories" value="DevOps / SRE" /><span>DevOps / SRE</span></label>
-          <label class="rolechip"><input type="checkbox" name="categories" value="Cloud" /><span>Cloud</span></label>
-          <label class="rolechip"><input type="checkbox" name="categories" value="Security" /><span>Security</span></label>
-          <label class="rolechip"><input type="checkbox" name="categories" value="Blockchain" /><span>Blockchain</span></label>
-          <label class="rolechip"><input type="checkbox" name="categories" value="QA / Test" /><span>QA / Test</span></label>
-          <label class="rolechip"><input type="checkbox" name="categories" value="Product" /><span>Product</span></label>
-          <label class="rolechip"><input type="checkbox" name="categories" value="Design" /><span>Design</span></label>
-        </div>
+        <div class="roles" id="roles"></div>
         <small>You get ONE daily digest of the best matches across the roles you pick, not a separate batch per role. Everything else stays browsable in <a href="/jobs">Browse jobs</a>.</small>
 
         <label>Your experience level</label>
@@ -254,16 +238,27 @@
       }catch(e){ parseStatus.textContent = 'Could not parse right now , you can still add tags manually below.'; }
     });
 
+    // ----- Role chips: rendered from the canonical category list (never drifts from what we match) -----
+    let PENDING_CATS = [];
+    function selectRoles(cats){
+      if (cats) PENDING_CATS = cats;
+      (PENDING_CATS || []).forEach(c => { const b = document.querySelector('#roles input[value="' + c + '"]'); if (b) b.checked = true; });
+    }
+    (function loadRoles(){
+      const FALLBACK = ['Backend','Frontend','Full-Stack','Mobile','DevOps / SRE','Cloud','Data Engineering','Data Science','Data Analyst','AI / ML','Security','Blockchain','QA / Test','Product','Design'];
+      const render = roles => { document.getElementById('roles').innerHTML =
+        roles.map(c => `<label class="rolechip"><input type="checkbox" name="categories" value="${esc(c)}" /><span>${esc(c)}</span></label>`).join('');
+        selectRoles(); };
+      fetch('/api/roles').then(r => r.ok ? r.json() : null).then(d => render((d && d.roles) || FALLBACK)).catch(() => render(FALLBACK));
+    })();
+
     // ----- Prefill email from /me -----
     fetch('/me').then(r => r.ok ? r.json() : null).then(me => {
       if (!me) return;
       if (me.email && !document.getElementById('emailInput').value) {
         document.getElementById('emailInput').value = me.email;
       }
-      (me.categories || []).forEach(c => {
-        const box = document.querySelector('#roles input[value="' + c + '"]');
-        if (box) box.checked = true;
-      });
+      selectRoles(me.categories || []);
       if ((me.keywords || []).length) { TAGS = me.keywords.slice(); renderTags(); }
       if (me.cadence) {
         const cad = document.querySelector('#cadence input[value="' + me.cadence + '"]');

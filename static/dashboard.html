@@ -57,6 +57,11 @@
     .filterbox>summary::after{content:'⌄';font-size:1rem;transition:transform .15s}
     .filterbox[open]>summary::after{transform:rotate(180deg)}
     .filtsec select{width:100%;min-width:0}
+    .rolechips{display:flex;flex-wrap:wrap;gap:6px}
+    .rolechip{padding:5px 10px;border-radius:var(--r-pill);border:1px solid var(--field-border);background:var(--field);
+      color:var(--muted);font-size:var(--fs-xs);font-weight:600;cursor:pointer;font-family:inherit;transition:.12s}
+    .rolechip:hover{color:var(--ink);border-color:var(--accent)}
+    .rolechip.active{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
     .side .toggle-group{display:flex;width:100%;flex-wrap:nowrap}
     .side .toggle-group .btn{flex:1;text-align:center;padding:6px 4px;font-size:var(--fs-xs)}
     /* status bar sits with the table (it's a mode switch, not a sidebar filter) */
@@ -172,11 +177,18 @@
               <button class="btn" data-min="80">80+</button>
             </div>
           </div>
+          <div class="filtsec"><label>Location</label>
+            <div class="toggle-group" id="locGroup">
+              <button class="btn active" data-loc="">All</button>
+              <button class="btn" data-loc="india">India</button>
+              <button class="btn" data-loc="global">Remote</button>
+            </div>
+          </div>
+          <div class="filtsec"><label>Roles <span style="font-weight:400;text-transform:none;letter-spacing:0">(tap to narrow)</span></label>
+            <div id="roleChips" class="rolechips"></div>
+          </div>
           <div class="filtsec"><label>Company</label>
             <select id="companyFilter"><option value="">All companies</option></select>
-          </div>
-          <div class="filtsec"><label>Role</label>
-            <select id="categoryFilter"><option value="">All roles</option></select>
           </div>
           <div class="filtsec"><label>Sort by</label>
             <select id="sortSelect">
@@ -305,7 +317,7 @@
 
     const token = new URLSearchParams(location.search).get('token') || '';
     let all = [], RESUME_NAMES = [];
-    let state = { days: 0, minScore: 0, sortKey: 'score', sortDir: 'desc', status: '' };
+    let state = { days: 0, minScore: 0, sortKey: 'score', sortDir: 'desc', status: '', loc: '', roles: new Set() };
 
     function resumeOpts(current){
       const opts = ['', ...RESUME_NAMES];
@@ -442,13 +454,23 @@
       const cat = [...new Set(all.map(j => j.category).filter(Boolean))].sort();
       document.getElementById('companyFilter').innerHTML =
         '<option value="">All companies</option>' + comp.map(c => `<option>${esc(c)}</option>`).join('');
-      document.getElementById('categoryFilter').innerHTML =
-        '<option value="">All roles</option>' + cat.map(c => `<option>${esc(c)}</option>`).join('');
+      // role MULTI-select: only the roles the user actually has matches in (usually a handful)
+      const box = document.getElementById('roleChips');
+      if (box) {
+        box.innerHTML = cat.length
+          ? cat.map(c => `<button class="rolechip${state.roles.has(c) ? ' active' : ''}" data-c="${esc(c)}">${esc(c)}</button>`).join('')
+          : '<span class="sub" style="margin:0">No matched roles yet.</span>';
+        box.querySelectorAll('.rolechip').forEach(b => b.onclick = () => {
+          const c = b.dataset.c;
+          state.roles.has(c) ? state.roles.delete(c) : state.roles.add(c);
+          b.classList.toggle('active');
+          render();
+        });
+      }
     }
 
     function render() {
       const co = document.getElementById('companyFilter').value;
-      const ca = document.getElementById('categoryFilter').value;
       const cutoff = state.days ? Date.now() - state.days*864e5 : 0;
       const ts = j => j.sent_at ? new Date(j.sent_at.replace(' ','T')).getTime() : 0;
       // default "All" view hides dismissed/closed jobs (still reachable via their own tab); the
@@ -457,7 +479,9 @@
       const rows = all.filter(j => {
         const st = j.status || 'saved';
         const statusOk = state.status ? st === state.status : !HIDDEN_IN_ALL.has(st);
-        return (!co || j.company === co) && (!ca || j.category === ca) &&
+        const roleOk = state.roles.size === 0 || state.roles.has(j.category);
+        const locOk = !state.loc || (j.region || '') === state.loc;
+        return (!co || j.company === co) && roleOk && locOk &&
           ((j.score || 0) >= state.minScore) && statusOk &&
           (!cutoff || !j.sent_at || ts(j) >= cutoff);
       }).sort((a, b) => {
@@ -576,6 +600,11 @@
     }
     wireChips('dateGroup', 'days', v => state.days = v);
     wireChips('scoreGroup', 'min', v => state.minScore = v);
+    document.getElementById('locGroup').addEventListener('click', e => {
+      const b = e.target.closest('.btn'); if (!b) return;
+      document.querySelectorAll('#locGroup .btn').forEach(x => x.classList.remove('active'));
+      b.classList.add('active'); state.loc = b.dataset.loc; render();
+    });
     document.getElementById('statusGroup').addEventListener('click', e => {
       const b = e.target.closest('.btn'); if (!b) return;
       document.querySelectorAll('#statusGroup .btn').forEach(x => x.classList.remove('active'));
@@ -591,7 +620,6 @@
       });
     }
     document.getElementById('companyFilter').onchange = render;
-    document.getElementById('categoryFilter').onchange = render;
     document.getElementById('sortSelect').onchange = e => {
       const [k, d] = e.target.value.split('-');
       state.sortKey = k; state.sortDir = d; syncHeaderCarets(); render();
@@ -626,15 +654,15 @@
       };
     })();
     function clearFilters() {
-      state = { days: 0, minScore: 0, sortKey: 'score', sortDir: 'desc', status: '' };
+      state = { days: 0, minScore: 0, sortKey: 'score', sortDir: 'desc', status: '', loc: '', roles: new Set() };
       document.getElementById('companyFilter').value = '';
-      document.getElementById('categoryFilter').value = '';
       document.getElementById('sortSelect').value = 'score-desc';
       // reset every segmented control to its first (default) option
-      ['statusGroup', 'dateGroup', 'scoreGroup'].forEach(gid => {
+      ['statusGroup', 'dateGroup', 'scoreGroup', 'locGroup'].forEach(gid => {
         const btns = document.querySelectorAll('#' + gid + ' .btn');
         btns.forEach((x, i) => x.classList.toggle('active', i === 0));
       });
+      document.querySelectorAll('#roleChips .rolechip').forEach(b => b.classList.remove('active'));
       syncHeaderCarets(); render();
     }
     function syncHeaderCarets(){

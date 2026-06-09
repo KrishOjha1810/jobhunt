@@ -385,6 +385,13 @@ async def api_profile(request: Request, token: str = ""):
     return {"ok": True, "profile_extra": data}
 
 
+@app.get("/api/roles")
+def api_roles():
+    """Canonical list of role categories we actually match, so the subscribe chips can't drift from
+    what the matcher supports."""
+    return {"roles": [c[0] for c in matcher.CATEGORY_RULES]}
+
+
 @app.post("/api/subscribe/parse")
 async def api_subscribe_parse(request: Request):
     """Parse an uploaded resume for the SUBSCRIBE flow WITHOUT subscribing: returns detected skills

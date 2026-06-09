@@ -61,6 +61,7 @@ job_log = Table(
     Column("notes", Text, default=""),
     Column("posted_at", Text),
     Column("status", Text, default="saved"),
+    Column("region", Text),  # india | global | ... , lets the tracker filter matches by location
     Column("sent_at", DateTime, default=datetime.utcnow),
     Column("applied_at", DateTime),  # set when the row first enters an applied state (streaks/leaderboard)
 )
@@ -154,6 +155,8 @@ def init_db():
             conn.execute(text("ALTER TABLE job_log ADD COLUMN status TEXT"))
         if "applied_at" not in jl_cols:
             conn.execute(text("ALTER TABLE job_log ADD COLUMN applied_at TIMESTAMP"))
+        if "region" not in jl_cols:
+            conn.execute(text("ALTER TABLE job_log ADD COLUMN region TEXT"))
         # jobs_catalog.salary for older DBs
         if insp.has_table("jobs_catalog"):
             cat_cols = {c["name"] for c in insp.get_columns("jobs_catalog")}
@@ -271,6 +274,7 @@ def log_job(user_id, job):
             user_id=user_id, title=job.get("title"), company=job.get("company"),
             category=job.get("category"), url=job.get("url"), score=job.get("score"),
             posted_at=job.get("posted_at"), status="saved",
+            region=job.get("region"),  # set by the matcher; null for external/manual adds
         ))
 
 
