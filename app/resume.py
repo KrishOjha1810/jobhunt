@@ -227,37 +227,163 @@ def ats_job_match(resume_json: dict, jd_text: str) -> dict:
             "subscores": subscores}
 
 
+_SECTION_HEADINGS = {
+    "experience": r"(work\s+|professional\s+|relevant\s+)?experience|employment(\s+history)?|work\s+history",
+    "education": r"education|academics?|qualifications?",
+    "projects": r"projects?|personal\s+projects|side\s+projects|key\s+projects",
+    "skills": r"(technical\s+)?skills?|technologies|tech\s+stack|core\s+competencies",
+    "summary": r"summary|objective|about(\s+me)?|profile",
+}
+_BULLET_RE = re.compile(r"^\s*[\-•▪●‣⁃∙*·•▪◦‣·]+\s*")
+_DATE_RE = re.compile(r"\b(19|20)\d{2}\b|\b(present|current|ongoing)\b", re.I)
+_DEGREE_RE = re.compile(
+    r"\b(b\.?\s?tech|m\.?\s?tech|b\.?\s?e\b|m\.?\s?e\b|b\.?\s?sc|m\.?\s?sc|b\.?\s?a\b|m\.?\s?a\b|"
+    r"bachelor|master|ph\.?\s?d|mba|diploma|b\.?\s?com|m\.?\s?com|bca|mca|degree)\b", re.I)
+_SCHOOL_RE = re.compile(r"(university|college|institute|school|academy|\biit\b|\bnit\b|\biiit\b)", re.I)
+
+
+def _debullet(s):
+    return _BULLET_RE.sub("", s).strip()
+
+
+def _split_sections(text: str) -> dict:
+    """Split a resume into {section_key: [lines]} by detecting common section headings."""
+    out = {"header": []}
+    cur = "header"
+    for ln in (text or "").splitlines():
+        s = ln.strip()
+        key = None
+        if s and len(s) <= 40:
+            low = s.lower().strip(" :|-").strip()
+            for k, pat in _SECTION_HEADINGS.items():
+                if re.fullmatch(pat, low):
+                    key = k
+                    break
+        if key:
+            cur = key
+            out.setdefault(cur, [])
+        else:
+            out.setdefault(cur, []).append(ln)
+    return out
+
+
+def _looks_like_role_header(s: str) -> bool:
+    if _BULLET_RE.match(s) or len(s) > 100:
+        return False
+    return bool(_DATE_RE.search(s)) or "|" in s or " at " in f" {s.lower()} "
+
+
+def _extract_entries(lines: list) -> list:
+    """Parse an experience/projects section into [{title, company, dates, bullets[]}]. Splits on
+    role-header lines (those carrying a date / pipe / 'at'); collects bullet + substantial lines under
+    each. Falls back to a single entry so bullets are never lost (this is what unsticks the score)."""
+    entries, cur, bullets = [], None, []
+
+    def flush():
+        nonlocal cur, bullets
+        if bullets or cur:
+            e = cur or {"title": "Experience", "company": "", "dates": "", "bullets": []}
+            e["bullets"] = (e.get("bullets") or []) + bullets
+            if e["bullets"]:
+                entries.append(e)
+        cur, bullets = None, []
+
+    for ln in lines:
+        s = ln.strip()
+        if not s:
+            continue
+        if _looks_like_role_header(s):
+            flush()
+            dm = re.search(r"((?:[A-Za-z]{3,9}\.?\s*)?(?:19|20)\d{2}\s*(?:[-–to]+\s*"
+                           r"(?:present|current|(?:[A-Za-z]{3,9}\.?\s*)?(?:19|20)\d{2}))?)", s, re.I)
+            dates = dm.group(1).strip() if dm else ""
+            core = (s[:dm.start()] + s[dm.end():]) if dm else s
+            parts = [p.strip() for p in re.split(r"\s*[|·]\s*|\s+(?:at|@)\s+", core) if p.strip()]
+            cur = {"title": (parts[0] if parts else core).strip(" -,|")[:120],
+                   "company": (parts[1][:120] if len(parts) > 1 else ""), "dates": dates[:40], "bullets": []}
+        elif _BULLET_RE.match(s):
+            b = _debullet(s)
+            if len(b) >= 6:
+                bullets.append(b[:300])
+        elif 25 <= len(s) <= 240 and len(s.split()) >= 4 and not s.endswith(":"):
+            bullets.append(s[:300])
+    flush()
+    return entries[:10]
+
+
+def _extract_education(lines: list) -> list:
+    out, seen = [], set()
+    for ln in lines:
+        s = _debullet(ln.strip())
+        if not s or len(s) > 180:
+            continue
+        if _DEGREE_RE.search(s) or _SCHOOL_RE.search(s):
+            key = s.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            dm = re.search(r"(19|20)\d{2}", s)
+            out.append({"degree": s[:160], "school": "", "dates": dm.group(0) if dm else ""})
+    return out[:6]
+
+
 def heuristic_structure(text: str) -> dict:
-    """Build a structured resume WITHOUT an LLM (fallback so upload/parse never hard-fails).
-    Pulls contact + skills reliably; leaves experience for the user (or the LLM) to fill."""
-    low = text
+    """Build a structured resume WITHOUT an LLM (fallback so upload/parse never hard-fails). Now also
+    extracts EXPERIENCE bullets, PROJECTS, and EDUCATION from the raw text , without these the quality
+    score was stuck low (no bullets to grade) for any resume parsed without the LLM."""
     email = ""
-    m = re.search(r"[\w.+-]+@[\w-]+\.[\w.-]+", low)
+    m = re.search(r"[\w.+-]+@[\w-]+\.[\w.-]+", text)
     if m:
         email = m.group(0)
     phone = ""
-    m = re.search(r"(\+?\d[\d\s\-()]{8,15}\d)", low)
+    m = re.search(r"(\+?\d[\d\s\-()]{8,15}\d)", text)
     if m:
         phone = m.group(1).strip()
-    links = re.findall(r"(?:https?://)?(?:www\.)?(?:linkedin\.com/in/[\w\-/]+|github\.com/[\w\-]+)", low)
+    links = re.findall(r"(?:https?://)?(?:www\.)?(?:linkedin\.com/in/[\w\-/]+|github\.com/[\w\-]+)", text)
     links = ["https://" + l if not l.startswith("http") else l for l in links][:3]
-    # name: first non-empty line that isn't an email/phone/heading
     name = ""
     for ln in text.splitlines():
         s = ln.strip()
         if s and "@" not in s and not re.search(r"\d{4}", s) and len(s.split()) <= 5 and len(s) < 50:
             name = s
             break
-    # summary: text right after a "summary/objective/about" heading, else the first real paragraph
     summary = ""
     ms = re.search(r"(?:summary|objective|about me|profile)\s*:?\s*\n+(.{40,400})", text, re.I)
     if ms:
         summary = " ".join(ms.group(1).split())
+
+    sec = _split_sections(text)
+    experience = _extract_entries(sec.get("experience", []))
+    education = _extract_education(sec.get("education", []))
+    projects = []
+    for e in _extract_entries(sec.get("projects", [])):
+        projects.append({"name": e.get("title") or "Project", "stack": e.get("company", ""),
+                         "dates": e.get("dates", ""), "bullets": e.get("bullets", [])})
+    # skills: prefer an explicit skills section, else mine the whole doc
+    skill_text = " ".join(sec.get("skills", [])) or text
+    skills = extract_keywords(skill_text)[:30] or extract_keywords(text)[:30]
     return {
         "name": name, "email": email, "phone": phone, "links": links,
-        "summary": summary, "skills": extract_keywords(text)[:30],
-        "experience": [], "projects": [], "education": [],
+        "summary": summary, "skills": skills,
+        "experience": experience, "projects": projects, "education": education,
     }
+
+
+def ensure_structure(rj: dict, text: str):
+    """Retroactively backfill a stored resume whose experience/projects/education were dropped by an
+    earlier LLM-less parse, so the quality score reflects the real resume. Returns (rj, changed)."""
+    if not rj or not text:
+        return rj, False
+    changed = False
+    if not (rj.get("experience")):
+        h = heuristic_structure(text)
+        if h.get("experience"):
+            rj["experience"] = h["experience"]; changed = True
+        if not rj.get("projects") and h.get("projects"):
+            rj["projects"] = h["projects"]; changed = True
+        if not rj.get("education") and h.get("education"):
+            rj["education"] = h["education"]; changed = True
+    return rj, changed
 
 
 def profile_from_resume(path: str) -> dict:

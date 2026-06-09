@@ -732,6 +732,20 @@ def resubscribe(request: Request, t: str = ""):
         f"<br><br><a href='{BASE_URL}/dashboard?token={tok}'>Open your tracker</a>")
 
 
+@app.api_route("/admin/reset-matches", methods=["GET", "POST"])
+def admin_reset_matches(request: Request, token: str = ""):
+    """DESTRUCTIVE (all users): wipe the shared catalog + EVERY user's matched/tracked jobs, then run
+    a fresh match so everyone is re-matched from scratch under the new precision engine. Keeps accounts,
+    subscriptions, learned prefs, and event history. Requires RUN_TOKEN."""
+    if not RUN_TOKEN or token != RUN_TOKEN:
+        return JSONResponse({"error": "valid token required (set RUN_TOKEN, pass ?token=...)"}, status_code=403)
+    res = db.reset_all_matches()
+    _trigger_run(force=True)
+    return {"ok": True, **res, "ran": True,
+            "message": "Cleared the catalog + all matched jobs for every user; a fresh run was "
+                       "triggered. New precision-engine matches will arrive shortly."}
+
+
 @app.get("/api/gamify")
 def api_gamify(request: Request, token: str = "", year: int = 0, month: int = 0):
     """Everything the gamified tracker sidebar needs: funnel stats, apply streak, and this month's
@@ -1210,6 +1224,11 @@ def api_resume_get(request: Request, token: str = ""):
         # no resume on file , the page must ask the user to upload one before tailoring
         return {"ok": False, "needs_upload": True,
                 "reason": "Upload your resume to tailor it , we don't build one from scratch."}
+    # retroactively backfill experience/education dropped by an older LLM-less parse, so the quality
+    # score reflects the real resume instead of sitting stuck low.
+    rj, _changed = _resume.ensure_structure(rj, user.get("resume_text") or "")
+    if _changed:
+        db.set_resume_json(user["id"], rj)
     return {"ok": True, "resume": rj, "health": resume_export.ats_health(rj),
             "keeps_format": bool(db.get_resume_docx(user["id"]))}
 

@@ -1284,6 +1284,16 @@ def reset_catalog_and_user_seen(user_id):
     return {"catalog_deleted": cat, "seen_cleared": seen}
 
 
+def reset_all_matches():
+    """Clear the shared catalog + EVERY user's matched/tracked job_log rows, so the new matching
+    re-delivers from scratch for everyone. Keeps accounts, subscriptions, learned prefs, and the
+    events history (so the recommender keeps what it learned). Destructive , admin only."""
+    with engine.begin() as c:
+        cat = c.execute(delete(jobs_catalog)).rowcount or 0
+        jl = c.execute(delete(job_log)).rowcount or 0
+    return {"catalog_deleted": cat, "job_log_deleted": jl}
+
+
 def get_user_by_id(uid):
     with engine.connect() as c:
         r = c.execute(select(users).where(users.c.id == uid)).mappings().first()
