@@ -102,12 +102,13 @@ README until fixed.
 
 ## P3 , security hardening (cheap, do in one pass)
 
-### 11. [ ] Tighten CORS
-`allow_origins=["*"]` is too open. Whitelist the deployed domain + extension origin.
+### 11. [x] Tighten CORS
+**DONE (2026-06-11):** `allow_origins` now the deployed `BASE_URL` + a `chrome-extension://.*`
+regex (was `["*"]`); `allow_credentials=False`.
 
-### 12. [ ] Rate-limit expensive endpoints
-`/api/subscribe/parse` (PDF parse + keyword extract) is unprotected; a bot can hammer it.
-Add SlowAPI or a simple per-IP token bucket. Also add a max upload size.
+### 12. [x] Rate-limit expensive endpoints
+**DONE (2026-06-11):** per-IP token bucket (`_rate_ok`, 12/min) on `/api/subscribe/parse`, plus
+an 8MB upload cap (`_too_big`) on parse + resume-import + subscribe. Regression test pins the 429.
 
 ### 13. [~] Email verification + password reset on login
 **PARTIAL (2026-06-10):** the OAuth account-takeover hole is closed , Google login now requires
