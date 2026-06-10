@@ -325,14 +325,17 @@ def pref_features(job: dict) -> dict:
 
 
 def _recency_unit(job: dict) -> float:
-    """0..1 freshness from posted age (half-life ~14d). Unknown age -> neutral 0.4 (don't punish)."""
+    """0..1 freshness from posted age (half-life ~14d). Unknown age -> 0.4 for company boards (they
+    expire server-side, so unknown != stale), but 0.25 for aggregator feeds (Adzuna/JSearch), where
+    unknown age usually means an old, possibly-closed listing."""
     try:
         from .db import posted_age_days
         age = posted_age_days(job.get("posted_at"))
     except Exception:
         age = None
     if age is None:
-        return 0.4
+        src = (job.get("source") or "").split(":")[0]
+        return 0.25 if src in ("adzuna", "jsearch") else 0.4
     return _math.exp(-max(0, age) / 14.0)
 
 

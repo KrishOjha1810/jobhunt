@@ -81,6 +81,21 @@ def _nudge_no_resume(user):
 
 EMBED_RETRIEVE = os.environ.get("EMBED_RETRIEVE", "1") != "0"
 EMBED_RETRIEVE_K = int(os.environ.get("EMBED_RETRIEVE_K", "") or "30")
+# Hard cap on aggregator (Adzuna/JSearch) jobs in a single delivered digest , the source prior is a
+# soft nudge; this enforces "company boards first" so a digest can't be dominated by stale feed links.
+AGG_IN_DIGEST = int(os.environ.get("AGG_IN_DIGEST", "") or "3")
+
+
+def _cap_aggregator(jobs, cap=AGG_IN_DIGEST):
+    """Keep order but drop aggregator-source jobs beyond `cap`, so company-board jobs fill the digest."""
+    out, n = [], 0
+    for j in jobs:
+        if (j.get("source") or "").split(":")[0] in ("adzuna", "jsearch"):
+            n += 1
+            if n > cap:
+                continue
+        out.append(j)
+    return out
 
 
 def _embedding_retrieve(user, pool, have_urls, cats, uyears, emb_map=None, limit=EMBED_RETRIEVE_K):
@@ -461,12 +476,17 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
                             if not s:
                                 jb["verdict"] = "maybe"  # screen returned nothing for this one; don't reject
                                 continue
-                            jb["fit"] = s["fit"]; jb["verdict"] = s["verdict"]
+                            v = s["verdict"]
+                            # never let the LLM REJECT a job it had no real JD to judge (board listings
+                            # often ship JD-less); demote 'no' to 'maybe' when there's no evidence.
+                            if v == "no" and len(jb.get("description") or "") < 200:
+                                v = "maybe"
+                            jb["fit"] = s["fit"]; jb["verdict"] = v
                             jb["why_fit"] = s["why"]; jb["catch"] = s["catch"]
-                            # headline score = recruiter fit (blended 70/30 with our score to keep signal)
-                            jb["score"] = round(0.7 * s["fit"] + 0.3 * (jb.get("score") or 0))
                             if s["why"]:
                                 jb["reason"] = s["why"] + (f" (catch: {s['catch']})" if s["catch"] else "")
+                        # keep blended_score as the ONE headline scale (so "90" means the same thing
+                        # everywhere); the verdict is purely a gate, fit only orders within the gate.
                         ranked.sort(key=lambda jb: jb.get("score", 0), reverse=True)
                 except Exception as e:
                     print(f"[runner] recruiter screen skipped for {user.get('id')}: {e}")
@@ -487,10 +507,10 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
             used_fallback = False
             if not ranked:
                 loc_ok = [j for j in pool if matcher.location_ok(j.get("location", ""), user["locations"])]
-                fb = loc_ok
-                if cats:
-                    in_cats = [j for j in loc_ok if (j.get("category") or matcher.categorize(j)) in cats]
-                    fb = in_cats or loc_ok  # if their role has nothing right now, still send recent
+                # keep the user's role constraint even in fallback , don't send off-category jobs just
+                # to send something (that contradicted the strict role promise). If no in-role job
+                # exists this run, send nothing.
+                fb = [j for j in loc_ok if (j.get("category") or matcher.categorize(j)) in cats] if cats else loc_ok
                 fb.sort(key=lambda j: str(j.get("posted_at") or ""), reverse=True)
                 ranked = fb[:5]
                 used_fallback = bool(ranked)
@@ -502,12 +522,14 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
             # with junk (honest scarcity is the brand). Otherwise fall back to the score>=50 gate.
             if screened and not used_fallback:
                 passers = [j for j in fresh if j.get("verdict") in ("strong", "maybe")]
-                passers.sort(key=lambda j: (0 if j.get("verdict") == "strong" else 1, -(j.get("score") or 0)))
-                to_send = passers[:PRECISION_MAX]
+                # strong first; within a tier order by recruiter fit (falls back to blended score)
+                passers.sort(key=lambda j: (0 if j.get("verdict") == "strong" else 1,
+                                            -(j.get("fit") if j.get("fit") is not None else (j.get("score") or 0))))
+                to_send = _cap_aggregator(passers)[:PRECISION_MAX]
             else:
                 strong = [j for j in fresh if (j.get("score") or 0) >= 50]
-                to_send = (strong[:MAX_MATCHES_PER_RUN] if strong
-                           else (fresh[:3] if used_fallback else fresh[:MAX_MATCHES_PER_RUN]))
+                pick = strong if strong else (fresh[:3] if used_fallback else fresh)
+                to_send = _cap_aggregator(pick)[:MAX_MATCHES_PER_RUN]
             if verbose:
                 print(f"[runner] {user['name']}: {len(ranked)} matched, {len(fresh)} candidate, "
                       f"sending {len(to_send)}")
