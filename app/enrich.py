@@ -460,7 +460,7 @@ def _chat_openai_compat(messages: list, max_tokens: int = 600) -> str:
         url,
         headers={"Authorization": f"Bearer {LLM_API_KEY}", "Content-Type": "application/json"},
         json={"model": model, "messages": messages, "temperature": 0.4, "max_tokens": max_tokens},
-        timeout=60,
+        timeout=30,
     )
     r.raise_for_status()
     return r.json()["choices"][0]["message"]["content"].strip()
@@ -481,7 +481,7 @@ def _chat_anthropic(system: str, user: str, max_tokens: int = 600) -> str:
             "system": system,
             "messages": [{"role": "user", "content": user}],
         },
-        timeout=60,
+        timeout=30,
     )
     r.raise_for_status()
     return r.json()["content"][0]["text"].strip()

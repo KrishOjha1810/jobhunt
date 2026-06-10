@@ -271,6 +271,8 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
     (used to give a brand-new subscriber their first matches immediately on subscribe).
     If force is True, resend each user's current top matches even if already seen (one-time test)."""
     db.init_db()
+    import time as _time
+    _t0 = _time.monotonic()  # run wall-clock, recorded at the end (visibility for the wake-window/512MB ceiling)
     # Cross-restart in-flight marker so a slow/killed run can't be re-triggered into a pile-up.
     def _phase(p):
         if only_user_id is None:
@@ -569,6 +571,14 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
         db.set_meta("last_run_sent", str(sent))
         db.set_meta("last_run_users", str(len(users)))
         db.set_meta("last_run_detail", json.dumps(detail))
+        db.set_meta("last_run_secs", str(round(_time.monotonic() - _t0)))
+        try:
+            import resource
+            import sys as _sys
+            rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss  # KB on Linux, bytes on macOS
+            db.set_meta("peak_rss_mb", str(round(rss / (1024 * 1024) if _sys.platform == "darwin" else rss / 1024)))
+        except Exception:
+            pass
         db.set_meta("run_started", "")  # clear the in-flight marker
     except Exception as e:
         print(f"[runner] could not record last_run: {e}")

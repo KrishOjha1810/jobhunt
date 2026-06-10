@@ -1329,6 +1329,8 @@ def global_stats():
         "last_run": get_meta("last_run"),
         "last_run_sent": get_meta("last_run_sent"),
         "last_run_users": get_meta("last_run_users"),
+        "last_run_secs": get_meta("last_run_secs"),   # run wall-clock , watch vs the Render wake window
+        "peak_rss_mb": get_meta("peak_rss_mb"),        # peak memory , watch vs the 512MB cap
         "run_phase": get_meta("run_phase"),
         "run_started": get_meta("run_started"),
     }
