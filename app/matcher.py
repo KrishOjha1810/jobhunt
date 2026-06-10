@@ -112,11 +112,19 @@ def years_required(text: str) -> int:
 # Engineer"). Junior markers win (an Associate/Junior/Intern title is entry-level regardless of other
 # words); otherwise the strongest senior marker sets an implied experience bar. Unmarked titles imply
 # nothing (0) , we then rely on the stated years.
+# Note: "lead" and "head" are NOT here , they're handled by the scoped regexes below, so "Lead
+# Generation Specialist" / "Head of Growth" aren't mis-read as 6-9 yr engineering roles.
 _TITLE_SENIOR = {"principal": 9, "staff": 8, "architect": 8, "distinguished": 10, "fellow": 10,
-                 "director": 10, "head": 9, "vp": 12, "vice president": 12, "senior": 5, "sr": 5,
-                 "lead": 6}
+                 "director": 10, "vp": 12, "vice president": 12, "senior": 5, "sr": 5}
 _TITLE_JUNIOR = {"intern": 0, "internship": 0, "trainee": 0, "apprentice": 0, "fresher": 0,
                  "graduate": 1, "entry": 1, "junior": 1, "jr": 1, "associate": 2}
+# "lead" only counts as seniority in a job-level context (tech/team/eng lead, lead engineer...), NOT
+# "lead generation"/"lead gen". "head" only in "head of <X>".
+_LEAD_RE = re.compile(r"\b(tech|technical|team|engineering|eng|dev|software|squad|project|product|"
+                      r"design|data|qa|platform|staff|group)\s+lead\b|"
+                      r"\blead\s+(engineer|developer|architect|designer|scientist|analyst|"
+                      r"consultant|sre|devops|qa)\b")
+_HEAD_RE = re.compile(r"\bhead\s+of\b")
 
 
 def _tword(text: str, tok: str) -> bool:
@@ -133,6 +141,10 @@ def title_level(title: str) -> int:
     for tok, lvl in _TITLE_SENIOR.items():
         if _tword(t, tok):
             best = max(best, lvl)
+    if _LEAD_RE.search(t):
+        best = max(best, 6)
+    if _HEAD_RE.search(t):
+        best = max(best, 9)
     return best
 
 
@@ -164,7 +176,7 @@ CATEGORY_RULES = [
     ("QA / Test", ["qa engineer", "sdet", "quality assurance", "test engineer", "automation tester"]),
     ("Engineering Manager", ["engineering manager", "tech lead", "team lead", "staff engineer",
                              "principal engineer", "director of engineering", "head of engineering"]),
-    ("Product", ["product manager", "product owner", "program manager", "associate product"]),
+    ("Product", ["product manager", "product owner", "associate product", "product analyst"]),
     ("Design", ["ux designer", "ui designer", "ui/ux", "product designer", "graphic designer",
                 "ux researcher"]),
     ("Embedded", ["embedded", "firmware", "rtos", "fpga", "verilog", "device driver"]),
@@ -189,27 +201,45 @@ CATEGORY_RULES = [
 ]
 
 
+def _cat_find(text: str, term: str) -> int:
+    """Word-boundary search (so 'crypto' doesn't match 'cryptography'); returns match start or -1."""
+    m = re.search(r"(?<![a-z0-9])" + re.escape(term) + r"(?![a-z0-9])", text)
+    return m.start() if m else -1
+
+
 def categorize(job: dict) -> str:
-    title = job.get("title", "").lower()
-    body = (title + " " + job.get("description", "")).lower()
-    # prefer a tag whose term appears in the TITLE (stronger signal), else fall back to the body
-    for source in (title, body):
-        for label, terms in CATEGORY_RULES:
-            if any(t in source for t in terms):
-                return label
-    return "Other"
+    """Assign a role category. WORD-BOUNDARY matched (no substring false-hits). If any rule's term is
+    in the TITLE, the winner is the one whose term appears EARLIEST in the title (the head-of-title is
+    the primary role, e.g. 'Data Scientist - Machine Learning' -> Data Science, not AI/ML). Otherwise
+    fall back to the rule with the most BODY hits. Rule order breaks ties."""
+    title = (job.get("title", "") or "").lower()
+    body = title + " " + (job.get("description", "") or "").lower()
+    best_label, best_pos = None, 1 << 30
+    for label, terms in CATEGORY_RULES:
+        pos = min((p for p in (_cat_find(title, t) for t in terms) if p >= 0), default=-1)
+        if pos >= 0 and pos < best_pos:
+            best_label, best_pos = label, pos
+    if best_label:
+        return best_label
+    # no title hit -> most body hits wins (rule order breaks ties)
+    best_label, best_hits = None, 0
+    for label, terms in CATEGORY_RULES:
+        hits = sum(1 for t in terms if _cat_find(body, t) >= 0)
+        if hits > best_hits:
+            best_label, best_hits = label, hits
+    return best_label or "Other"
 
 
 def categories_for_resume(text: str, keywords: list = None, top: int = 4) -> list:
-    """Suggest role categories from a resume by counting CATEGORY_RULES term hits in its text (and
-    keywords). Returns ranked labels, best first, capped to `top`. Deterministic + cheap , powers the
-    subscribe flow's 'upload resume -> roles auto-selected' step. The user edits the result."""
+    """Suggest role categories from a resume by counting CATEGORY_RULES term hits (word-boundary, so
+    'cryptography' no longer suggests Blockchain). Ranked, capped to `top`. Powers the subscribe
+    'upload resume -> roles auto-selected' step; the user edits the result."""
     blob = ((text or "") + " " + " ".join(keywords or [])).lower()
     if not blob.strip():
         return []
     scores = {}
     for label, terms in CATEGORY_RULES:
-        s = sum(blob.count(t) for t in terms)
+        s = sum(len(re.findall(r"(?<![a-z0-9])" + re.escape(t) + r"(?![a-z0-9])", blob)) for t in terms)
         if s:
             scores[label] = s
     return sorted(scores, key=lambda k: -scores[k])[:top]
@@ -319,7 +349,8 @@ def blended_score(job: dict, ctx: dict) -> tuple:
     core = job.get("core_overlap")
     if core is None:
         core = core_overlap(job, job.get("matched") or [])
-    C = min(1.0, n / 6.0 + core * 0.18 + min(0.08, max(0, raw - n) * 0.02))
+    # (title presence is captured once via `core`; we don't also fold raw-n back in , that triple-counted it)
+    C = min(1.0, n / 6.0 + core * 0.20)
     # learned preference
     theta = ctx.get("theta") or {}
     phi = pref_features(job)
@@ -357,9 +388,15 @@ def blended_score(job: dict, ctx: dict) -> tuple:
     if isinstance(sem, float) and base is not None:
         Sem = max(-1.0, min(1.0, (sem - base) * 4.0))
 
-    # role relevance: a job in a role the user explicitly chose is relevant by role even with thin
-    # keyword overlap (keeps the matched feed aligned with what Browse-by-role surfaces).
-    Cat = 0.6 if (job.get("category") in (ctx.get("user_cats") or ())) else 0.0
+    # role/domain relevance: + when the job's role is one the user wants; a PENALTY when it's a
+    # different domain (this is what stops "blockchain role -> data person" type mismatches, esp. on
+    # Browse where roles aren't hard-filtered).
+    ucats = ctx.get("user_cats") or ()
+    jobcat = job.get("category") or "Other"
+    if ucats:
+        Cat = 0.6 if jobcat in ucats else -0.5
+    else:
+        Cat = 0.0
     # source quality: a hardcoded PRIOR (company boards freshest + rarely closed; Adzuna stalest),
     # nudged by what we've LEARNED , which sources actually land jobs for users (ctx.source_q, the net
     # positive-action rate per board). So a source that performs gets promoted past its prior, and one
@@ -374,6 +411,18 @@ def blended_score(job: dict, ctx: dict) -> tuple:
     adj = (ctx.get("source_q") or {}).get(src)
     if adj is not None:
         Sq = max(-1.2, min(1.2, Sq + adj * 0.6))  # learned net-action rate moves the prior, doesn't replace it
+
+    # Require REAL skill overlap before the circumstantial bonuses (source/location/category) can lift
+    # the score. Otherwise one common keyword on a company board in India could fake a strong match.
+    # Penalties (Adzuna, domain-mismatch) are kept regardless.
+    strong_overlap = (n >= 2) or (core >= 1)
+    if not strong_overlap:
+        if Sq > 0:
+            Sq = 0.0
+        if L > 0:
+            L = 0.0
+        if Cat > 0:
+            Cat = 0.0
 
     w = SCORE_WEIGHTS
     contrib = {"content": w["content"] * C, "pref": w["pref"] * Pf, "seniority": w["seniority"] * S,
