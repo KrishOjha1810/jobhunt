@@ -677,6 +677,12 @@ async def auth_google_callback(request: Request):
         email = info.get("email")
         if not email:
             return RedirectResponse("/login?error=1")
+        # Require Google to have VERIFIED the email before we log in / link by email. Without this, a
+        # federated identity asserting an unverified victim@... address would be auto-merged into that
+        # victim's existing password account (account takeover). google's userinfo uses email_verified.
+        verified = info.get("email_verified")
+        if verified is False or str(verified).lower() == "false":
+            return RedirectResponse("/login?error=unverified")
         u = db.upsert_oauth_user(email, info.get("name"))
         _attribute_referral(request, u["id"])
         request.session["uid"] = u["id"]

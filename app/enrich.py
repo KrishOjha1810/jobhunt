@@ -409,12 +409,14 @@ def answer_questions(job: dict, resume_text: str, questions: list, facts: dict =
         import re as _re
         m = _re.search(r"\[.*\]", raw, _re.S)
         arr = _json.loads(m.group(0)) if m else None
-        if isinstance(arr, list) and arr:
-            return [str(a) for a in arr][:len(questions)], ""
-        # fallback: split on numbered headers
-        parts = _re.split(r"\n\s*\d+[\.\)]\s*", "\n" + raw)
-        parts = [p.strip() for p in parts if p.strip()]
-        return (parts[:len(questions)] or [raw.strip()]), ""
+        if not (isinstance(arr, list) and arr):
+            # fallback: split on numbered headers
+            arr = [p.strip() for p in _re.split(r"\n\s*\d+[\.\)]\s*", "\n" + raw) if p.strip()] or [raw.strip()]
+        ans = [str(a) for a in arr][:len(questions)]
+        # PAD to one answer PER question , otherwise the client fills answers by index and a short
+        # array shifts answers onto the wrong questions (Q4's answer lands in Q3's box).
+        ans += ["[please answer]"] * (len(questions) - len(ans))
+        return ans, ""
     except requests.HTTPError as e:
         code = (e.response.status_code if e.response is not None else "?")
         if code == 429:

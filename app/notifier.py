@@ -169,37 +169,59 @@ def send(chat_id: str, text: str) -> bool:
     return send_telegram(chat_id, text)
 
 
+_DIGEST_BUDGET = 3600  # stay well under Telegram's 4096 so we never cut a job block / URL mid-string
+
+
 def format_digest(user: dict, jobs: list) -> str:
-    """One message listing all of a user's new matches (keeps us under send-rate/quota limits)."""
+    """One message listing a user's new matches. Built block-by-block under a char budget: whole jobs
+    are added until the next wouldn't fit, then a '+N more' line, and the footer is ALWAYS included ,
+    so a long digest never gets sliced mid-URL (breaking Apply/feedback links) or loses the
+    unsubscribe footer (which the old blind text[:4000] truncation did)."""
     tok = user.get("dash_token") or ""
     strong = sum(1 for j in jobs if j.get("verdict") == "strong")
     head = (f"\U0001F4CB {len(jobs)} hand-picked match(es) for you"
             + (f" , {strong} we'd apply to today" if strong else "") + ":")
-    lines = [head, ""]
-    for j in jobs:
+    footer = []
+    if tok:
+        footer.append(f"Your tracker: {BASE_URL}/dashboard?token={tok}")
+        footer.append(f"Pause these alerts: {BASE_URL}/unsubscribe?t={tok}")
+    footer_len = len("\n".join(footer)) + 2
+
+    def _block(j):
         cat = f" [{j.get('category')}]" if j.get("category") else ""
         badge = "⭐ Strong match , " if j.get("verdict") == "strong" else (
             "\U0001F50E Worth a look , " if j.get("verdict") == "maybe" else "")
-        lines.append(f"\U0001F539 {j.get('title','')} @ {j.get('company','')}{cat}")
-        lines.append(f"   {j.get('location','')} | match {j.get('score','')}")
+        b = [f"\U0001F539 {j.get('title','')} @ {j.get('company','')}{cat}",
+             f"   {j.get('location','')} | match {j.get('score','')}"]
         if j.get("why_fit"):
-            lines.append(f"   {badge}{j['why_fit']}")
+            b.append(f"   {badge}{j['why_fit']}")
         elif j.get("reason"):
-            lines.append(f"   {j['reason']}")
+            b.append(f"   {j['reason']}")
         if j.get("catch"):
-            lines.append(f"   Heads up: {j['catch']}")
-        lines.append(f"   Apply: {j.get('url','')}")
-        # one-tap: mark applied + give a quick good/bad signal straight from the alert (token-gated).
-        # The feedback trains the matcher AND feeds the quality metric (are these matches landing?).
+            b.append(f"   Heads up: {j['catch']}")
+        b.append(f"   Apply: {j.get('url','')}")
         if tok and j.get("url"):
             u = urllib.parse.quote(j["url"], safe="")
-            lines.append(f"   Mark applied: {BASE_URL}/track?t={tok}&u={u}&s=applied")
-            lines.append(f"   Good match: {BASE_URL}/feedback?t={tok}&u={u}&v=good"
-                         f"   |   Not for me: {BASE_URL}/feedback?t={tok}&u={u}&v=bad")
+            b.append(f"   Mark applied: {BASE_URL}/track?t={tok}&u={u}&s=applied")
+            b.append(f"   Good match: {BASE_URL}/feedback?t={tok}&u={u}&v=good"
+                     f"   |   Not for me: {BASE_URL}/feedback?t={tok}&u={u}&v=bad")
+        b.append("")
+        return "\n".join(b)
+
+    lines = [head, ""]
+    used = len(head) + 2 + footer_len
+    shown = 0
+    for j in jobs:
+        blk = _block(j)
+        if shown and used + len(blk) > _DIGEST_BUDGET:  # always keep at least one job
+            break
+        lines.append(blk)
+        used += len(blk)
+        shown += 1
+    if shown < len(jobs) and tok:
+        lines.append(f"+ {len(jobs) - shown} more in your tracker: {BASE_URL}/dashboard?token={tok}")
         lines.append("")
-    if tok:
-        lines.append(f"Your tracker: {BASE_URL}/dashboard?token={tok}")
-        lines.append(f"Pause these alerts: {BASE_URL}/unsubscribe?t={tok}")
+    lines += footer
     return "\n".join(lines)
 
 

@@ -78,3 +78,29 @@ def test_browse_drops_senior_for_fresher_and_rejected_company(make_user):
     assert "http://x/junior" in urls          # appropriate junior role kept
     assert "http://x/senior" not in urls       # senior hard-dropped for a fresher (same as digest)
     assert "http://x/bad" not in urls          # avoid-list company excluded (same as digest)
+
+
+# --- bug-hunt-2 fixes: jobfetch + digest ---
+
+def test_normalize_url_keeps_real_ids_drops_tracking():
+    from app import jobfetch as jf
+    assert jf.normalize_url("https://boards.greenhouse.io/x/jobs/1?gh_jid=99&utm_source=a") == \
+        "https://boards.greenhouse.io/x/jobs/1?gh_jid=99"
+    # case-sensitive path preserved; only host lowercased
+    assert jf.normalize_url("https://X.com/Job/AbC?ref=z") == "https://x.com/Job/AbC"
+    # distinct ids stay distinct (no collapse)
+    a = jf.normalize_url("https://j.co/x?jk=1"); b = jf.normalize_url("https://j.co/x?jk=2")
+    assert a != b
+
+
+def test_digest_stays_under_limit_and_keeps_footer():
+    from app import notifier
+    jobs = [{"title": f"Senior Backend Engineer Number {i}", "company": "A Very Long Company Name Pvt Ltd",
+             "category": "Backend", "location": "Remote India",
+             "url": "https://boards.greenhouse.io/acme/jobs/" + str(i) * 30, "score": 90,
+             "verdict": "strong", "why_fit": "x" * 80, "catch": "y" * 60} for i in range(15)]
+    msg = notifier.format_digest({"dash_token": "tok123"}, jobs)
+    assert len(msg) <= 4096                       # never exceeds Telegram's hard limit
+    assert "/unsubscribe?t=tok123" in msg          # footer always present (was dropped by blind slice)
+    assert "more in your tracker" in msg           # overflow communicated, not silently cut
+    assert msg.count("https://boards.greenhouse.io/acme/jobs/") >= 1  # at least one full job block

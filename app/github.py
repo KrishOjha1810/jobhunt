@@ -60,6 +60,8 @@ def fetch_profile(username):
         repos = []
     lang_count, topics, top = {}, {}, []
     recent_active = False
+    from datetime import datetime, timedelta
+    _ACTIVE_CUTOFF = (datetime.utcnow() - timedelta(days=400)).strftime("%Y-%m-%d")
     for r in repos:
         if r.get("fork"):
             continue
@@ -69,7 +71,8 @@ def fetch_profile(username):
         for t in (r.get("topics") or []):
             topics[t] = topics.get(t, 0) + 1
         pushed = str(r.get("pushed_at") or "")
-        if pushed >= "2025":  # rough "active in the last year+" proxy
+        # active in the last ~year , relative cutoff (a frozen "2025" would never advance)
+        if pushed and pushed[:10] >= _ACTIVE_CUTOFF:
             recent_active = True
         top.append({"name": r.get("name"), "lang": lang, "stars": r.get("stargazers_count", 0),
                     "pushed_at": pushed[:10]})

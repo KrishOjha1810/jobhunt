@@ -506,6 +506,9 @@
         // (don't interrupt established users on every deploy; they can replay via "How it works")
         if (!subscribed && localStorage.getItem(TOUR_VER_KEY) !== appVersion) startTour();
         localStorage.setItem(TOUR_VER_KEY, appVersion);
+        // re-render once we know the token, so the Track / feedback buttons (gated on dashToken)
+        // actually appear for a returning subscriber , they used to only render inside the seed branch.
+        if (dashToken) render();
       } catch (e) { /* ignore */ }
     }
 

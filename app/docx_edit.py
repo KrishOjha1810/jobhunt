@@ -79,11 +79,6 @@ def apply_edits(b64, edits):
             _set_text(p, sum_new); summary_done = True; continue
         if t in rewrites and rewrites[t] and t not in used:
             _set_text(p, rewrites[t]); used.add(t); continue
-        if skills_add and not skills_done and ("skill" in t or ("," in raw and len(raw.split(",")) >= 4)):
-            add = [s for s in skills_add if s.lower() not in t]
-            if add:
-                _set_text(p, raw.rstrip(" .;,") + ", " + ", ".join(add))
-                skills_done = True
     # summary often isn't byte-identical to the docx (the parser cleans/rephrases it), so the exact
     # match above can miss. Fall back to (1) the closest longish paragraph, then (2) the paragraph
     # right after a Summary/Objective/Profile heading. This was the "edit didn't apply on export" bug.
@@ -96,7 +91,7 @@ def apply_edits(b64, edits):
             r = difflib.SequenceMatcher(None, t, sum_old).ratio()
             if r > score:
                 best, score = p, r
-        if best is not None and score >= 0.55:
+        if best is not None and score >= 0.75:  # was 0.55 , too loose, could overwrite a ~56%-similar bullet
             _set_text(best, sum_new); summary_done = True
     if sum_new and not summary_done:
         import re as _re
@@ -107,6 +102,20 @@ def apply_edits(b64, edits):
                     if _norm(q.text):
                         _set_text(q, sum_new); summary_done = True
                         break
+                break
+    # skills: append to the actual Skills list, anchored to a SKILLS heading (not a comma-count, which
+    # mistook a comma-heavy summary/bullet/address for the skills line and corrupted it).
+    if skills_add and not skills_done:
+        import re as _re2
+        paras = doc.paragraphs
+        for i, p in enumerate(paras):
+            if _re2.match(r"(technical\s+|core\s+|key\s+)?(skills|technologies|tech\s+stack|competencies|tools)\b",
+                          _norm(p.text)):
+                target = next((q for q in paras[i + 1:] if _norm(q.text)), None) or p
+                add = [s for s in skills_add if s.lower() not in _norm(target.text)]
+                if add:
+                    _set_text(target, target.text.rstrip(" .;,") + ", " + ", ".join(add))
+                    skills_done = True
                 break
     # pass 2: fuzzy-match any rewrites that didn't hit exactly (lightly-reformatted / lossy text)
     remaining = {k: v for k, v in rewrites.items() if k not in used}
