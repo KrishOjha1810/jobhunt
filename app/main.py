@@ -869,14 +869,20 @@ def trigger_run(token: str = "", force: str = "", sync: str = "1"):
     if str(sync) in ("0", "false", "no"):
         started = _trigger_run(force=want_force)
         return {"ok": True, "started": started, "async": True}
-    # Synchronous: run inline so the instance stays awake until completion.
+    # Synchronous: run inline so the instance stays awake until completion. Take the SAME in-process
+    # lock /healthz's _trigger_run uses, so a cron /run and a keep-awake ping can't both start a run
+    # and double-send (the persisted marker alone had a race , the thread sets it only after starting).
     if _run_in_flight():
         return {"ok": True, "started": False, "message": "A run is already in progress."}
+    with _run_lock:
+        if _run_state["running"]:
+            return {"ok": True, "started": False, "message": "A run is already in progress."}
+        _run_state["running"] = True
     try:
         db.set_meta("run_started", _dt.utcnow().strftime("%Y-%m-%d %H:%M UTC"))
-    except Exception:
-        pass
-    runner.run_once(verbose=False, force=want_force)
+        runner.run_once(verbose=False, force=want_force)
+    finally:
+        _run_state["running"] = False
     s = db.global_stats()
     return {"ok": True, "started": True, "forced": want_force,
             "last_run": s.get("last_run"), "sent": s.get("last_run_sent"),
