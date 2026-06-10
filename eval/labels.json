@@ -1,0 +1,179 @@
+{
+  "_comment": "Seed labeled set for the match-quality harness. Grades: 3=perfect, 2=relevant, 1=weak/edge, 0=irrelevant. This is a SCAFFOLD: grow it from real digests (eval/import_events.py). The three users cover the core India+remote personas.",
+  "jobs": [
+    {
+      "url": "https://j/1",
+      "title": "Backend Engineer (Python/Django)",
+      "company": "Razorpay",
+      "location": "Bengaluru, India",
+      "source": "greenhouse",
+      "posted_at": null,
+      "description": "We are hiring a backend engineer to build payment APIs in Python and Django. You will work with PostgreSQL, Redis, Docker and AWS to design microservices. Strong Python and Django experience required."
+    },
+    {
+      "url": "https://j/2",
+      "title": "Senior Backend Developer, Go & Microservices",
+      "company": "Swiggy",
+      "location": "Remote (India)",
+      "source": "lever",
+      "posted_at": null,
+      "description": "Backend developer role building microservices. Python, Go, PostgreSQL, AWS, Docker, Kubernetes. 4+ years backend experience. REST APIs and distributed systems."
+    },
+    {
+      "url": "https://j/3",
+      "title": "Staff Backend Engineer",
+      "company": "Stripe",
+      "location": "Remote",
+      "source": "greenhouse",
+      "posted_at": null,
+      "description": "Staff engineer to lead backend architecture. Python, microservices, PostgreSQL, AWS. 9+ years of experience building large scale distributed backend systems required."
+    },
+    {
+      "url": "https://j/4",
+      "title": "Full-Stack Engineer (React + Python)",
+      "company": "Zerodha",
+      "location": "Bangalore",
+      "source": "ashby",
+      "posted_at": null,
+      "description": "Full stack role. Frontend in React and TypeScript, backend in Python and Django. PostgreSQL and Docker. You will own features end to end."
+    },
+    {
+      "url": "https://j/5",
+      "title": "Backend Engineer",
+      "company": "DataCorp US",
+      "location": "San Francisco, United States",
+      "source": "greenhouse",
+      "posted_at": null,
+      "description": "Backend engineer, Python, Django, PostgreSQL, AWS. US-based only, on-site in San Francisco. Microservices and Docker."
+    },
+    {
+      "url": "https://j/6",
+      "title": "Machine Learning Engineer (NLP)",
+      "company": "Sarvam AI",
+      "location": "Bengaluru, India",
+      "source": "lever",
+      "posted_at": null,
+      "description": "ML engineer working on NLP and LLM systems. Python, PyTorch, machine learning, deep learning, transformers. Build and deploy large language model pipelines. 3+ years machine learning experience."
+    },
+    {
+      "url": "https://j/7",
+      "title": "Applied Scientist, Generative AI",
+      "company": "Krutrim",
+      "location": "Remote (India)",
+      "source": "ashby",
+      "posted_at": null,
+      "description": "Applied scientist for generative AI. Machine learning, deep learning, PyTorch, TensorFlow, LLM, NLP. Research and ship models. Strong machine learning background."
+    },
+    {
+      "url": "https://j/8",
+      "title": "Data Scientist",
+      "company": "Flipkart",
+      "location": "Bangalore",
+      "source": "greenhouse",
+      "posted_at": null,
+      "description": "Data scientist role. Python, statistics, machine learning, SQL. Build models and dashboards. Some NLP exposure helpful."
+    },
+    {
+      "url": "https://j/9",
+      "title": "Frontend Developer (React)",
+      "company": "CRED",
+      "location": "Bengaluru, India",
+      "source": "lever",
+      "posted_at": null,
+      "description": "Frontend developer building UI in React, TypeScript, JavaScript and CSS. Next.js experience a plus. Build delightful web experiences. 1+ year frontend experience."
+    },
+    {
+      "url": "https://j/10",
+      "title": "Junior Frontend Engineer",
+      "company": "Groww",
+      "location": "Remote (India)",
+      "source": "ashby",
+      "posted_at": null,
+      "description": "Junior frontend engineer. React, JavaScript, TypeScript, CSS, HTML. Entry level, 0-2 years. Work on the trading web app frontend."
+    },
+    {
+      "url": "https://j/11",
+      "title": "Senior Frontend Architect",
+      "company": "PhonePe",
+      "location": "Bangalore",
+      "source": "greenhouse",
+      "posted_at": null,
+      "description": "Senior frontend architect. React, TypeScript, Next.js, micro-frontends. 8+ years frontend experience leading large teams and design systems."
+    },
+    {
+      "url": "https://j/12",
+      "title": "DevOps Engineer",
+      "company": "Postman",
+      "location": "Remote (India)",
+      "source": "lever",
+      "posted_at": null,
+      "description": "DevOps engineer. AWS, Docker, Kubernetes, Terraform, CI/CD. Manage cloud infrastructure and deployment pipelines."
+    },
+    {
+      "url": "https://j/13",
+      "title": "Product Manager",
+      "company": "Meesho",
+      "location": "Bangalore",
+      "source": "greenhouse",
+      "posted_at": null,
+      "description": "Product manager for the seller platform. Define roadmap, work with engineering and design. 4+ years product management."
+    },
+    {
+      "url": "https://j/14",
+      "title": "Backend Engineer (Node.js)",
+      "company": "Meesho",
+      "location": "Remote (India)",
+      "source": "lever",
+      "posted_at": null,
+      "description": "Backend engineer building APIs in Node.js. Some Python services. PostgreSQL, Redis, microservices, AWS, Docker. 3+ years backend experience."
+    }
+  ],
+  "users": [
+    {
+      "id": "backend-mid",
+      "keywords": ["python", "django", "postgres", "aws", "docker", "redis", "microservices"],
+      "locations": ["india"],
+      "years": 4,
+      "categories": ["Backend"],
+      "relevant": {
+        "https://j/1": 3,
+        "https://j/2": 3,
+        "https://j/14": 2,
+        "https://j/4": 2,
+        "https://j/3": 1,
+        "https://j/12": 1,
+        "https://j/9": 0,
+        "https://j/13": 0
+      }
+    },
+    {
+      "id": "ml-mid",
+      "keywords": ["python", "machine learning", "pytorch", "nlp", "llm", "tensorflow", "deep learning"],
+      "locations": ["india"],
+      "years": 3,
+      "categories": ["AI / ML"],
+      "relevant": {
+        "https://j/6": 3,
+        "https://j/7": 3,
+        "https://j/8": 2,
+        "https://j/1": 0,
+        "https://j/13": 0
+      }
+    },
+    {
+      "id": "frontend-fresher",
+      "keywords": ["react", "javascript", "typescript", "css", "next.js", "html"],
+      "locations": ["india"],
+      "years": 1,
+      "categories": ["Frontend"],
+      "relevant": {
+        "https://j/9": 3,
+        "https://j/10": 3,
+        "https://j/4": 2,
+        "https://j/11": 1,
+        "https://j/1": 0,
+        "https://j/13": 0
+      }
+    }
+  ]
+}
