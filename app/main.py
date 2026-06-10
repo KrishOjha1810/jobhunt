@@ -50,6 +50,15 @@ def current_user(request: Request):
     return db.get_user_by_id(uid) if uid else None
 
 
+_EXP_YEARS = {"fresher": 0, "junior": 1, "mid": 3, "senior": 7, "lead": 11}
+
+
+def _user_years(user):
+    """Map the user's chosen experience level to approximate years (None if unknown) , drives the
+    experience-aware resume-length targets in the quality score."""
+    return _EXP_YEARS.get((user or {}).get("experience") or "", None)
+
+
 def _seed_matches(user_id):
     """Background: seed a new subscriber's dashboard with GENUINELY relevant matches, using the same
     gated pipeline as the runner (location + min-score + seniority + skill-overlap floor + optional
@@ -1237,7 +1246,7 @@ def api_resume_get(request: Request, token: str = ""):
     rj, _changed = _resume.ensure_structure(rj, user.get("resume_text") or "")
     if _changed:
         db.set_resume_json(user["id"], rj)
-    return {"ok": True, "resume": rj, "health": resume_export.ats_health(rj),
+    return {"ok": True, "resume": rj, "health": resume_export.ats_health(rj, years=_user_years(user)),
             "keeps_format": bool(db.get_resume_docx(user["id"]))}
 
 
@@ -1252,7 +1261,7 @@ async def api_resume_save(request: Request, token: str = ""):
     except Exception:
         return JSONResponse({"error": "bad json"}, status_code=400)
     db.set_resume_json(user["id"], rj)
-    return {"ok": True, "health": resume_export.ats_health(rj)}
+    return {"ok": True, "health": resume_export.ats_health(rj, years=_user_years(user))}
 
 
 @app.get("/api/resume/tailor")
@@ -1330,7 +1339,7 @@ async def api_resume_import(request: Request, token: str = ""):
                 db.set_resume_docx(user["id"], None)  # PDF (no converter) -> clean-template export only
         except Exception as e:
             print(f"[import] docx store failed: {e}")
-    return {"ok": True, "resume": obj, "health": resume_export.ats_health(obj),
+    return {"ok": True, "resume": obj, "health": resume_export.ats_health(obj, years=_user_years(user)),
             "keeps_format": docx_ok,
             "parsed_by": "ai" if enrich.available() and obj.get("experience") else "basic"}
 
@@ -1388,7 +1397,7 @@ def api_resume_context(request: Request, job_id: int = 0, url: str = "", token: 
     edits, _err = enrich.tailor_edits(rj, job.get("title") or "", jd, extra=db.profile_extra_text(user["id"]))
     return {"ok": True, "job": jobinfo, "keeps_format": True,
             "resume": rj, "match": _resume.ats_job_match(rj, jd),
-            "health": resume_export.ats_health(rj), "edits": edits, "llm": enrich.available()}
+            "health": resume_export.ats_health(rj, years=_user_years(user)), "edits": edits, "llm": enrich.available()}
 
 
 @app.post("/api/resume/ats")
@@ -1410,7 +1419,7 @@ async def api_resume_ats(request: Request, job_id: int = 0, url: str = "", token
             jobs = db.list_jobs(user["id"]); job = next((j for j in jobs if j.get("url") == url), None)
         if job:
             jd = db.catalog_description(job.get("url")) or (job.get("title") or "")
-    return {"ok": True, "match": _resume.ats_job_match(rj, jd), "health": resume_export.ats_health(rj)}
+    return {"ok": True, "match": _resume.ats_job_match(rj, jd), "health": resume_export.ats_health(rj, years=_user_years(user))}
 
 
 @app.post("/api/resume/tailor_adhoc")
@@ -1446,7 +1455,7 @@ async def api_resume_tailor_adhoc(request: Request, token: str = ""):
     edits, _err = enrich.tailor_edits(rj, role, context, extra=db.profile_extra_text(user["id"]))
     return {"ok": True, "role": role, "resume": rj, "keeps_format": True,
             "match": _resume.ats_job_match(rj, jd),
-            "health": resume_export.ats_health(rj), "edits": edits, "llm": enrich.available()}
+            "health": resume_export.ats_health(rj, years=_user_years(user)), "edits": edits, "llm": enrich.available()}
 
 
 @app.post("/api/resume/improve")

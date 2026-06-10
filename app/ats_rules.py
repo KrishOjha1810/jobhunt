@@ -194,16 +194,53 @@ def _ratio(n, d):
     return (n / d) if d else 1.0
 
 
-def quality_report(rj):
+# Experience-aware length targets (words + total bullets), from Jobscan/ResumeWorded/Indeed research:
+# (max_years, word_min, word_max, bullets_min, bullets_max, label)
+_LEN_TIERS = [
+    (2,   300, 450,  6, 12, "0-2 yrs"),
+    (5,   400, 600, 10, 18, "2-5 yrs"),
+    (10,  500, 700, 15, 22, "5-10 yrs"),
+    (999, 700, 1000, 18, 28, "10+ yrs"),
+]
+
+
+def _len_targets(years):
+    """Return (word_min, word_max, bullets_min, bullets_max, label) for the user's experience. When
+    years is unknown, a wide, lenient generic band (so we never penalize for an unknown level)."""
+    if years is None:
+        return (300, 1000, 8, 24, "")
+    for ymax, wmin, wmax, bmin, bmax, label in _LEN_TIERS:
+        if years <= ymax:
+            return (wmin, wmax, bmin, bmax, label)
+    return (700, 1000, 18, 28, "10+ yrs")
+
+
+def _resume_words(rj, bullets, skills):
+    """Approximate total resume word count (bullets + summary + skills + titles/companies + education)."""
+    parts = list(bullets) + [rj.get("summary") or ""] + list(skills)
+    for e in (rj.get("experience") or []):
+        parts += [e.get("title") or "", e.get("company") or ""]
+    for p in (rj.get("projects") or []):
+        parts += [p.get("name") or "", p.get("stack") or ""]
+    for ed in (rj.get("education") or []):
+        parts += [ed.get("degree") or "", ed.get("school") or ""]
+    return len(" ".join(parts).split())
+
+
+def quality_report(rj, years=None):
     """ResumeWorded-style quality score (0-100), JD-independent, split into Impact / Brevity / Style /
-    Sections so the number is explainable. Returns {score, categories[], checks[]} where checks keeps
-    backward-compatible {ok,label} entries for the existing UI."""
+    Sections so the number is explainable. `years` (experience) makes the length targets tier-aware.
+
+    Crucially CONTENT-GATED: 'no problems' checks (no buzzwords, active voice, etc.) only earn points
+    when there's real content to judge (>= 4 bullets). Without this, a near-empty resume scored ~31 by
+    passing every 'absence' check , an empty resume must score near zero."""
     rj = rj or {}
     exp = rj.get("experience") or []
     bullets = [b for e in exp for b in (e.get("bullets") or [])]
     bullets += [b for p in (rj.get("projects") or []) for b in (p.get("bullets") or [])]
     nb = len(bullets)
     skills = rj.get("skills") or []
+    sub = nb >= 4  # "substantial enough to judge writing quality" gate , below this, absence != quality
 
     quantified = sum(1 for b in bullets if has_metric(b))
     strong = sum(1 for b in bullets if _first_word(b) in STRONG_VERBS)
@@ -215,7 +252,9 @@ def quality_report(rj):
     passive = sum(1 for b in bullets if _PASSIVE.search(b))
     pronouns = sum(1 for b in bullets if _PRONOUNS.search(b))
     longish = sum(1 for b in bullets if len(b) > 240 or len(b.split()) > 34)
-    words = len((" ".join(bullets + [rj.get("summary") or ""] + skills)).split())
+    words = _resume_words(rj, bullets, skills)
+    wmin, wmax, bmin, bmax, tier = _len_targets(years)
+    tier_sfx = f" for {tier}" if tier else ""
 
     cats, checks = [], []
 
@@ -228,24 +267,24 @@ def quality_report(rj):
                      "fails": [label for ok, _p, label in items if not ok]})
         return got, tot
 
-    # IMPACT (most weight) , the thing recruiters actually scan for
+    # IMPACT (most weight). Absence-checks gated on `sub` so an empty resume earns nothing here.
     impact = [
         (nb and _ratio(quantified, nb) >= 0.5, 16, "Half your bullets quantify impact (numbers/%/$)"),
         (nb and _ratio(strong, nb) >= 0.7, 10, "Bullets open with strong action verbs"),
-        (weak == 0, 8, "No filler openers (\"responsible for\", \"worked on\")"),
-        (buzz == 0, 6, "No buzzwords/cliches"),
+        (sub and weak == 0, 8, "No filler openers (\"responsible for\", \"worked on\")"),
+        (sub and buzz == 0, 6, "No buzzwords/cliches"),
     ]
-    # BREVITY
+    # BREVITY , experience-aware length targets
     brevity = [
-        (8 <= nb <= 24, 6, "8-24 experience/project bullets"),
-        (longish == 0, 6, "Every bullet fits in 1-2 lines"),
-        (250 <= words <= 1100 if words else False, 5, "Resume length is in range (not thin/bloated)"),
+        (bmin <= nb <= bmax, 6, f"{bmin}-{bmax} experience/project bullets{tier_sfx}"),
+        (sub and longish == 0, 6, "Every bullet fits in 1-2 lines"),
+        (sub and words <= round(wmax * 1.2), 5, f"Length ~{wmin}-{wmax} words{tier_sfx} (avoid bloat)"),
     ]
-    # STYLE
+    # STYLE , also content-gated
     style = [
-        (passive == 0, 6, "Active voice throughout"),
-        (pronouns == 0, 5, "No personal pronouns (I/we/my)"),
-        (distinct_verbs >= max(1, min(nb, 8)), 5, "Action verbs are varied, not repeated"),
+        (sub and passive == 0, 6, "Active voice throughout"),
+        (sub and pronouns == 0, 5, "No personal pronouns (I/we/my)"),
+        (sub and distinct_verbs >= max(3, round(nb * 0.6)), 5, "Action verbs are varied, not repeated"),
     ]
     # SECTIONS / searchability
     sections = [
@@ -255,10 +294,11 @@ def quality_report(rj):
         (bool(exp), 4, "Has work experience"),
         (bool(rj.get("education")), 3, "Education listed"),
     ]
-    g1, t1 = cat("Impact", impact)
-    g2, t2 = cat("Brevity", brevity)
-    g3, t3 = cat("Style", style)
-    g4, t4 = cat("Sections", sections)
+    g1, _ = cat("Impact", impact)
+    g2, _ = cat("Brevity", brevity)
+    g3, _ = cat("Style", style)
+    g4, _ = cat("Sections", sections)
     score = min(100, round(g1 + g2 + g3 + g4))
     return {"score": score, "categories": cats, "checks": checks,
-            "stats": {"bullets": nb, "quantified": quantified, "words": words}}
+            "stats": {"bullets": nb, "quantified": quantified, "words": words,
+                      "target_words": [wmin, wmax], "target_bullets": [bmin, bmax], "tier": tier}}

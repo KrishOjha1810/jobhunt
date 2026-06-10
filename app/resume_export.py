@@ -80,9 +80,10 @@ _ACTION = ("led", "built", "shipped", "designed", "architected", "implemented", 
            "automated", "developed", "optimized", "migrated", "established")
 
 
-def ats_health(r: dict) -> dict:
+def ats_health(r: dict, years=None) -> dict:
     """Deterministic resume-quality score (0-100) + concrete checks. Independent of any JD.
     Delegates to the ResumeWorded-style analyzer (Impact / Brevity / Style / Sections) so the score
-    is explainable; keeps `score`+`checks` keys for existing callers and adds `categories`."""
+    is explainable; keeps `score`+`checks` keys for existing callers and adds `categories`.
+    `years` (experience) makes the length targets tier-aware."""
     from .ats_rules import quality_report
-    return quality_report(r)
+    return quality_report(r, years=years)
