@@ -12,7 +12,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from . import db, resume, runner, notifier, matcher
 from .config import (
     RESUME_DIR, BASE_DIR, ENABLE_SCHEDULER, SCHEDULER_HOURS, RUN_TOKEN,
-    SECRET_KEY, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, APP_VERSION,
+    SECRET_KEY, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, APP_VERSION, BASE_URL,
 )
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -411,7 +411,7 @@ async def api_profile(request: Request, token: str = ""):
         body = await request.json()
     except Exception:
         body = {}
-    data = db.set_profile_extra(user["id"], body.get("achievements", ""), body.get("projects", ""),
+    data = db.set_profile_extra(user["id"], body.get("achievements"), body.get("projects"),
                                 remote_only=body.get("remote_only"), avoid=body.get("avoid"))
     return {"ok": True, "profile_extra": data}
 
@@ -1298,6 +1298,8 @@ async def api_resume_save(request: Request, token: str = ""):
         rj = await request.json()
     except Exception:
         return JSONResponse({"error": "bad json"}, status_code=400)
+    if not isinstance(rj, dict):
+        return JSONResponse({"error": "resume must be a JSON object"}, status_code=400)
     db.set_resume_json(user["id"], rj)
     return {"ok": True, "health": resume_export.ats_health(rj, years=_user_years(user))}
 

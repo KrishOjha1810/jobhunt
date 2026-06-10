@@ -167,6 +167,8 @@ def analyze_bullet(text, missing_kw=None):
 
 def _iter_bullets(rj):
     """Yield (section_label, list_ref, index, text) for every editable bullet in the resume."""
+    if not isinstance(rj, dict):
+        return
     for e in (rj.get("experience") or []):
         label = (e.get("title") or e.get("company") or "Experience")
         for j, b in enumerate(e.get("bullets") or []):
@@ -234,7 +236,7 @@ def quality_report(rj, years=None):
     Crucially CONTENT-GATED: 'no problems' checks (no buzzwords, active voice, etc.) only earn points
     when there's real content to judge (>= 4 bullets). Without this, a near-empty resume scored ~31 by
     passing every 'absence' check , an empty resume must score near zero."""
-    rj = rj or {}
+    rj = rj if isinstance(rj, dict) else {}  # tolerate None / a stray list body without crashing
     exp = rj.get("experience") or []
     bullets = [b for e in exp for b in (e.get("bullets") or [])]
     bullets += [b for p in (rj.get("projects") or []) for b in (p.get("bullets") or [])]

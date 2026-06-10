@@ -43,6 +43,7 @@ users = Table(
     Column("github_username", Text),
     Column("github_data", Text),       # cached GitHub enrichment (JSON)
     Column("github_fetched_at", Text), # ISO timestamp of last GitHub fetch
+    Column("profile_extra", Text),     # JSON: achievements/projects + deal-breakers (remote_only/avoid)
     Column("active", Integer, default=1),
 )
 
@@ -714,12 +715,15 @@ def get_profile_extra(user_id):
     return {}
 
 
-def set_profile_extra(user_id, achievements="", projects="", remote_only=None, avoid=None):
+def set_profile_extra(user_id, achievements=None, projects=None, remote_only=None, avoid=None):
     """Store the user's achievements + projects AND hard deal-breakers (remote_only, avoid-list).
-    Merges with what's there so a partial save (e.g. only deal-breakers) doesn't wipe the rest."""
+    True MERGE: only fields passed (non-None) are updated, so a partial save (e.g. only deal-breakers)
+    doesn't wipe the rest."""
     data = get_profile_extra(user_id)
-    data["achievements"] = (achievements or "").strip()[:4000]
-    data["projects"] = (projects or "").strip()[:4000]
+    if achievements is not None:
+        data["achievements"] = str(achievements).strip()[:4000]
+    if projects is not None:
+        data["projects"] = str(projects).strip()[:4000]
     if remote_only is not None:
         data["remote_only"] = bool(remote_only)
     if avoid is not None:

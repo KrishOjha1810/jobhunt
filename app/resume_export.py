@@ -24,7 +24,7 @@ def build_docx(r: dict) -> bytes:
         run = p.add_run(name)
         run.bold = True
         run.font.size = Pt(16)
-    contact = " | ".join(x for x in [r.get("email"), r.get("phone"), *(r.get("links") or [])] if x)
+    contact = " | ".join(str(x) for x in [r.get("email"), r.get("phone"), *(r.get("links") or [])] if x)
     if contact:
         doc.add_paragraph(contact)
 
@@ -34,38 +34,41 @@ def build_docx(r: dict) -> bytes:
 
     if r.get("skills"):
         heading("Skills")
-        doc.add_paragraph(", ".join(r["skills"]))
+        doc.add_paragraph(", ".join(str(s) for s in r["skills"] if s))
 
     if r.get("experience"):
         heading("Experience")
         for e in r["experience"]:
-            line = " | ".join(x for x in [e.get("title"), e.get("company"), e.get("dates")] if x)
+            line = " | ".join(str(x) for x in [e.get("title"), e.get("company"), e.get("dates")] if x)
             if line:
                 p = doc.add_paragraph()
                 p.add_run(line).bold = True
             for b in (e.get("bullets") or []):
-                doc.add_paragraph(b, style="List Bullet")
+                if b:
+                    doc.add_paragraph(str(b), style="List Bullet")
 
     if r.get("projects"):
         heading("Projects")
         for pr in r["projects"]:
-            line = " | ".join(x for x in [pr.get("name"), pr.get("stack"), pr.get("dates")] if x)
+            line = " | ".join(str(x) for x in [pr.get("name"), pr.get("stack"), pr.get("dates")] if x)
             if line:
                 p = doc.add_paragraph()
                 p.add_run(line).bold = True
             for b in (pr.get("bullets") or []):
-                doc.add_paragraph(b, style="List Bullet")
+                if b:
+                    doc.add_paragraph(str(b), style="List Bullet")
 
     for sec in (r.get("sections") or []):
         if sec.get("heading"):
             heading(sec["heading"])
         for it in (sec.get("items") or []):
-            doc.add_paragraph(it, style="List Bullet")
+            if it:
+                doc.add_paragraph(str(it), style="List Bullet")
 
     if r.get("education"):
         heading("Education")
         for ed in r["education"]:
-            line = " | ".join(x for x in [ed.get("degree"), ed.get("school"), ed.get("dates")] if x)
+            line = " | ".join(str(x) for x in [ed.get("degree"), ed.get("school"), ed.get("dates")] if x)
             if line:
                 doc.add_paragraph(line)
 
