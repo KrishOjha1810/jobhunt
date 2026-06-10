@@ -29,6 +29,7 @@ def client():
     """Fresh DB per test + a TestClient."""
     db.metadata.drop_all(db.engine)
     db.init_db()
+    main._RL_HITS.clear()  # reset per-IP rate-limit state so tests don't bleed into each other
     return TestClient(main.app)
 
 

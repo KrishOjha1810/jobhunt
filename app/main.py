@@ -19,12 +19,45 @@ EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 app = FastAPI(title="JobHunt")
 app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
-# Allow the browser extension (chrome-extension:// origin) to call the token-gated API.
+# CORS: the web app is same-origin (no CORS needed); the ONLY cross-origin caller is the browser
+# extension (chrome-extension://<id>). Whitelist that + the deployed domain instead of "*", so an
+# arbitrary website can't call the token-gated API from a victim's browser.
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 app.add_middleware(
-    CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
-    allow_credentials=False,
+    CORSMiddleware,
+    allow_origins=[BASE_URL] if BASE_URL else [],
+    allow_origin_regex=r"chrome-extension://.*",
+    allow_methods=["*"], allow_headers=["*"], allow_credentials=False,
 )
+
+# Tiny in-process per-IP rate limiter + upload-size guard (no new deps). Protects the expensive,
+# unauthenticated parse endpoint from being hammered. Per-process is fine on a single worker.
+import time as _rl_time  # noqa: E402
+from collections import defaultdict as _rl_dd  # noqa: E402
+_RL_HITS = _rl_dd(list)
+
+
+def _rate_ok(request: Request, key: str, limit: int = 12, window: int = 60) -> bool:
+    ip = (request.client.host if request.client else "?")
+    k = f"{key}:{ip}"
+    now = _rl_time.time()
+    recent = [t for t in _RL_HITS[k] if now - t < window]
+    if len(recent) >= limit:
+        _RL_HITS[k] = recent
+        return False
+    recent.append(now)
+    _RL_HITS[k] = recent
+    return True
+
+
+_MAX_UPLOAD_BYTES = 8 * 1024 * 1024  # 8MB , resumes are tiny; reject obvious abuse early
+
+
+def _too_big(request: Request) -> bool:
+    try:
+        return int(request.headers.get("content-length") or 0) > _MAX_UPLOAD_BYTES
+    except Exception:
+        return False
 db.init_db()
 
 # Optional Google OAuth, active only when both client id and secret are configured.
@@ -428,6 +461,10 @@ async def api_subscribe_parse(request: Request):
     """Parse an uploaded resume for the SUBSCRIBE flow WITHOUT subscribing: returns detected skills
     (tags) + suggested role categories so the UI can pre-fill them for the user to edit. Saves nothing
     (temp file is removed immediately to stay light on the 512MB host)."""
+    if _too_big(request):
+        return JSONResponse({"ok": False, "reason": "File too large (max 8MB)."}, status_code=413)
+    if not _rate_ok(request, "parse", limit=12, window=60):
+        return JSONResponse({"ok": False, "reason": "Too many requests, slow down a moment."}, status_code=429)
     from . import resume as _resume
     kws, text = [], ""
     try:
@@ -478,6 +515,8 @@ async def subscribe_post(
     # `tags` (when provided) is the user's CURATED skill list from the subscribe UI , authoritative,
     # so removing an auto-detected tag actually sticks (instead of being re-derived from the resume).
     _curated = [t.strip().lower() for t in tags.split(",") if t.strip()]
+    if _too_big(request):
+        return JSONResponse({"error": "File too large (max 8MB per resume)."}, status_code=413)
     user = current_user(request)
     if not user:
         return JSONResponse({"error": "please log in first"}, status_code=401)
@@ -1340,6 +1379,8 @@ def api_resume_tailor(request: Request, job_id: int = 0, token: str = ""):
 async def api_resume_import(request: Request, token: str = ""):
     """Import a resume INTO the studio: upload a PDF/DOCX file OR paste text. Parses to structured
     JSON, saves it, and updates the resume used for matching. Fixes 'no way to upload in the builder'."""
+    if _too_big(request):
+        return JSONResponse({"ok": False, "reason": "File too large (max 8MB)."}, status_code=413)
     from . import enrich, resume as _resume, resume_export
     user = _resolve_user(request, token)
     if not user:

@@ -104,3 +104,13 @@ def test_digest_stays_under_limit_and_keeps_footer():
     assert "/unsubscribe?t=tok123" in msg          # footer always present (was dropped by blind slice)
     assert "more in your tracker" in msg           # overflow communicated, not silently cut
     assert msg.count("https://boards.greenhouse.io/acme/jobs/") >= 1  # at least one full job block
+
+
+# --- security one-pass (#11/#12) ---
+
+def test_parse_endpoint_rate_limited(client):
+    from app import main
+    main._RL_HITS.clear()
+    codes = [client.post("/api/subscribe/parse").status_code for _ in range(15)]
+    assert 429 in codes                      # abuse is throttled
+    assert codes[:12].count(429) == 0        # first dozen allowed
