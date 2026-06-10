@@ -92,11 +92,15 @@ GREENHOUSE = [
     "hackerrank", "mixpanel", "applovin", "squarespace", "twitch",
     # batch 4 (verified live): fintech/security/crypto
     "verkada", "tide", "gomotive", "gocardless", "truelayer", "aptoslabs",
+    # batch 5 (verified live 2026-06-10): India coverage (carry non-dev roles too)
+    "turing", "observeai",
 ]
 LEVER = [
     "blockchain", "ledger", "chainlink", "kraken", "nethermind", "blockdaemon", "fireblocks",
     "gnosis", "status", "netlify", "spotify", "kucoin", "voiceflow", "palantir",
     "kavak", "tala", "highspot",  # verified live
+    # verified live 2026-06-10: India employers (paytm/meesho/cred have heavy non-dev hiring too)
+    "paytm", "meesho", "mindtickle", "fampay", "fi", "cred", "zeta",
 ]
 ASHBY = [
     "openai", "vercel", "mercury", "replit", "uniswap-labs", "wintermute", "gauntlet",
@@ -106,6 +110,7 @@ ASHBY = [
     "harvey", "sierra", "decagon", "abridge", "warp", "browserbase",  # verified live (AI-heavy)
     "elevenlabs", "cohere", "temporal", "airbyte",  # batch 3 (verified live)
     "lovable", "mercor", "writer", "suno",  # batch 4 (verified live)
+    "navi", "atlan", "scaler", "stable",  # verified live 2026-06-10: India coverage
 ]
 # SmartRecruiters: keyless public board (api.smartrecruiters.com/v1/companies/<slug>/postings).
 # Big enterprises with real India presence live here. Slugs are case-sensitive.
