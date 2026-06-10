@@ -11,7 +11,25 @@ PRIORITY_TERMS = [
     "rust", "solidity", "typescript", "python", "java", "golang", "go",
     "blockchain", "smart contract", "backend", "frontend", "full-stack", "fullstack",
     "react", "node", "devops", "data engineer", "web3",
+    # non-dev priority terms so a marketing/finance/design/analyst user doesn't fall back to "software engineer"
+    "data analyst", "data scientist", "machine learning", "product manager", "ui ux designer",
+    "digital marketing", "financial analyst", "business analyst",
 ]
+
+# Map a chosen role category -> the query string we send to aggregators (Adzuna/JSearch), so a user's
+# ROLE drives sourcing even when their resume keywords are sparse (the dev-biased keyword fallback used
+# to send "software engineer" for non-dev users). India feed + these queries surface India non-dev jobs.
+_CAT_QUERY = {
+    "Backend": "backend developer", "Frontend": "frontend developer", "Full-Stack": "full stack developer",
+    "Mobile": "mobile developer", "Data Engineering": "data engineer", "Data Science": "data scientist",
+    "Data Analyst": "data analyst", "AI / ML": "machine learning engineer", "DevOps / SRE": "devops engineer",
+    "Cloud": "cloud engineer", "Security": "security engineer", "Blockchain": "blockchain developer",
+    "QA / Test": "qa engineer", "Engineering Manager": "engineering manager", "Product": "product manager",
+    "Design": "ui ux designer", "Embedded": "embedded engineer", "Game Dev": "game developer",
+    "Sales": "sales executive", "Marketing": "marketing manager", "Finance": "financial analyst",
+    "Operations": "operations manager", "Customer Success": "customer success manager",
+    "HR / Recruiting": "recruiter",
+}
 
 # Common roles we always poll so the browse catalog stays broad + useful to non-subscribers,
 # not just whatever current subscribers happen to search for.
@@ -224,6 +242,11 @@ def fetch_pool(users: list) -> list:
     for u in users:
         for t in query_terms(u.get("keywords", [])):
             if t not in terms:
+                terms.append(t)
+        # the user's CHOSEN roles drive sourcing too (fixes dev-biased queries for non-dev users)
+        for c in (u.get("categories") or []):
+            t = _CAT_QUERY.get(c)
+            if t and t not in terms:
                 terms.append(t)
         if any("india" in (l or "").lower() for l in u.get("locations", [])):
             india = True

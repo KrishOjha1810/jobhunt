@@ -48,6 +48,29 @@ SKILL_VOCAB = [
     "engineering manager", "tech lead", "solutions architect", "cloud architect",
     # methods / tools
     "agile", "scrum", "jira", "rest api", "oauth", "jwt", "system design", "microservice",
+    # data-analyst / BI (India-common) , without these, analyst resumes scored ~0
+    "excel", "advanced excel", "vlookup", "pivot table", "pivot tables", "google sheets", "vba",
+    "power query", "dax", "sas", "spss", "stata", "qlik", "qlikview", "powerpoint", "ms office",
+    "statistics", "data visualization", "google data studio", "ab testing", "a/b testing",
+    # finance / accounting / ops (India-common)
+    "tally", "sap", "sap fico", "quickbooks", "gst", "tds", "zoho", "zoho books", "netsuite",
+    "oracle erp", "accounts payable", "accounts receivable", "reconciliation", "bookkeeping",
+    "financial modeling", "fp&a", "supply chain", "logistics", "inventory management", "procurement",
+    # marketing / growth
+    "seo", "sem", "google ads", "meta ads", "facebook ads", "google analytics", "ga4",
+    "google tag manager", "hubspot", "mailchimp", "marketo", "content marketing", "content writing",
+    "copywriting", "social media", "email marketing", "performance marketing", "canva",
+    # design
+    "figma", "sketch", "adobe xd", "photoshop", "illustrator", "indesign", "after effects",
+    "wireframing", "prototyping", "user research", "design systems",
+    # CRM / sales / support
+    "salesforce", "zendesk", "freshdesk", "intercom", "crm", "lead generation", "cold calling",
+    "account management", "customer success",
+    # enterprise dev / qa (India-common)
+    "servicenow", "mulesoft", "informatica", "pega", "selenium grid", "appium", "postman",
+    "wordpress", "shopify", "power automate", "sharepoint", "vmware",
+    # HR / recruiting
+    "recruitment", "talent acquisition", "onboarding", "payroll", "hrms", "workday hcm",
 ]
 
 SENIORITY = ["intern", "junior", "associate", "mid", "senior", "lead", "staff", "principal", "head"]
@@ -150,6 +173,10 @@ SYNONYMS = {
     "node": ["node.js", "nodejs"], "ci/cd": ["continuous integration", "cicd", "ci cd"],
     "k8s": ["kubernetes"], "ml": ["machine learning"], "postgres": ["postgresql"],
     "js": ["javascript"], "ts": ["typescript"], "nlp": ["natural language processing"],
+    "go": ["golang"], "gcp ": ["google cloud platform"], "power bi": ["powerbi"],
+    "sklearn": ["scikit-learn", "scikit learn"], "tf": ["tensorflow"], "ga4": ["google analytics 4"],
+    "sem": ["search engine marketing"], "seo": ["search engine optimization"],
+    "advanced excel": ["ms excel", "microsoft excel"], "a/b testing": ["ab testing"],
 }
 
 
