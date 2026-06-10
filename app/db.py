@@ -520,6 +520,20 @@ def catalog_description(url):
     return (r[0] if r else "") or ""
 
 
+def cache_catalog_description(url, desc, title=None, company=None):
+    """Persist a JD body fetched on demand , update the catalog row if it exists, else insert a
+    minimal one , so a job's description is fetched once and reused by every detail/AI tool."""
+    if not url or not desc:
+        return
+    desc = desc[:4000]
+    with engine.begin() as c:
+        if c.execute(select(jobs_catalog.c.url).where(jobs_catalog.c.url == url)).first():
+            c.execute(update(jobs_catalog).where(jobs_catalog.c.url == url).values(description=desc))
+        else:
+            c.execute(insert(jobs_catalog).values(
+                url=url, title=title or "", company=company or "", description=desc))
+
+
 def _load_vec(s):
     if not s:
         return None

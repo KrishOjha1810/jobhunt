@@ -561,7 +561,7 @@
     function aiMenu(id, url, cat){
       tov.classList.add('show');
       document.getElementById('ttitle').textContent = 'Actions for this job';
-      const opts = [['✨ Tailor resume for this job','Open the builder loaded with this job: live match score, missing keywords, one-click fixes',()=>{location.href='/resume?job_id='+id;}],
+      const opts = [['✨ Tailor resume for this job','Open the builder loaded with this job: live match score, missing keywords, one-click fixes',()=>{location.href='/resume?job_id='+id+(token?'&token='+encodeURIComponent(token):'');}],
         ['Outreach','Connection note + recruiter email',boost],
         ['Interview prep','Likely questions + your angles',prep],['Fit & gaps','Honest fit + how to close gaps',fit],
         ['ATS match','Keyword match score',ats]];

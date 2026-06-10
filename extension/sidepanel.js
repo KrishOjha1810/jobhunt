@@ -23,7 +23,7 @@ async function send(msg) {
 }
 
 async function loadProfile(token) {
-  const p = await api(`/api/profile?token=${encodeURIComponent(token)}`);
+  const p = await api(`/api/autofill?token=${encodeURIComponent(token)}`);
   if (p.error) throw new Error(p.error);
   return p;
 }

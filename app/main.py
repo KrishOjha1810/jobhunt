@@ -59,6 +59,27 @@ def _user_years(user):
     return _EXP_YEARS.get((user or {}).get("experience") or "", None)
 
 
+def _job_jd(job):
+    """The job's description, with ON-DEMAND backfill. Board listings (Greenhouse/Workday/etc.) and
+    browse-saved jobs often have an empty catalog description, which made the detail/AI tools run on a
+    bare title (or fail). When the cached JD is too thin, fetch it live from the URL once and cache it,
+    so Tailor/Interview/Fit/ATS work on the real description."""
+    url = (job.get("url") or "").strip()
+    desc = db.catalog_description(url)
+    if len(desc) >= 200 or not url.startswith("http"):
+        return desc or (job.get("description") or "")
+    try:
+        from . import jobfetch
+        got = jobfetch.fetch_jd(url) or {}
+        body = (got.get("description") or "").strip()
+        if len(body) >= 200:
+            db.cache_catalog_description(url, body, got.get("title"), got.get("company"))
+            return body
+    except Exception as e:
+        print(f"[jd] on-demand fetch failed for {url}: {e}")
+    return desc or (job.get("description") or "")
+
+
 def _seed_matches(user_id):
     """Background: seed a new subscriber's dashboard with GENUINELY relevant matches, using the same
     gated pipeline as the runner (location + min-score + seniority + skill-overlap floor + optional
@@ -76,7 +97,7 @@ def _seed_matches(user_id):
         exp = {"fresher": 0, "junior": 1, "mid": 3, "senior": 7, "lead": 11}
         uyears = exp.get(u.get("experience") or "", 0)
         cats = u.get("categories") or []
-        ranked = matcher.rank_matches(pool, u["keywords"], u["locations"], MIN_SCORE, uyears, cats)
+        ranked = matcher.rank_matches(pool, u.get("keywords") or [], u.get("locations") or [], MIN_SCORE, uyears, cats)
         if cats:
             ranked = [j for j in ranked if (j.get("category") or matcher.categorize(j)) in cats]
         # LLM-rerank the top candidates for true fit (strongest signal); degrade cleanly with no key
@@ -876,7 +897,7 @@ def tailor_endpoint(request: Request, job_id: int = 0, token: str = ""):
         return {"ok": False, "reason": "Resume tailoring is not enabled yet (needs a free Groq key)."}
     block, err = enrich.tailor(
         {"title": job.get("title"), "company": job.get("company"),
-         "description": db.catalog_description(job.get("url"))},
+         "description": _job_jd(job)},
         user.get("resume_text") or "",
     )
     if not block:
@@ -884,10 +905,11 @@ def tailor_endpoint(request: Request, job_id: int = 0, token: str = ""):
     return {"ok": True, "tailoring": block}
 
 
-@app.get("/api/profile")
-def api_profile(request: Request, token: str = ""):
+@app.get("/api/autofill")
+def api_autofill(request: Request, token: str = ""):
     """Autofill profile for the browser extension: name/email + contact fields parsed from the
-    resume. Token-or-session auth. No secrets; just what's needed to fill an application form."""
+    resume. Token-or-session auth. No secrets; just what's needed to fill an application form.
+    (Renamed from /api/profile, which now serves the dashboard's achievements/projects.)"""
     user = _resolve_user(request, token)
     if not user:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
@@ -993,11 +1015,16 @@ async def api_save_job(request: Request, token: str = ""):
            "company": (b.get("company") or "")[:120], "description": (b.get("description") or "")[:4000],
            "posted_at": ""}
     job["category"] = matcher.categorize(job)
+    job["region"] = matcher.job_region(job.get("location", ""))  # so the tracker location filter sees it
     score, _ = matcher.score_job(job, user.get("keywords") or [])
     job["score"] = max(15, min(100, score * 8)) if score else 0
     if db.is_seen(user["id"], url):
         return {"ok": True, "saved": False, "reason": "already in your tracker"}
     db.log_job(user["id"], job)
+    try:
+        db.upsert_job(job)  # put it in the shared catalog so its JD/detail is reusable
+    except Exception:
+        pass
     db.log_event(user["id"], url, "saved", category=job["category"], source="extension")
     return {"ok": True, "saved": True, "category": job["category"], "score": job["score"]}
 
@@ -1024,7 +1051,7 @@ async def api_answer(request: Request, job_id: int = 0, token: str = ""):
              "locations": user.get("locations") or []}
     answers, err = enrich.answer_questions(
         {"title": job.get("title"), "company": job.get("company"),
-         "description": db.catalog_description(job.get("url")) if job else ""},
+         "description": _job_jd(job) if job else ""},
         txt, questions, facts)
     if not answers:
         return {"ok": False, "reason": err or "Could not draft answers."}
@@ -1045,7 +1072,7 @@ def booster_endpoint(request: Request, job_id: int = 0, token: str = ""):
         return {"ok": False, "reason": "Needs a free Groq key to draft outreach."}
     block, err = enrich.booster(
         {"title": job.get("title"), "company": job.get("company"),
-         "description": db.catalog_description(job.get("url"))},
+         "description": _job_jd(job)},
         user.get("resume_text") or "",
     )
     if not block:
@@ -1065,7 +1092,7 @@ def _advice(request, job_id, token, fn, key):
     if not enrich.available():
         return {"ok": False, "reason": "Needs a free Groq key for AI features."}
     block, err = fn({"title": job.get("title"), "company": job.get("company"),
-                     "description": db.catalog_description(job.get("url"))}, user.get("resume_text") or "")
+                     "description": _job_jd(job)}, user.get("resume_text") or "")
     if not block:
         return {"ok": False, "reason": err or "Could not generate right now."}
     return {"ok": True, key: block}
@@ -1097,13 +1124,19 @@ def ats_endpoint(request: Request, job_id: int = 0, token: str = ""):
     txt = (user.get("resume_text") or "")
     if not txt:
         return {"ok": False, "reason": "No resume on file."}
-    jd = (str(job.get("title") or "") + " " + (db.catalog_description(job.get("url")) or "")).lower()
+    body = _job_jd(job)
+    jd = (str(job.get("title") or "") + " " + (body or "")).lower()
     wanted = [s for s in SKILL_VOCAB if s in jd][:22]
+    # No detectable skills usually means we don't have the real JD (board listing w/o a body) , don't
+    # fabricate a confident 70; tell the user instead of showing a meaningless score.
+    if not wanted:
+        return {"ok": False, "reason": "We don't have this posting's full description yet, so an ATS "
+                "score would be meaningless. Open the job link, or try again shortly."}
     rk = set(extract_keywords(txt)) | set(user.get("keywords") or [])
     low = txt.lower()
     present = [s for s in wanted if s in rk or s in low]
     missing = [s for s in wanted if s not in present]
-    score = round(100 * len(present) / len(wanted)) if wanted else 70
+    score = round(100 * len(present) / len(wanted))
     block = (f"ATS match: {score}/100\n\n"
              f"In your resume ({len(present)}): {', '.join(present[:18]) or 'none detected'}\n\n"
              f"Missing ({len(missing)}): {', '.join(missing[:18]) or 'none, great coverage'}\n\n"
@@ -1169,14 +1202,17 @@ def track(t: str = "", u: str = "", s: str = "applied"):
         db.log_event(user["id"], u, s, source="digest")
     if user and s == "closed":
         db.mark_url_closed(u)
-    dash = "/dashboard?token=" + t
+    import html as _html
+    from urllib.parse import quote as _q
+    dash = "/dashboard?token=" + _q(t, safe="")
     if not ok:
         body = "<h2>Link expired or job not found</h2><p>Open your tracker to update it.</p>"
     else:
         undo_link = ""
         if s != "saved":
-            undo_link = "<a class='ghost' href='/track?t=" + t + "&u=" + u + "&s=saved'>Undo</a>"
-        body = ("<h2>Marked as " + s.capitalize() + " ✓</h2>"
+            undo_link = ("<a class='ghost' href='/track?t=" + _q(t, safe="") + "&u=" + _q(u, safe="")
+                         + "&s=saved'>Undo</a>")
+        body = ("<h2>Marked as " + _html.escape(s.capitalize()) + " ✓</h2>"
                 "<p>Updated in your JobHunt tracker.</p>"
                 "<p><a class='btn' href='" + dash + "'>Open tracker</a> " + undo_link + "</p>")
     return HTMLResponse(
@@ -1214,8 +1250,10 @@ def feedback(t: str = "", u: str = "", v: str = ""):
 
 
 @app.get("/resume", response_class=HTMLResponse)
-def resume_page(request: Request):
-    if not current_user(request):
+def resume_page(request: Request, token: str = ""):
+    # token-or-session, so the dashboard's "Tailor resume for this job" link (token-based, no session)
+    # actually reaches the studio instead of bouncing to /login.
+    if not (current_user(request) or db.user_by_token(token)):
         return RedirectResponse("/login")
     return _page("resume.html")
 
@@ -1277,7 +1315,7 @@ def api_resume_tailor(request: Request, job_id: int = 0, token: str = ""):
     job = db.get_job_log(job_id, user["id"])
     if not job:
         return JSONResponse({"error": "job not found"}, status_code=404)
-    edits, err = enrich.tailor_edits(rj, job.get("title") or "", db.catalog_description(job.get("url")),
+    edits, err = enrich.tailor_edits(rj, job.get("title") or "", _job_jd(job),
                                      extra=db.profile_extra_text(user["id"]))
     if not edits:
         return {"ok": False, "reason": err or "Could not generate edits."}
@@ -1355,7 +1393,8 @@ def _resolve_job_for_context(user, job_id, url):
         if job:
             return job
         desc = db.catalog_description(url)
-        jb = {"url": url, "title": "Saved job", "company": "", "description": desc, "posted_at": ""}
+        jb = {"url": url, "title": "Saved job", "company": "", "description": desc, "posted_at": "",
+              "region": matcher.job_region("")}
         jb["category"] = matcher.categorize(jb)
         db.log_job(user["id"], jb)
         jobs = db.list_jobs(user["id"])
@@ -1380,7 +1419,7 @@ def api_resume_context(request: Request, job_id: int = 0, url: str = "", token: 
     if not db.get_resume_docx(user["id"]):
         return {"ok": False, "needs_docx": True, "job": jobinfo,
                 "reason": "Which resume are you applying with? Upload it as a .docx to tailor that exact file."}
-    jd = db.catalog_description(job.get("url")) or (job.get("title") or "")
+    jd = _job_jd(job) or (job.get("title") or "")
     rj = db.get_resume_json(user["id"])
     if rj is None:
         txt = user.get("resume_text") or ""
@@ -1418,7 +1457,7 @@ async def api_resume_ats(request: Request, job_id: int = 0, url: str = "", token
         if not job and url:
             jobs = db.list_jobs(user["id"]); job = next((j for j in jobs if j.get("url") == url), None)
         if job:
-            jd = db.catalog_description(job.get("url")) or (job.get("title") or "")
+            jd = _job_jd(job) or (job.get("title") or "")
     return {"ok": True, "match": _resume.ats_job_match(rj, jd), "health": resume_export.ats_health(rj, years=_user_years(user))}
 
 
@@ -1473,7 +1512,7 @@ async def api_resume_improve(request: Request, token: str = ""):
     if b.get("job_id"):
         job = db.get_job_log(int(b["job_id"]), user["id"])
         if job:
-            jd = (job.get("title") or "") + "\n" + (db.catalog_description(job.get("url")) or "")
+            jd = (job.get("title") or "") + "\n" + (_job_jd(job) or "")
     text, err = enrich.improve_text(b.get("field", ""), b.get("text", ""), jd)
     if not text:
         return {"ok": False, "reason": err or "Could not improve."}
