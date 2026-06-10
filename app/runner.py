@@ -83,7 +83,7 @@ EMBED_RETRIEVE = os.environ.get("EMBED_RETRIEVE", "1") != "0"
 EMBED_RETRIEVE_K = int(os.environ.get("EMBED_RETRIEVE_K", "") or "30")
 
 
-def _embedding_retrieve(user, pool, have_urls, cats, uyears, limit=EMBED_RETRIEVE_K):
+def _embedding_retrieve(user, pool, have_urls, cats, uyears, emb_map=None, limit=EMBED_RETRIEVE_K):
     """Embedding-FIRST candidate generation: pull the jobs most semantically similar to the user's
     resume that the keyword floor DIDN'T already surface, so a perfect-but-differently-worded role
     still enters the funnel (the big-board two-tower retrieval idea). Generous recall , the recruiter
@@ -102,7 +102,7 @@ def _embedding_retrieve(user, pool, have_urls, cats, uyears, limit=EMBED_RETRIEV
             continue
         if not matcher.location_ok(j.get("location", ""), locs):
             continue
-        jv = db.get_job_embedding(url)
+        jv = emb_map.get(url) if emb_map is not None else db.get_job_embedding(url)
         if not jv:
             continue
         cat = j.get("category") or matcher.categorize(j)
@@ -176,7 +176,7 @@ def _apply_dealbreakers(jobs, prefs):
     return out
 
 
-def _semantic_rerank(user, ranked, verbose=False):
+def _semantic_rerank(user, ranked, emb_map=None, verbose=False):
     """Re-order keyword matches by resume<->job similarity using ONLY cached embeddings.
 
     Zero network calls on the alert path: it reads vectors precomputed by _precompute_embeddings
@@ -191,7 +191,7 @@ def _semantic_rerank(user, ranked, verbose=False):
             return ranked
         scored = 0
         for j in ranked[: MAX_MATCHES_PER_RUN * 3]:
-            jvec = db.get_job_embedding(j["url"]) if j.get("url") else None
+            jvec = (emb_map.get(j["url"]) if emb_map is not None else db.get_job_embedding(j["url"])) if j.get("url") else None
             if jvec:
                 j["_sem"] = embeddings.cosine(uvec, jvec)
                 scored += 1
@@ -314,6 +314,13 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
             g_source_q = db.source_quality_stats()  # learned per-board quality (nudges the source prior)
         except Exception as e:
             print(f"[runner] trending/collab build failed: {e}")
+    # Bulk-load all pool embeddings ONCE per run (was an N+1: one SELECT per job per user).
+    pool_emb = {}
+    if embeddings.enabled():
+        try:
+            pool_emb = db.get_job_embeddings([j.get("url") for j in pool])
+        except Exception as e:
+            print(f"[runner] bulk embedding load failed: {e}")
     for user in users:
         d = {"id": user["id"], "ch": user.get("channel"), "kw": len(user.get("keywords") or []),
              "cats": len(user.get("categories") or []), "matched": 0, "sent": False, "why": ""}
@@ -354,14 +361,14 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
                 ranked = [j for j in ranked if (j.get("category") or matcher.categorize(j)) in cats]
                 d["matched"] = len(ranked)
             # embedding-first retrieval: add semantically-close jobs the keyword floor missed
-            extra = _embedding_retrieve(user, pool, {j.get("url") for j in ranked}, cats, uyears)
+            extra = _embedding_retrieve(user, pool, {j.get("url") for j in ranked}, cats, uyears, emb_map=pool_emb)
             if extra:
                 ranked += extra
                 d["matched"] = len(ranked)
             # hard deal-breakers (remote-only / avoid-list) , non-negotiable, filtered before scoring
             prefs = _user_prefs(user, uyears)
             ranked = _apply_dealbreakers(ranked, prefs)
-            ranked = _semantic_rerank(user, ranked, verbose)  # cached-only, no network here
+            ranked = _semantic_rerank(user, ranked, emb_map=pool_emb, verbose=verbose)  # cached-only, no network
             if SCORE_V2:
                 # v2: rebuild the user's preference vector from their event history (idempotent replay),
                 # then re-score every candidate with the blended selection score + reason.
@@ -488,7 +495,8 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
                 ranked = fb[:5]
                 used_fallback = bool(ranked)
             # Normally only send unseen jobs; a forced run resends current top matches as a test.
-            fresh = ranked if force else [j for j in ranked if not db.is_seen(user["id"], j["url"])]
+            seen_urls = db.matched_urls(user["id"])  # one query/user instead of is_seen per job
+            fresh = ranked if force else [j for j in ranked if j.get("url") not in seen_urls]
             # quality gate the digest. In precision mode we deliver ONLY recruiter-approved jobs
             # (verdict strong/maybe), strong first, capped small , and send NOTHING rather than pad
             # with junk (honest scarcity is the brand). Otherwise fall back to the score>=50 gate.

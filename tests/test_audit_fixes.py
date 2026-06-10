@@ -58,3 +58,23 @@ def test_score_always_in_range():
     for cat in ("Blockchain", "Data Analyst", "Other"):
         s = _score({"title": "x", "matched": [], "raw_score": 0, "category": cat}, {"user_cats": ["Data Analyst"]})
         assert 15 <= s <= 100
+
+
+# --- #40 Browse now mirrors the Subscribed funnel (seniority drop + deal-breakers + _sem) ---
+
+def test_browse_drops_senior_for_fresher_and_rejected_company(make_user):
+    from app import db
+    u = make_user(keywords=["python", "django"], experience="fresher", categories=["Backend"])
+    db.set_profile_extra(u["id"], avoid="BadCo")
+    db.upsert_jobs([
+        {"url": "http://x/senior", "title": "Senior Backend Engineer", "company": "Acme",
+         "category": "Backend", "description": "python django 8 years", "location": "Remote"},
+        {"url": "http://x/junior", "title": "Backend Engineer", "company": "Acme",
+         "category": "Backend", "description": "python django", "location": "Remote"},
+        {"url": "http://x/bad", "title": "Backend Engineer", "company": "BadCo",
+         "category": "Backend", "description": "python django", "location": "Remote"},
+    ])
+    urls = [j["url"] for j in db.list_catalog_ranked(u, limit=50)]
+    assert "http://x/junior" in urls          # appropriate junior role kept
+    assert "http://x/senior" not in urls       # senior hard-dropped for a fresher (same as digest)
+    assert "http://x/bad" not in urls          # avoid-list company excluded (same as digest)

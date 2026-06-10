@@ -440,33 +440,91 @@ def list_catalog(category=None, q=None, limit=200):
     return fresh
 
 
+_SIG_CACHE = {}  # in-process TTL cache for the slow-changing global signals (trending/collab/source_q)
+_REMOTE_HINTS = ("remote", "anywhere", "work from home", "wfh", "distributed", "work-from-home")
+
+
+def _cached_signals(ttl=600):
+    """trending/collab/source_q change slowly and are identical across users in a window. Recomputing
+    all three on every browse request was the worst user-facing latency , cache them for ~10 min."""
+    import time
+    now = time.time()
+    hit = _SIG_CACHE.get("v")
+    if hit and (now - hit[0]) < ttl:
+        return hit[1]
+    sig = {"trending": trending_scores(), "collab": collab_category_prefs(), "source_q": source_quality_stats()}
+    _SIG_CACHE["v"] = (now, sig)
+    return sig
+
+
 def list_catalog_ranked(user, category=None, q=None, limit=200):
-    """Per-user 'recommended for you' browse ordering: score the fresh catalog with the same blended
-    selection score (content + learned preference + trending + recency), no LLM. Cheap, cached signals."""
-    from . import matcher
+    """Per-user 'recommended for you' browse ordering , now the SAME pipeline as the subscribed digest
+    (so Browse and the digest can't disagree): same experience derivation, seniority hard-drop, hard
+    deal-breakers (avoid / remote-only / rejected companies), the semantic signal, and the warm-started
+    preference vector. The only intentional difference is no per-request LLM screen (too costly to run
+    on every browse). Global signals are cached; no LLM."""
+    from . import matcher, resume as _resume, embeddings
     rows = list_catalog(category=category, q=q, limit=limit * 2)
     kw = user.get("keywords") or []
-    theta = get_pref_vector(user["id"])
+    cats = user.get("categories") or []
+    # same uyears derivation as the runner: explicit level, else parse from the resume
+    exp_map = {"fresher": 0, "junior": 1, "mid": 3, "senior": 7, "lead": 11}
+    uyears = exp_map.get(user.get("experience") or "", None)
+    if uyears is None:
+        uyears = _resume.years_experience(user.get("resume_text") or "") or 0
+    # warm-started theta (same seed as the digest) so cold-start browse is personalized too
+    theta = dict(get_pref_vector(user["id"]) or {})
+    for c in cats:
+        theta.setdefault("cat:" + c, 0.35)
     top_cats = sorted([(w, k.split(":", 1)[1]) for k, w in theta.items()
                        if k.startswith("cat:") and w > 0], reverse=True)
-    exp_map = {"fresher": 0, "junior": 1, "mid": 3, "senior": 7, "lead": 11}
-    ctx = {"theta": theta, "trending": trending_scores(), "collab": collab_category_prefs(),
-           "source_q": source_quality_stats(),
-           "user_top_cats": [c for _, c in top_cats[:3]], "user_cats": user.get("categories") or [],
-           "uyears": exp_map.get(user.get("experience") or "", 0),
+    sig = _cached_signals()
+    # deal-breakers + rejected companies (identical to the subscribed funnel)
+    px = get_profile_extra(user["id"]) or {}
+    remote_only = bool(px.get("remote_only"))
+    av = px.get("avoid") or []
+    avoid = av if isinstance(av, list) else [s.strip().lower() for s in str(av).split(",") if s.strip()]
+    suppressed = suppressed_companies(user["id"])
+    # semantic signal: same _sem + sem_baseline the digest uses (was dead in Browse)
+    uvec = get_user_embedding(user) if embeddings.enabled() else None
+    emb = get_job_embeddings([r.get("url") for r in rows]) if uvec else {}
+    for r in rows:
+        v = emb.get(r.get("url"))
+        r["_sem"] = embeddings.cosine(uvec, v) if (uvec and v) else None
+    sems = sorted(r["_sem"] for r in rows if isinstance(r.get("_sem"), float))
+    sem_baseline = sems[len(sems) // 2] if sems else None
+    ctx = {"theta": theta, "trending": sig["trending"], "collab": sig["collab"], "source_q": sig["source_q"],
+           "user_top_cats": [c for _, c in top_cats[:3]], "user_cats": cats, "uyears": uyears,
+           "sem_baseline": sem_baseline,
            "india_user": any("india" in (l or "").lower() for l in (user.get("locations") or []))}
+    out = []
     for j in rows:
+        co = (j.get("company", "") or "").strip().lower()
+        if suppressed and co in suppressed:
+            continue  # company the user rejected
+        hay = (f"{j.get('title','')} {j.get('company','')} {j.get('description','') or ''}").lower()
+        if avoid and any(a in hay for a in avoid):
+            continue
+        if remote_only:
+            loc = (j.get("location", "") or "").lower()
+            if not any(t in loc for t in _REMOTE_HINTS) and "remote" not in hay:
+                continue
+        req = matcher.required_experience(j)
+        if uyears <= 2 and req >= 5:
+            continue  # seniority hard-drop for freshers/juniors (same as the digest)
         sc, matched = matcher.score_job(j, kw)
         j["raw_score"] = sc
-        j["matched"] = matched  # transient: blended_score reads this; replaced with matched_skills below
+        j["matched"] = matched
         j["core_overlap"] = matcher.core_overlap(j, matched)
         j["region"] = matcher.job_region(j.get("location", ""))
+        j["req_years"] = req
         s, _ = matcher.blended_score(j, ctx)
         j["rec_score"] = s
         j["matched_skills"] = matched
         j.pop("matched", None)  # leave "matched" free for api_catalog's bool (already-sent) flag
-    rows.sort(key=lambda j: j.get("rec_score", 0), reverse=True)
-    return rows[:limit]
+        out.append(j)
+    out.sort(key=lambda j: j.get("rec_score", 0), reverse=True)
+    return out[:limit]
 
 
 def catalog_categories():
@@ -548,6 +606,24 @@ def get_job_embedding(url):
     with engine.connect() as c:
         r = c.execute(select(jobs_catalog.c.embedding).where(jobs_catalog.c.url == url)).first()
     return _load_vec(r[0]) if r else None
+
+
+def get_job_embeddings(urls):
+    """Bulk-load {url: vector} for many urls in ONE (chunked) query , replaces the per-job
+    get_job_embedding N+1 that fired thousands of single-row SELECTs per run."""
+    out, urls = {}, [u for u in (urls or []) if u]
+    if not urls:
+        return out
+    with engine.connect() as c:
+        for i in range(0, len(urls), 500):
+            for u, emb in c.execute(
+                select(jobs_catalog.c.url, jobs_catalog.c.embedding)
+                .where(jobs_catalog.c.url.in_(urls[i:i + 500]))
+            ).all():
+                v = _load_vec(emb)
+                if v:
+                    out[u] = v
+    return out
 
 
 def set_job_embedding(url, vec):
