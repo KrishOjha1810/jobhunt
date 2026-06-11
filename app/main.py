@@ -449,6 +449,36 @@ async def api_profile(request: Request, token: str = ""):
     return {"ok": True, "profile_extra": data}
 
 
+@app.api_route("/api/preferences", methods=["GET", "POST"])
+async def api_preferences(request: Request, token: str = ""):
+    """The 'tune my matches' surface , consolidates roles (categories), locations, experience, and the
+    match preferences (remote-only, exclude-list, PRIORITIZE-list, min salary). GET returns current +
+    the canonical role list; POST saves. These feed the matcher (filters/boosts) + the recruiter screen."""
+    user = _resolve_user(request, token)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    if request.method == "GET":
+        px = db.get_profile_extra(user["id"]) or {}
+        return {"ok": True,
+                "roles_all": [c[0] for c in matcher.CATEGORY_RULES],
+                "categories": user.get("categories") or [], "locations": user.get("locations") or [],
+                "experience": user.get("experience") or "",
+                "remote_only": bool(px.get("remote_only")), "avoid": px.get("avoid") or [],
+                "prioritize": px.get("prioritize") or [], "min_salary": px.get("min_salary") or 0}
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    def _list(v):
+        return v if isinstance(v, list) else [s.strip() for s in str(v or "").split(",") if s.strip()]
+    db.set_user_prefs(user["id"], categories=_list(body.get("categories")) if "categories" in body else None,
+                      locations=_list(body.get("locations")) if "locations" in body else None,
+                      experience=body.get("experience"))
+    db.set_profile_extra(user["id"], remote_only=body.get("remote_only"), avoid=body.get("avoid"),
+                         prioritize=body.get("prioritize"), min_salary=body.get("min_salary"))
+    return {"ok": True}
+
+
 @app.get("/api/roles")
 def api_roles():
     """Canonical list of role categories we actually match, so the subscribe chips can't drift from
@@ -1307,6 +1337,14 @@ def resume_page(request: Request, token: str = ""):
     if not (current_user(request) or db.user_by_token(token)):
         return RedirectResponse("/login")
     return _page("resume.html")
+
+
+@app.get("/preferences", response_class=HTMLResponse)
+def preferences_page(request: Request, token: str = ""):
+    """The 'tune my matches' page (token-or-session, like /resume so the dashboard link works)."""
+    if not (current_user(request) or db.user_by_token(token)):
+        return RedirectResponse("/login")
+    return _page("preferences.html")
 
 
 @app.get("/api/resume")

@@ -156,6 +156,10 @@ def _user_prefs(user, uyears):
         av = px.get("avoid")
         if av:
             prefs["avoid"] = av if isinstance(av, list) else [s.strip() for s in str(av).split(",") if s.strip()]
+        if px.get("prioritize"):
+            prefs["prioritize"] = px["prioritize"]
+        if px.get("min_salary"):
+            prefs["min_salary"] = px["min_salary"]
     except Exception:
         pass
     try:
@@ -409,7 +413,7 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
                 sems = sorted(j["_sem"] for j in ranked if isinstance(j.get("_sem"), float))
                 sem_baseline = sems[len(sems) // 2] if sems else None
                 ctx = {"theta": theta, "trending": g_trending, "collab": g_collab,
-                       "source_q": g_source_q,
+                       "source_q": g_source_q, "prioritize": prefs.get("prioritize") or [],
                        "user_top_cats": [c for _, c in top_cats[:3]], "uyears": uyears,
                        "sem_baseline": sem_baseline, "user_cats": cats,
                        "india_user": any((l or "").lower() in ("india",) or "india" in (l or "").lower()

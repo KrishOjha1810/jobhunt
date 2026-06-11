@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>JobHunt , tune my matches</title>
+  <link rel="stylesheet" href="/static/theme.css?v=7" />
+  <style>
+    .wrap{padding-top:var(--sp-4);max-width:760px}
+    .pcard{background:var(--card);border:1px solid var(--card-border);border-radius:var(--r-lg);
+      padding:var(--sp-5);box-shadow:var(--card-shadow);margin-bottom:var(--sp-4)}
+    .pcard h2{font-size:1rem;margin:0 0 4px}
+    .pcard .sub{margin:0 0 12px}
+    label.fld{display:block;font-size:var(--fs-sm);font-weight:600;margin:14px 0 6px}
+    .chips{display:flex;flex-wrap:wrap;gap:7px}
+    .chip{padding:6px 12px;border-radius:var(--r-pill);border:1px solid var(--field-border);background:var(--field);
+      color:var(--muted);font-size:var(--fs-sm);font-weight:600;cursor:pointer;font-family:inherit;transition:.12s}
+    .chip:hover{color:var(--ink);border-color:var(--accent)}
+    .chip.active{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
+    .tagchip{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:var(--r-pill);
+      font-size:.84rem;font-weight:600;background:var(--accent-soft);color:var(--accent)}
+    .tagchip.neg{background:var(--err-bg,rgba(248,113,113,.12));color:var(--danger)}
+    .tagchip button{background:none;border:0;color:inherit;cursor:pointer;font-size:1rem;line-height:1;padding:0;opacity:.7}
+    .tagchip button:hover{opacity:1}
+    .tagwrap{display:flex;flex-wrap:wrap;gap:7px;margin:0 0 8px}
+    .savebar{position:sticky;bottom:0;background:linear-gradient(transparent,var(--bg) 40%);padding:14px 0 4px}
+  </style>
+</head>
+<body>
+  <nav class="nav"><div class="nav-inner">
+    <a class="brand" href="/jobs"><span class="brand-mark">JH</span> JobHunt</a>
+    <a class="nlink" href="/jobs">⌕ <span class="lbl">Browse</span></a>
+    <a class="nlink" href="/dashboard">◎ <span class="lbl">Tracker</span></a>
+    <a class="nlink" href="/resume">▤ <span class="lbl">Resume</span></a>
+    <a class="nlink active" href="/preferences">⚙ <span class="lbl">Preferences</span></a>
+    <button class="theme-toggle" id="themeToggle" aria-label="Toggle theme"></button>
+  </div></nav>
+
+  <div class="wrap">
+    <div class="head">
+      <h1 style="font-size:1.5rem">Tune your matches</h1>
+      <p class="sub">Tell us exactly what you want , not just what your resume implies. These feed both the matching and the recruiter screen, so you get the jobs you actually want.</p>
+    </div>
+
+    <div class="pcard">
+      <h2>Roles you want</h2>
+      <p class="sub">Pick the roles to match you for. You can know Java but only want, say, Data roles.</p>
+      <div class="chips" id="roleChips"></div>
+    </div>
+
+    <div class="pcard">
+      <h2>Prioritize these</h2>
+      <p class="sub">Titles or keywords to push to the top when they fit (e.g. "machine learning", "data analyst").</p>
+      <div class="tagwrap" id="priChips"></div>
+      <input type="text" id="priAdd" placeholder="Add a title/keyword, press Enter" />
+    </div>
+
+    <div class="pcard">
+      <h2>Never show me</h2>
+      <p class="sub">Hard filter , titles, keywords, or companies to exclude (e.g. "java developer", a company you dislike).</p>
+      <div class="tagwrap" id="exChips"></div>
+      <input type="text" id="exAdd" placeholder="Add something to exclude, press Enter" />
+    </div>
+
+    <div class="pcard">
+      <h2>The basics</h2>
+      <label class="fld">Minimum expected salary <span style="font-weight:400;color:var(--muted)">(0 = no minimum; use your local unit, e.g. LPA in India)</span></label>
+      <input type="number" id="minSalary" min="0" step="1" placeholder="e.g. 12" style="max-width:200px" />
+      <label class="fld">Experience level</label>
+      <select id="experience" style="max-width:260px">
+        <option value="">Prefer not to say</option>
+        <option value="fresher">Fresher (0 yrs)</option>
+        <option value="junior">Junior (0-2 yrs)</option>
+        <option value="mid">Mid (2-5 yrs)</option>
+        <option value="senior">Senior (5+ yrs)</option>
+        <option value="lead">Lead / Staff (8+ yrs)</option>
+      </select>
+      <label class="fld">Locations <span style="font-weight:400;color:var(--muted)">(comma separated)</span></label>
+      <input type="text" id="locations" placeholder="remote, india, bangalore" />
+      <label class="fld" style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600">
+        <input type="checkbox" id="remoteOnly" style="width:auto"> Remote roles only
+      </label>
+    </div>
+
+    <div class="savebar">
+      <button class="btn btn-primary" id="save" style="width:100%;padding:13px">Save preferences</button>
+      <span class="sub" id="msg" style="display:block;text-align:center;margin-top:8px"></span>
+    </div>
+  </div>
+
+  <script>
+    const $ = id => document.getElementById(id);
+    const esc = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    const TOKEN = new URLSearchParams(location.search).get('token') || '';
+    const apiq = p => p + (TOKEN ? (p.includes('?')?'&':'?') + 'token=' + encodeURIComponent(TOKEN) : '');
+    // theme
+    const tg = $('themeToggle');
+    const applyT = t => { document.documentElement.setAttribute('data-theme', t); tg.textContent = t==='dark'?'☼':'☾'; };
+    applyT(localStorage.getItem('theme')||'dark');
+    tg.onclick = () => { const n = document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark'; localStorage.setItem('theme',n); applyT(n); };
+
+    let ROLES = new Set(), PRI = [], EX = [];
+    function renderRoles(all){
+      $('roleChips').innerHTML = all.map(c =>
+        `<button class="chip${ROLES.has(c)?' active':''}" data-c="${esc(c)}">${esc(c)}</button>`).join('');
+      $('roleChips').querySelectorAll('.chip').forEach(b => b.onclick = () => {
+        const c = b.dataset.c; ROLES.has(c)?ROLES.delete(c):ROLES.add(c); b.classList.toggle('active'); });
+    }
+    function renderTags(arr, boxId, neg){
+      $(boxId).innerHTML = arr.map((t,i) =>
+        `<span class="tagchip${neg?' neg':''}">${esc(t)}<button data-i="${i}" aria-label="remove">&times;</button></span>`).join('');
+      $(boxId).querySelectorAll('button').forEach(b => b.onclick = () => { arr.splice(+b.dataset.i,1); renderTags(arr,boxId,neg); });
+    }
+    function wireAdd(inputId, arr, boxId, neg){
+      const add = v => { (v||'').split(',').forEach(t => { t=t.trim().toLowerCase(); if(t && !arr.includes(t)) arr.push(t); }); renderTags(arr,boxId,neg); };
+      const el = $(inputId);
+      el.addEventListener('keydown', e => { if(e.key==='Enter'){ e.preventDefault(); add(el.value); el.value=''; } });
+      el.addEventListener('blur', () => { if(el.value.trim()){ add(el.value); el.value=''; } });
+    }
+    wireAdd('priAdd', PRI, 'priChips', false);
+    wireAdd('exAdd', EX, 'exChips', true);
+
+    fetch(apiq('/api/preferences')).then(r => r.ok ? r.json() : null).then(d => {
+      if(!d || !d.ok) { $('msg').innerHTML = '<span class="err">Please log in first.</span>'; return; }
+      ROLES = new Set(d.categories || []);
+      PRI = (d.prioritize || []).slice();
+      EX = (d.avoid || []).slice();
+      renderRoles(d.roles_all || []);
+      renderTags(PRI, 'priChips', false);
+      renderTags(EX, 'exChips', true);
+      $('minSalary').value = d.min_salary || '';
+      $('experience').value = d.experience || '';
+      $('locations').value = (d.locations || []).join(', ');
+      $('remoteOnly').checked = !!d.remote_only;
+    }).catch(() => { $('msg').innerHTML = '<span class="err">Could not load.</span>'; });
+
+    $('save').onclick = async () => {
+      $('save').disabled = true; $('msg').textContent = 'Saving...';
+      const body = {
+        categories: [...ROLES], prioritize: PRI, avoid: EX,
+        min_salary: parseInt($('minSalary').value || '0', 10) || 0,
+        experience: $('experience').value,
+        locations: $('locations').value.split(',').map(s=>s.trim()).filter(Boolean),
+        remote_only: $('remoteOnly').checked,
+      };
+      try {
+        const r = await fetch(apiq('/api/preferences'), { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(body) });
+        $('msg').innerHTML = r.ok ? '<span class="ok">Saved , your next matches will use these.</span>' : '<span class="err">Save failed.</span>';
+      } catch(e){ $('msg').innerHTML = '<span class="err">Save failed.</span>'; }
+      $('save').disabled = false;
+    };
+  </script>
+</body>
+</html>

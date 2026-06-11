@@ -114,3 +114,33 @@ def test_parse_endpoint_rate_limited(client):
     codes = [client.post("/api/subscribe/parse").status_code for _ in range(15)]
     assert 429 in codes                      # abuse is throttled
     assert codes[:12].count(429) == 0        # first dozen allowed
+
+
+# --- preferences tab: roles/prioritize/exclude/salary feed matching + the screen ---
+
+def test_preferences_roundtrip_and_prioritize(client, make_user):
+    from app import db, matcher
+    u = make_user(keywords=["python"], experience="mid", categories=["Backend"])
+    db.set_user_prefs(u["id"], categories=["Data Analyst", "Data Engineering"])
+    db.set_profile_extra(u["id"], prioritize="machine learning, data analyst", avoid="java developer", min_salary=12)
+    px = db.get_profile_extra(u["id"])
+    assert px["prioritize"] == ["machine learning", "data analyst"]
+    assert px["min_salary"] == 12
+    assert db.get_user_by_id(u["id"])["categories"] == ["Data Analyst", "Data Engineering"]
+    # prioritize boost lifts a matching job's score
+    ctx = {"user_cats": ["Data Analyst"], "prioritize": ["machine learning"]}
+    base = matcher.blended_score({"title": "Data Analyst", "matched": ["python"], "raw_score": 2,
+                                  "core_overlap": 1, "category": "Data Analyst"}, ctx)[0]
+    boosted = matcher.blended_score({"title": "Machine Learning Analyst", "matched": ["python"], "raw_score": 2,
+                                     "core_overlap": 1, "category": "Data Analyst"}, ctx)[0]
+    assert boosted >= base
+
+
+def test_api_preferences_endpoint(client, token):
+    r = client.get(f"/api/preferences?token={token}")
+    assert r.status_code == 200 and "roles_all" in r.json()
+    s = client.post(f"/api/preferences?token={token}", json={"prioritize": ["ml"], "min_salary": 20,
+                    "avoid": ["java developer"], "categories": ["Data Analyst"], "remote_only": True})
+    assert s.status_code == 200
+    g = client.get(f"/api/preferences?token={token}").json()
+    assert g["prioritize"] == ["ml"] and g["min_salary"] == 20 and g["remote_only"] is True

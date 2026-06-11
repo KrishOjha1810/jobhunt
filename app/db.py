@@ -495,7 +495,7 @@ def list_catalog_ranked(user, category=None, q=None, limit=200):
     sem_baseline = sems[len(sems) // 2] if sems else None
     ctx = {"theta": theta, "trending": sig["trending"], "collab": sig["collab"], "source_q": sig["source_q"],
            "user_top_cats": [c for _, c in top_cats[:3]], "user_cats": cats, "uyears": uyears,
-           "sem_baseline": sem_baseline,
+           "sem_baseline": sem_baseline, "prioritize": px.get("prioritize") or [],
            "india_user": any("india" in (l or "").lower() for l in (user.get("locations") or []))}
     out = []
     for j in rows:
@@ -791,10 +791,10 @@ def get_profile_extra(user_id):
     return {}
 
 
-def set_profile_extra(user_id, achievements=None, projects=None, remote_only=None, avoid=None):
-    """Store the user's achievements + projects AND hard deal-breakers (remote_only, avoid-list).
-    True MERGE: only fields passed (non-None) are updated, so a partial save (e.g. only deal-breakers)
-    doesn't wipe the rest."""
+def set_profile_extra(user_id, achievements=None, projects=None, remote_only=None, avoid=None,
+                      prioritize=None, min_salary=None):
+    """Store the user's achievements + projects AND match preferences (deal-breakers remote_only/avoid,
+    prioritize-list, min_salary). True MERGE: only fields passed (non-None) are updated."""
     data = get_profile_extra(user_id)
     if achievements is not None:
         data["achievements"] = str(achievements).strip()[:4000]
@@ -804,10 +804,34 @@ def set_profile_extra(user_id, achievements=None, projects=None, remote_only=Non
         data["remote_only"] = bool(remote_only)
     if avoid is not None:
         items = avoid if isinstance(avoid, list) else str(avoid).split(",")
-        data["avoid"] = [s.strip().lower() for s in items if s.strip()][:20]
+        data["avoid"] = [s.strip().lower() for s in items if s.strip()][:30]
+    if prioritize is not None:
+        items = prioritize if isinstance(prioritize, list) else str(prioritize).split(",")
+        data["prioritize"] = [s.strip().lower() for s in items if s.strip()][:30]
+    if min_salary is not None:
+        try:
+            data["min_salary"] = max(0, int(float(min_salary)))
+        except Exception:
+            data["min_salary"] = 0
     with engine.begin() as c:
         c.execute(update(users).where(users.c.id == user_id).values(profile_extra=json.dumps(data)))
     return data
+
+
+def set_user_prefs(user_id, categories=None, locations=None, experience=None):
+    """Update the role/location/experience preferences on the user row WITHOUT touching the resume
+    (so the Preferences page can edit them outside the subscribe flow)."""
+    vals = {}
+    if categories is not None:
+        allowed = {c[0] for c in __import__("app.matcher", fromlist=["CATEGORY_RULES"]).CATEGORY_RULES}
+        vals["categories"] = json.dumps([c for c in categories if c in allowed])
+    if locations is not None:
+        vals["locations"] = json.dumps([l.strip().lower() for l in locations if str(l).strip()])
+    if experience is not None and experience in ("fresher", "junior", "mid", "senior", "lead", ""):
+        vals["experience"] = experience or None
+    if vals:
+        with engine.begin() as c:
+            c.execute(update(users).where(users.c.id == user_id).values(**vals))
 
 
 def profile_extra_text(user_id):

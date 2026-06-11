@@ -320,6 +320,12 @@ def recruiter_screen(resume_text: str, jobs: list, prefs: dict = None):
         constraints.append("HARD: candidate wants REMOTE roles only , reject onsite-only roles.")
     if prefs.get("avoid"):
         constraints.append("HARD: reject anything matching these avoids: " + ", ".join(prefs["avoid"]) + ".")
+    if prefs.get("prioritize"):
+        constraints.append("Candidate especially WANTS roles like: " + ", ".join(prefs["prioritize"])
+                           + " , rate these higher when they fit.")
+    if prefs.get("min_salary"):
+        constraints.append(f"Candidate's minimum expected pay is ~{prefs['min_salary']} , if the posting "
+                           "clearly pays well below this, lower the fit (don't reject on unknown pay).")
     sys = (
         "You are a sharp technical recruiter screening jobs for ONE candidate. For EACH numbered job, "
         "judge how good a match it REALLY is for THIS candidate's resume , and crucially, how likely "

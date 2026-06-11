@@ -113,6 +113,7 @@
       <a class="nlink" href="/jobs">⌕ <span class="lbl">Browse</span></a>
       <a class="nlink active" href="/dashboard">◎ <span class="lbl">Tracker</span></a>
       <a class="nlink" href="/resume">▤ <span class="lbl">Resume</span></a>
+      <a class="nlink" id="navPrefs" href="/preferences">⚙ <span class="lbl">Tune</span></a>
       <a class="nlink" href="/subscribe">⚑ <span class="lbl">Alerts</span></a>
       <span class="nav-streak" id="navStreak">🔥 <b>0</b></span>
       <button class="theme-toggle" id="themeToggle" aria-label="Toggle theme" title="Toggle theme"></button>
@@ -302,6 +303,10 @@
     function safeUrl(u) { u = String(u || ''); return /^https?:\/\//i.test(u) ? u : ''; }
 
     const token = new URLSearchParams(location.search).get('token') || '';
+    // carry the token onto token-based nav links so they don't bounce to /login
+    if (token) { const tq = '?token=' + encodeURIComponent(token);
+      document.querySelectorAll('.nav .nlink[href="/preferences"], .nav .nlink[href="/resume"]')
+        .forEach(a => a.href = a.getAttribute('href') + tq); }
     let all = [], RESUME_NAMES = [];
     // default to the SAVED inbox (actionable, un-applied jobs) , not All, so applied jobs don't clutter
     let state = { days: 0, minScore: 0, sortKey: 'score', sortDir: 'desc', status: 'saved', loc: '', roles: new Set() };

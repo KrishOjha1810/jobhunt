@@ -289,7 +289,7 @@ import math as _math
 # brand-new user's ranking ~= the old keyword behaviour; learned/global signals only re-sort within.
 SCORE_WEIGHTS = {"content": 4.2, "pref": 1.4, "seniority": 1.2, "location": 1.0,
                  "recency": 0.5, "collab": 0.7, "trending": 0.5, "semantic": 1.3, "source": 1.0,
-                 "category": 1.5}
+                 "category": 1.5, "prioritize": 1.6}
 # Baseline subtracted from the logistic input so a SHALLOW match (one common keyword like "java")
 # scores low, not ~50%+. Tuned with content=4.2 so 1 skill ~30%, 3 skills ~70%, 5+ skills ~90%.
 SCORE_BIAS = 2.8
@@ -400,6 +400,18 @@ def blended_score(job: dict, ctx: dict) -> tuple:
         Cat = 0.6 if jobcat in ucats else -0.5
     else:
         Cat = 0.0
+    # prioritize: titles/keywords the user explicitly WANTS surfaced (from the preferences tab) , a
+    # boost when they appear in the title (strong) or body (mild). Lets a Java/Python dev say "show me
+    # ML/data roles, not Java Developer" and have those rise.
+    pri = ctx.get("prioritize") or []
+    Pri = 0.0
+    if pri:
+        _t = (job.get("title", "") or "").lower()
+        _d = (job.get("description", "") or "").lower()
+        if any(p in _t for p in pri):
+            Pri = 1.0
+        elif any(p in _d for p in pri):
+            Pri = 0.4
     # source quality: a hardcoded PRIOR (company boards freshest + rarely closed; Adzuna stalest),
     # nudged by what we've LEARNED , which sources actually land jobs for users (ctx.source_q, the net
     # positive-action rate per board). So a source that performs gets promoted past its prior, and one
@@ -432,7 +444,7 @@ def blended_score(job: dict, ctx: dict) -> tuple:
                "location": w["location"] * L, "recency": w["recency"] * R,
                "collab": w["collab"] * Co, "trending": w["trending"] * Tr,
                "semantic": w["semantic"] * Sem, "source": w["source"] * Sq,
-               "category": w["category"] * Cat}
+               "category": w["category"] * Cat, "prioritize": w["prioritize"] * Pri}
     z = sum(contrib.values()) - SCORE_BIAS
     score = int(round(100 / (1 + _math.exp(-max(-30, min(30, z))))))
     score = max(15, min(100, score))
@@ -442,7 +454,8 @@ def blended_score(job: dict, ctx: dict) -> tuple:
 _CONTRIB_LABEL = {"content": "skills match", "pref": "roles you favour", "seniority": "seniority fit",
                   "location": "location fit", "recency": "freshly posted", "collab": "popular with similar users",
                   "trending": "trending role", "semantic": "matches your resume",
-                  "source": "from a company board", "category": "a role you chose"}
+                  "source": "from a company board", "category": "a role you chose",
+                  "prioritize": "a role you want"}
 
 
 def blended_reason(job: dict, score: int, contrib: dict) -> str:
