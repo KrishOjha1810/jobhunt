@@ -235,8 +235,8 @@
       <!-- MAIN: status mode-switch + the job list -->
       <div class="main">
         <div class="toggle-group" id="statusGroup">
-          <button class="btn active" data-status="">All</button>
-          <button class="btn" data-status="saved">Saved</button>
+          <button class="btn active" data-status="saved">Saved</button>
+          <button class="btn" data-status="">All</button>
           <button class="btn" data-status="applied">Applied</button>
           <button class="btn" data-status="not_interested">Not a fit</button>
           <button class="btn" data-status="rejected">Rejected</button>
@@ -303,7 +303,8 @@
 
     const token = new URLSearchParams(location.search).get('token') || '';
     let all = [], RESUME_NAMES = [];
-    let state = { days: 0, minScore: 0, sortKey: 'score', sortDir: 'desc', status: '', loc: '', roles: new Set() };
+    // default to the SAVED inbox (actionable, un-applied jobs) , not All, so applied jobs don't clutter
+    let state = { days: 0, minScore: 0, sortKey: 'score', sortDir: 'desc', status: 'saved', loc: '', roles: new Set() };
 
     function resumeOpts(current){
       const opts = ['', ...RESUME_NAMES];
@@ -318,6 +319,8 @@
       {v:'not_interested',label:'Not a fit'},{v:'rejected',label:'Rejected'},{v:'closed',label:'Closed (job gone)'}
     ];
     const STATUS_TOKEN = { saved:'--c-saved', applied:'--c-applied', not_interested:'--c-notfit', rejected:'--c-rejected', closed:'--c-notfit' };
+    // 'Rejected' only makes sense AFTER applying , don't offer it on a saved/un-applied job
+    function statusOpts(curr){ return STATUS_OPTS.filter(o => o.v !== 'rejected' || curr === 'applied' || curr === 'rejected'); }
     function statusStyle(s){ const v=`var(${STATUS_TOKEN[s||'saved']||'--c-saved'})`;
       return `color:${v};border-color:${v};background:color-mix(in srgb, ${v} 15%, transparent)`; }
 
@@ -495,7 +498,7 @@
           <td data-label="Match">${j.score ? `<span class="score">${esc(j.score)}</span>` : ''}</td>
           <td data-label="Apply & status"><div class="actions">
             ${safeUrl(j.url)?`<a class="applylink" href="${esc(safeUrl(j.url))}" target="_blank" rel="noopener" onclick="logClick('${esc(safeUrl(j.url))}','${esc(j.category||'')}')">Apply <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8"/></svg></a>`:''}
-            <select class="statussel" style="${statusStyle(j.status)}" onchange="updStatus(${j.id}, this)">${STATUS_OPTS.map(o=>`<option value="${o.v}" ${ (j.status||'saved')===o.v ? 'selected':''}>${o.label}</option>`).join('')}</select>
+            <select class="statussel" style="${statusStyle(j.status)}" onchange="updStatus(${j.id}, this)">${statusOpts(j.status).map(o=>`<option value="${o.v}" ${ (j.status||'saved')===o.v ? 'selected':''}>${o.label}</option>`).join('')}</select>
             <button class="tailorbtn ai-more" onclick="aiMenu(${j.id},'${esc(safeUrl(j.url))}','${esc(j.category||'')}')" title="Tailor resume, outreach, interview prep, feedback...">⋯</button>
           </div></td>
           <td data-label="Resume"><select class="res" onchange="upd(${j.id},'resume_used',this.value)">
@@ -640,7 +643,7 @@
       };
     })();
     function clearFilters() {
-      state = { days: 0, minScore: 0, sortKey: 'score', sortDir: 'desc', status: '', loc: '', roles: new Set() };
+      state = { days: 0, minScore: 0, sortKey: 'score', sortDir: 'desc', status: 'saved', loc: '', roles: new Set() };
       document.getElementById('companyFilter').value = '';
       document.getElementById('sortSelect').value = 'score-desc';
       // reset every segmented control to its first (default) option

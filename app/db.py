@@ -1394,13 +1394,14 @@ def reset_catalog_and_user_seen(user_id):
 
 
 def reset_all_matches():
-    """Clear the shared catalog + EVERY user's matched/tracked job_log rows, so the new matching
-    re-delivers from scratch for everyone. Keeps accounts, subscriptions, learned prefs, and the
-    events history (so the recommender keeps what it learned). Destructive , admin only."""
+    """Clear the shared catalog + every user's UN-actioned matched rows so the new matching re-delivers
+    fresh. PRESERVES applied/rejected jobs (the user's application history is kept long-term), plus
+    accounts, subscriptions, learned prefs, and events. Destructive to the saved/closed inbox only."""
     with engine.begin() as c:
         cat = c.execute(delete(jobs_catalog)).rowcount or 0
-        jl = c.execute(delete(job_log)).rowcount or 0
-    return {"catalog_deleted": cat, "job_log_deleted": jl}
+        jl = c.execute(delete(job_log).where(
+            ~job_log.c.status.in_(list(APPLIED_STATES)))).rowcount or 0  # keep applied/rejected
+    return {"catalog_deleted": cat, "job_log_deleted": jl, "kept": "applied/rejected history"}
 
 
 def get_user_by_id(uid):
