@@ -94,6 +94,9 @@ GREENHOUSE = [
     "verkada", "tide", "gomotive", "gocardless", "truelayer", "aptoslabs",
     # batch 5 (verified live 2026-06-10): India coverage (carry non-dev roles too)
     "turing", "observeai",
+    # batch 6 (verified live 2026-06-11): top global tech/fintech for volume
+    "block", "grafanalabs", "oura", "smartsheet", "zoominfo", "hightouch", "mercury", "carta",
+    "yugabyte", "sumologic", "betterment", "circleci", "planetscale",
 ]
 LEVER = [
     "blockchain", "ledger", "chainlink", "kraken", "nethermind", "blockdaemon", "fireblocks",
@@ -101,6 +104,7 @@ LEVER = [
     "kavak", "tala", "highspot",  # verified live
     # verified live 2026-06-10: India employers (paytm/meesho/cred have heavy non-dev hiring too)
     "paytm", "meesho", "mindtickle", "fampay", "fi", "cred", "zeta",
+    "gohighlevel", "metabase", "wealthfront",  # verified live 2026-06-11
 ]
 ASHBY = [
     "openai", "vercel", "mercury", "replit", "uniswap-labs", "wintermute", "gauntlet",
@@ -111,6 +115,9 @@ ASHBY = [
     "elevenlabs", "cohere", "temporal", "airbyte",  # batch 3 (verified live)
     "lovable", "mercor", "writer", "suno",  # batch 4 (verified live)
     "navi", "atlan", "scaler", "stable",  # verified live 2026-06-10: India coverage
+    # batch 6 (verified live 2026-06-11): top global tech/AI/fintech for volume
+    "snowflake", "whoop", "vanta", "nubank", "langchain", "cerebras", "clickup", "confluent",
+    "benchling", "sentry", "zapier", "anyscale", "railway", "flock", "pinecone", "weaviate",
 ]
 # SmartRecruiters: keyless public board (api.smartrecruiters.com/v1/companies/<slug>/postings).
 # Big enterprises with real India presence live here. Slugs are case-sensitive.
