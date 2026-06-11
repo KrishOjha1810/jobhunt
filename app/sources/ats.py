@@ -23,6 +23,12 @@ import requests
 _FULL_CONTENT = os.environ.get("ATS_FULL_CONTENT", "0") == "1"
 _WORKERS = int(os.environ.get("ATS_WORKERS", "") or "20")
 _DESC_CHARS = int(os.environ.get("ATS_DESC_CHARS", "") or "2000")
+# Send a real browser User-Agent. Some board APIs (notably Lever) return 0/403 to the bare
+# python-requests UA from a datacenter IP (Render), which silently zeroed out all Lever companies in
+# production even though they work from a normal client.
+_HDRS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                       "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+         "Accept": "application/json"}
 
 
 def _strip_html(s):
@@ -45,7 +51,7 @@ def fetch_detail(job):
             if not jid:
                 return ""
             r = requests.get(
-                f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs/{jid}", timeout=12)
+                f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs/{jid}", timeout=12, headers=_HDRS)
             if not r.ok:
                 return ""
             return _strip_html(r.json().get("content", ""))
@@ -53,7 +59,7 @@ def fetch_detail(job):
             slug = src.split(":", 1)[1]
             jid = url.rstrip("/").rsplit("/", 1)[-1]
             r = requests.get(
-                f"https://api.smartrecruiters.com/v1/companies/{slug}/postings/{jid}", timeout=12)
+                f"https://api.smartrecruiters.com/v1/companies/{slug}/postings/{jid}", timeout=12, headers=_HDRS)
             if not r.ok:
                 return ""
             secs = (r.json().get("jobAd") or {}).get("sections") or {}
@@ -66,7 +72,7 @@ def fetch_detail(job):
                 return ""
             tenant, dc, site, path = m.groups()
             r = requests.get(f"https://{tenant}.{dc}.myworkdayjobs.com/wday/cxs/{tenant}/{site}{path}",
-                             headers={"Accept": "application/json"}, timeout=12)
+                             headers=_HDRS, timeout=12)
             if not r.ok:
                 return ""
             return _strip_html((r.json().get("jobPostingInfo") or {}).get("jobDescription", ""))
@@ -204,7 +210,7 @@ def _greenhouse(slug):
     # ATS_FULL_CONTENT=1 to fetch full JDs inline instead.
     try:
         suffix = "?content=true" if _FULL_CONTENT else ""
-        r = requests.get(f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs{suffix}", timeout=15)
+        r = requests.get(f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs{suffix}", timeout=15, headers=_HDRS)
         if not r.ok:
             return []
         out = []
@@ -223,7 +229,7 @@ def _greenhouse(slug):
 
 def _lever(slug):
     try:
-        r = requests.get(f"https://api.lever.co/v0/postings/{slug}?mode=json", timeout=12)
+        r = requests.get(f"https://api.lever.co/v0/postings/{slug}?mode=json", timeout=12, headers=_HDRS)
         if not r.ok:
             return []
         out = []
@@ -241,7 +247,7 @@ def _ashby(slug):
     try:
         r = requests.get(
             f"https://api.ashbyhq.com/posting-api/job-board/{slug}?includeCompensation=true",
-            timeout=12)
+            timeout=12, headers=_HDRS)
         if not r.ok:
             return []
         out = []
@@ -257,7 +263,7 @@ def _ashby(slug):
 def _smartrecruiters(slug):
     try:
         r = requests.get(
-            f"https://api.smartrecruiters.com/v1/companies/{slug}/postings?limit=100", timeout=12)
+            f"https://api.smartrecruiters.com/v1/companies/{slug}/postings?limit=100", timeout=12, headers=_HDRS)
         if not r.ok:
             return []
         out = []
