@@ -1,0 +1,39 @@
+name: scheduled-run
+
+# The Render free web service sleeps and ENABLE_SCHEDULER=0, so matching runs depend on an external
+# pinger hitting /run. The previous out-of-repo pinger died silently (last_run went ~24h stale with
+# no alert, so nobody got fresh jobs). This GitHub-hosted cron replaces it: it is version-controlled
+# and every fire shows in the Actions tab, so a failure is RED and visible instead of invisible.
+#
+# Fires at 9 AM / 3 PM / 9 PM IST (matching app.config RUN_HOURS). GitHub cron is UTC-only, so the
+# times are shifted by IST's +5:30 offset. force=1 ignores the due-gate so each fire actually runs;
+# it requires the RUN_TOKEN, which must be added as a repo Actions secret (Settings > Secrets and
+# variables > Actions > New repository secret, name RUN_TOKEN, value = the token set in Render).
+
+on:
+  schedule:
+    - cron: "30 3,9,15 * * *"   # 03:30 / 09:30 / 15:30 UTC = 09:00 / 15:00 / 21:00 IST
+  workflow_dispatch: {}          # also lets you trigger a run by hand from the Actions tab
+
+# Don't pile up overlapping runs if a previous one is slow (a full run can take ~2-3 min).
+concurrency:
+  group: scheduled-run
+  cancel-in-progress: false
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hit /run (force, synchronous)
+        env:
+          RUN_TOKEN: ${{ secrets.RUN_TOKEN }}
+        run: |
+          if [ -z "$RUN_TOKEN" ]; then
+            echo "RUN_TOKEN secret is not set , add it under repo Settings > Secrets > Actions." >&2
+            exit 1
+          fi
+          # -f makes a 403/5xx fail the job (so a wrong/rotated token shows RED, not a silent skip).
+          # --max-time covers Render cold-start + the ~2-3 min synchronous run. Retry transient errors.
+          curl -fsS --max-time 600 --retry 3 --retry-delay 30 --retry-all-errors \
+            "https://jobhunt-8i1m.onrender.com/run?force=1&token=${RUN_TOKEN}" \
+            -w '\nHTTP %{http_code}, %{time_total}s\n'
