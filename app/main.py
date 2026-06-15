@@ -791,6 +791,16 @@ def admin_reset_users(token: str = ""):
     return {"ok": True, "deleted_users": n, "message": "All users removed. The job catalog was kept."}
 
 
+@app.get("/admin/user")
+def admin_user(token: str = "", q: str = ""):
+    """Per-user health diagnostic by email or name ('why isn't <friend> getting matches'). Requires
+    RUN_TOKEN. Returns resume/keyword health, prefs, tracker funnel, and 30-day engagement , no
+    password, no other users, not even the full email (domain only)."""
+    if not RUN_TOKEN or token != RUN_TOKEN:
+        return JSONResponse({"error": "valid token required (set RUN_TOKEN, pass ?token=...)"}, status_code=403)
+    return db.user_diagnostics(q)
+
+
 @app.api_route("/admin/revalidate", methods=["GET", "POST"])
 def admin_revalidate(request: Request, token: str = "", email: str = ""):
     """Validation reset (NON-destructive to tracker history): wipe the shared job catalog so it

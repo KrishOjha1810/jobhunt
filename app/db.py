@@ -1442,6 +1442,60 @@ def get_user_by_email(email):
     return _row_to_user(r)
 
 
+def user_diagnostics(query):
+    """Admin diagnostic for ONE user, looked up by email (exact) or name (case-insensitive substring).
+    Answers 'why isn't <friend> getting matches' without exposing other people's data: resume/keyword
+    health, prefs, their tracker funnel, and their own engagement events over 30 days. Returns a dict
+    (or {'found': False}) , no password hash, no other users."""
+    q = (query or "").strip().lower()
+    if not q:
+        return {"found": False}
+    with engine.connect() as c:
+        row = c.execute(
+            select(users).where(func.lower(users.c.email) == q)
+        ).mappings().first()
+        if not row:
+            row = c.execute(
+                select(users).where(func.lower(users.c.name).like(f"%{q}%"))
+            ).mappings().first()
+        if not row:
+            return {"found": False}
+        uid = row["id"]
+        kw = [k for k in (row.get("keywords") or "").replace(",", " ").split() if k]
+        cutoff = datetime.utcnow() - timedelta(days=30)
+        ev = {e: (n or 0) for e, n in c.execute(
+            select(events.c.event, func.count()).where(
+                events.c.user_id == uid, events.c.created_at >= cutoff
+            ).group_by(events.c.event)).all()}
+        statuses = {s: (n or 0) for s, n in c.execute(
+            select(job_log.c.status, func.count()).where(job_log.c.user_id == uid)
+            .group_by(job_log.c.status)).all()}
+        total_matched = c.execute(
+            select(func.count()).select_from(job_log).where(job_log.c.user_id == uid)).scalar() or 0
+        recent_matched = c.execute(
+            select(func.count()).select_from(job_log).where(
+                job_log.c.user_id == uid, job_log.c.sent_at >= cutoff)).scalar() or 0
+    import json as _json
+    try:
+        cats = _json.loads(row.get("categories") or "[]")
+    except Exception:
+        cats = []
+    return {
+        "found": True, "id": uid, "name": row.get("name"),
+        "email_domain": (row.get("email") or "").split("@")[-1],  # not the full email
+        "active": row.get("active"), "channel": row.get("channel"),
+        "resume_present": bool(row.get("resume_text")),
+        "resume_chars": len((row.get("resume_text") or "")),
+        "keyword_count": len(kw), "keywords_sample": kw[:15],
+        "categories": cats, "experience": row.get("experience"),
+        "locations": row.get("locations"),
+        "has_embedding": bool(row.get("embedding")),
+        "total_matched_alltime": total_matched, "matched_last_30d": recent_matched,
+        "tracker_status_breakdown": statuses,
+        "events_last_30d": ev,
+    }
+
+
 def set_password(user_id, pw):
     with engine.begin() as c:
         c.execute(update(users).where(users.c.id == user_id).values(password_hash=hash_password(pw)))

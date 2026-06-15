@@ -103,6 +103,9 @@ GREENHOUSE = [
     # batch 6 (verified live 2026-06-11): top global tech/fintech for volume
     "block", "grafanalabs", "oura", "smartsheet", "zoominfo", "hightouch", "mercury", "carta",
     "yugabyte", "sumologic", "betterment", "circleci", "planetscale",
+    # batch 7 (verified live 2026-06-15): YC / prominent startups (AI, dev-tools, fintech-security)
+    "cresta", "checkr", "togetherai", "cribl", "tailscale", "fireworksai", "typeface", "alloy",
+    "instabase", "knock", "found", "imbue",
 ]
 LEVER = [
     "blockchain", "ledger", "chainlink", "kraken", "nethermind", "blockdaemon", "fireblocks",
@@ -124,6 +127,9 @@ ASHBY = [
     # batch 6 (verified live 2026-06-11): top global tech/AI/fintech for volume
     "snowflake", "whoop", "vanta", "nubank", "langchain", "cerebras", "clickup", "confluent",
     "benchling", "sentry", "zapier", "anyscale", "railway", "flock", "pinecone", "weaviate",
+    # batch 7 (verified live 2026-06-15): YC / prominent startups (airwallex has heavy India hiring)
+    "airwallex", "drata", "gamma", "persona", "column", "middesk", "posthog", "character",
+    "resend", "unit", "runway", "opensea", "inngest", "contextual",
 ]
 # SmartRecruiters: keyless public board (api.smartrecruiters.com/v1/companies/<slug>/postings).
 # Big enterprises with real India presence live here. Slugs are case-sensitive.
