@@ -199,12 +199,18 @@ def format_digest(user: dict, jobs: list) -> str:
             b.append(f"   {j['reason']}")
         if j.get("catch"):
             b.append(f"   Heads up: {j['catch']}")
-        b.append(f"   Apply: {j.get('url','')}")
-        if tok and j.get("url"):
-            u = urllib.parse.quote(j["url"], safe="")
+        url = j.get("url", "")
+        if tok and url:
+            u = urllib.parse.quote(url, safe="")
+            cq = urllib.parse.quote(j.get("category") or "", safe="")
+            # route Apply through /click so we capture the click-through (the highest-volume engagement
+            # signal); /click logs 'clicked' then redirects to the real posting.
+            b.append(f"   Apply: {BASE_URL}/click?t={tok}&u={u}" + (f"&c={cq}" if cq else ""))
             b.append(f"   Mark applied: {BASE_URL}/track?t={tok}&u={u}&s=applied")
             b.append(f"   Good match: {BASE_URL}/feedback?t={tok}&u={u}&v=good"
                      f"   |   Not for me: {BASE_URL}/feedback?t={tok}&u={u}&v=bad")
+        else:
+            b.append(f"   Apply: {url}")
         b.append("")
         return "\n".join(b)
 

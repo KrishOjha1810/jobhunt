@@ -1305,6 +1305,27 @@ def envcheck():
                               "smtp_host": _sh or None, "email_will_work": email_ready}}
 
 
+@app.get("/click")
+def click(t: str = "", u: str = "", c: str = ""):
+    """Click-through tracker for digest 'Apply' links: logs a 'clicked' event (the highest-VOLUME
+    engagement signal , most users live in email, where a direct link is invisible) then redirects to
+    the real posting. Open-redirect-safe: only redirects to a URL we actually matched to THIS user
+    (is_seen); anything else goes to their tracker. A bad token never breaks the click."""
+    from urllib.parse import unquote, quote
+    url = unquote(u or "")
+    user = db.user_by_token(t) if t else None
+    legit = bool(user and url and url.lower().startswith(("http://", "https://"))
+                 and db.is_seen(user["id"], url))
+    if legit:
+        try:
+            db.log_event(user["id"], url, "clicked", category=(c or None), source="digest")
+        except Exception:
+            pass
+        return RedirectResponse(url, status_code=302)
+    dash = BASE_URL + "/dashboard" + (("?token=" + quote(t, safe="")) if t else "")
+    return RedirectResponse(dash, status_code=302)
+
+
 @app.get("/track", response_class=HTMLResponse)
 def track(t: str = "", u: str = "", s: str = "applied"):
     """One-tap status update from an alert link: t=dash_token, u=job url, s=status. Shows a small

@@ -103,7 +103,10 @@ def test_digest_stays_under_limit_and_keeps_footer():
     assert len(msg) <= 4096                       # never exceeds Telegram's hard limit
     assert "/unsubscribe?t=tok123" in msg          # footer always present (was dropped by blind slice)
     assert "more in your tracker" in msg           # overflow communicated, not silently cut
-    assert msg.count("https://boards.greenhouse.io/acme/jobs/") >= 1  # at least one full job block
+    # at least one full job block: its Apply link now routes through /click (click-through tracking),
+    # with the real URL percent-encoded as the redirect target
+    assert "/click?t=tok123&u=" in msg
+    assert "https%3A%2F%2Fboards.greenhouse.io%2Facme%2Fjobs%2F" in msg
 
 
 # --- security one-pass (#11/#12) ---
@@ -188,3 +191,24 @@ def test_admin_user_diagnostic(client, make_user):
     assert db_diag["found"] is True and db_diag["resume_present"] is False
     # privacy: never leak the full email or password hash
     assert "email" not in d and "password_hash" not in d
+
+
+# --- /click digest tracker: capture the click-through signal, open-redirect-safe ---
+
+def test_click_tracks_and_redirects_only_to_matched_jobs(client, make_user):
+    from urllib.parse import quote
+    from app import db
+    u = make_user(name="Clicker", keywords=["python"])
+    tok = u["dash_token"]
+    job = {"url": "https://jobs.lever.co/paytm/click-1", "title": "Backend Engineer",
+           "company": "paytm", "location": "Remote", "category": "Backend", "source": "lever:paytm"}
+    db.log_job(u["id"], job)
+    # a matched job: logs 'clicked' and redirects to the real posting
+    r = client.get(f"/click?t={tok}&u={quote(job['url'], safe='')}", follow_redirects=False)
+    assert r.status_code == 302 and r.headers["location"] == job["url"]
+    d = client.get(f"/admin/user?token=test-run-token&q=Clicker").json()
+    assert d["events_last_30d"].get("clicked", 0) >= 1
+    # open-redirect protection: a url the user was never matched to must NOT be redirected to
+    r2 = client.get(f"/click?t={tok}&u={quote('https://evil.example/phish', safe='')}",
+                    follow_redirects=False)
+    assert r2.status_code == 302 and "evil.example" not in r2.headers["location"]
