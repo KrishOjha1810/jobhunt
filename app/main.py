@@ -791,6 +791,30 @@ def admin_reset_users(token: str = ""):
     return {"ok": True, "deleted_users": n, "message": "All users removed. The job catalog was kept."}
 
 
+@app.post("/admin/ingest")
+async def admin_ingest(request: Request, token: str = ""):
+    """Ingest jobs fetched by an external relay (the Lever GitHub Action, since Lever blocks Render's
+    IP). Accepts {"jobs": [<normalized job dicts from ats._lever>]}, categorizes them exactly like the
+    runner does, and upserts new ones into the shared catalog. Requires RUN_TOKEN. Idempotent:
+    upsert_jobs dedupes by URL and skips closed jobs."""
+    if not RUN_TOKEN or token != RUN_TOKEN:
+        return JSONResponse({"error": "valid token required (set RUN_TOKEN, pass ?token=...)"}, status_code=403)
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid JSON body"}, status_code=400)
+    jobs = body.get("jobs") if isinstance(body, dict) else None
+    if not isinstance(jobs, list):
+        return JSONResponse({"error": "expected {'jobs': [...]}"}, status_code=400)
+    # only accept relayed jobs from the providers this endpoint is meant for (don't let an open-ish
+    # token-guarded endpoint inject arbitrary sources), and cap the batch so a bad payload can't OOM us.
+    jobs = [j for j in jobs[:3000] if isinstance(j, dict) and str(j.get("source", "")).startswith("lever:")]
+    for j in jobs:
+        j["category"] = matcher.categorize(j)
+    added = db.upsert_jobs(jobs)
+    return {"ok": True, "received": len(jobs), "added": added}
+
+
 @app.get("/admin/user")
 def admin_user(token: str = "", q: str = ""):
     """Per-user health diagnostic by email or name ('why isn't <friend> getting matches'). Requires

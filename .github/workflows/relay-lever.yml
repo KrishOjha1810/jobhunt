@@ -1,0 +1,32 @@
+name: relay-lever
+
+# Lever blocks Render's datacenter IP, so the server itself fetches ZERO Lever jobs (Paytm, Meesho,
+# CRED, Zeta, Fi, ...). GitHub's runners are not blocked, so this fetches the Lever boards here and
+# POSTs them to /admin/ingest. Runs shortly before each matching run (which fires at 9/15/21 IST =
+# 03:30/09:30/15:30 UTC) so the relayed jobs are in the catalog when matching happens.
+#
+# Requires the RUN_TOKEN repo Actions secret (same one scheduled-run uses).
+
+on:
+  schedule:
+    - cron: "20 3,9,15 * * *"   # 10 min before the matching run, so jobs land before matching reads them
+  workflow_dispatch: {}
+
+concurrency:
+  group: relay-lever
+  cancel-in-progress: false
+
+jobs:
+  relay:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps
+        run: pip install -r requirements.txt
+      - name: Fetch Lever boards and POST to /admin/ingest
+        env:
+          RUN_TOKEN: ${{ secrets.RUN_TOKEN }}
+        run: python -m scripts.relay_lever

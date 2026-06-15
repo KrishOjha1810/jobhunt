@@ -144,3 +144,47 @@ def test_api_preferences_endpoint(client, token):
     assert s.status_code == 200
     g = client.get(f"/api/preferences?token={token}").json()
     assert g["prioritize"] == ["ml"] and g["min_salary"] == 20 and g["remote_only"] is True
+
+
+# --- Lever relay ingest endpoint (Lever blocks Render's IP; an external relay POSTs jobs here) ---
+
+def test_admin_ingest_requires_token(client):
+    assert client.post("/admin/ingest", json={"jobs": []}).status_code == 403
+    assert client.post("/admin/ingest?token=wrong", json={"jobs": []}).status_code == 403
+
+
+def test_admin_ingest_adds_lever_jobs_and_rejects_other_sources(client):
+    payload = {"jobs": [
+        {"title": "Backend Engineer", "company": "paytm", "location": "Bangalore",
+         "url": "https://jobs.lever.co/paytm/abc-123", "description": "python backend",
+         "posted_at": "", "source": "lever:paytm"},
+        # a non-lever source must be ignored, so this token-guarded endpoint can't inject arbitrary jobs
+        {"title": "Spammy", "company": "x", "url": "https://evil.example/x",
+         "description": "", "source": "adzuna"},
+    ]}
+    r = client.post("/admin/ingest?token=test-run-token", json=payload)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["received"] == 1 and body["added"] == 1   # only the lever job
+    # idempotent: re-posting the same job adds nothing
+    assert client.post("/admin/ingest?token=test-run-token", json=payload).json()["added"] == 0
+    # the lever job is now browsable in the catalog
+    from app import db
+    urls = {j["url"] for j in db.list_catalog(limit=500)}
+    assert "https://jobs.lever.co/paytm/abc-123" in urls
+    assert "https://evil.example/x" not in urls
+
+
+# --- /admin/user diagnostic (answers 'why isn't <friend> getting matches') ---
+
+def test_admin_user_diagnostic(client, make_user):
+    assert client.get("/admin/user?q=x").status_code == 403   # token required
+    u = make_user(name="Eti Sharma", keywords=["python", "django"])
+    d = client.get("/admin/user?token=test-run-token&q=eti").json()
+    assert d["found"] is True and d["resume_present"] is True and d["keyword_count"] >= 1
+    # a user who never uploaded a resume shows the zero-match root cause
+    u2 = make_user(name="No Resume Person")
+    db_diag = client.get("/admin/user?token=test-run-token&q=No Resume Person").json()
+    assert db_diag["found"] is True and db_diag["resume_present"] is False
+    # privacy: never leak the full email or password hash
+    assert "email" not in d and "password_hash" not in d

@@ -317,6 +317,31 @@ def _workday(entry):
         return []
 
 
+def fetch_lever() -> list:
+    """Fetch ONLY the Lever boards, concurrently. Lever's API blocks Render's datacenter IP (returns
+    nothing to the server), so this is run from a non-blocked host (a GitHub Actions relay) and the
+    results are POSTed back to /admin/ingest. Mirrors fetch()'s default (keeps all roles, no tech
+    filter) so relayed Lever jobs are treated identically to natively-fetched ones."""
+    slugs = list(LEVER)
+    for s in _discovered().get("lever", []):   # safe with no DB (returns {}); folds in discovered boards
+        if s not in slugs:
+            slugs.append(s)
+    jobs = []
+    ex = concurrent.futures.ThreadPoolExecutor(max_workers=_WORKERS)
+    try:
+        futures = [ex.submit(_lever, s) for s in slugs]
+        for f in concurrent.futures.as_completed(futures, timeout=40):
+            try:
+                jobs += f.result() or []
+            except Exception:
+                pass
+    except concurrent.futures.TimeoutError:
+        pass
+    finally:
+        ex.shutdown(wait=False, cancel_futures=True)
+    return jobs
+
+
 def fetch(limit_companies: int = 0) -> list:
     """Fetch all curated boards concurrently. limit_companies>0 caps how many per provider."""
     tasks = []
