@@ -3,6 +3,7 @@ dedupe, and send each a single digest. Fetch-once-match-many keeps API usage fla
 
 Run directly (python -m app.runner) or via cron / the external /run trigger.
 """
+import gc
 import os
 import random
 from datetime import datetime, timedelta
@@ -128,8 +129,8 @@ def _embedding_retrieve(user, pool, have_urls, cats, uyears, emb_map=None, limit
     out = []
     for sim, j, cat in scored[:limit]:
         req = matcher.required_experience(j)
-        if uyears <= 2 and req >= 5:
-            continue  # don't drag in clearly-senior roles for a fresher/junior
+        if matcher.over_leveled(req, uyears):
+            continue  # don't drag in roles materially too senior for the user (gap-based, all levels)
         jj = dict(j)
         sc, matched = matcher.score_job(jj, user["keywords"])
         jj["raw_score"] = sc
@@ -300,6 +301,7 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
         return
     pool = sources.fetch_pool(users)
     # drop anything reported closed so we never match or re-list a dead posting
+    blocked = None
     try:
         blocked = db.closed_urls()
         if blocked:
@@ -311,7 +313,7 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
     for j in pool:
         j["category"] = matcher.categorize(j)
     try:
-        db.upsert_jobs(pool)
+        db.upsert_jobs(pool, blocked=blocked)  # reuse the set we already built (don't re-query it)
     except Exception as e:
         print(f"[runner] catalog upsert failed: {e}")
     # Keep the browse catalog fresh + bounded: age out >14d, cap per role, cap total.
@@ -564,6 +566,11 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
         detail.append(d)
     if verbose:
         print(f"[runner] done: sent digests to {sent}/{len(users)} user(s)")
+    # Free the run's largest working sets before the best-effort embedding precompute, so the peak
+    # RSS (which tips this 512MB host into an OOM) drops between phases.
+    pool_emb = None
+    del g_trending, g_collab, g_source_q
+    gc.collect()
     _phase(f"sent:{sent}")
     if only_user_id is not None:
         return  # partial (single-user) run, don't record it as the global last_run

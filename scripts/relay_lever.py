@@ -31,11 +31,35 @@ def main():
     if not jobs:
         print("nothing fetched , Lever may be blocking this host too; not posting.", file=sys.stderr)
         return 1
-    r = requests.post(f"{BASE}/admin/ingest", params={"token": TOKEN},
-                      json={"jobs": jobs}, timeout=120)
-    print(f"ingest HTTP {r.status_code}: {r.text[:300]}")
-    r.raise_for_status()
-    return 0
+    # POST in small batches, NOT one ~880-job blast: a single big body made Render parse+categorize+
+    # upsert everything in one request, which read-timed-out at 120s AND spiked it past its 512MB cap
+    # (the OOM). Small batches bound Render's per-request memory and finish fast. Each batch retries
+    # once on a transient error; we tolerate a few batch failures rather than failing the whole relay.
+    BATCH = 150
+    total_added = 0
+    failures = 0
+    for i in range(0, len(jobs), BATCH):
+        chunk = jobs[i:i + BATCH]
+        ok = False
+        for attempt in (1, 2):
+            try:
+                r = requests.post(f"{BASE}/admin/ingest", params={"token": TOKEN},
+                                  json={"jobs": chunk}, timeout=90)
+                r.raise_for_status()
+                body = r.json()
+                total_added += int(body.get("added", 0))
+                print(f"batch {i // BATCH + 1}: HTTP {r.status_code} added={body.get('added')} "
+                      f"received={body.get('received')}")
+                ok = True
+                break
+            except Exception as e:
+                print(f"batch {i // BATCH + 1} attempt {attempt} failed: {e}", file=sys.stderr)
+        if not ok:
+            failures += 1
+    print(f"done: {total_added} new jobs ingested across {len(jobs)} fetched; {failures} batch(es) failed")
+    # Succeed if MOST batches landed; only fail the workflow if everything broke (so one slow cold
+    # start doesn't redden the run when the bulk of jobs got through).
+    return 1 if failures and total_added == 0 else 0
 
 
 if __name__ == "__main__":

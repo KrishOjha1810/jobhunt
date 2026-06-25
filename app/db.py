@@ -351,11 +351,14 @@ def closed_urls():
         return {r[0] for r in c.execute(select(closed_jobs.c.url)).all()}
 
 
-def upsert_jobs(jobs):
+def upsert_jobs(jobs, blocked=None):
     """Batch-insert new catalog jobs in ONE transaction (1 SELECT + 1 multi-row INSERT) instead of
-    a transaction per job. At 500 jobs this is the difference between ~2 round-trips and ~1000."""
+    a transaction per job. At 500 jobs this is the difference between ~2 round-trips and ~1000.
+    `blocked` (the closed-URL set) can be passed in to avoid re-querying the whole closed_jobs table
+    when the caller already built it this run."""
     rows, seen = [], set()
-    blocked = closed_urls()  # never re-add jobs someone reported closed
+    if blocked is None:
+        blocked = closed_urls()  # never re-add jobs someone reported closed
     for j in jobs:
         url = (j.get("url") or "").strip()
         if not url or url in seen or url in blocked:
@@ -510,8 +513,8 @@ def list_catalog_ranked(user, category=None, q=None, limit=200):
             if not any(t in loc for t in _REMOTE_HINTS) and "remote" not in hay:
                 continue
         req = matcher.required_experience(j)
-        if uyears <= 2 and req >= 5:
-            continue  # seniority hard-drop for freshers/juniors (same as the digest)
+        if matcher.over_leveled(req, uyears):
+            continue  # seniority hard-drop (gap-based, all levels , same rule as the digest)
         sc, matched = matcher.score_job(j, kw)
         j["raw_score"] = sc
         j["matched"] = matched

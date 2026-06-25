@@ -154,6 +154,22 @@ def required_experience(job: dict) -> int:
                title_level(job.get("title", "") or ""))
 
 
+SENIORITY_DROP_GAP = 3  # hard-drop a job that wants >= this many more years than the user has
+
+
+def over_leveled(req_years, user_years) -> bool:
+    """True if a job is materially too senior for the user, so it should be HARD-DROPPED (not just
+    penalized). Generalizes the old 'a fresher shouldn't see Senior roles' rule to EVERY level: a
+    3-yr user shouldn't get flooded with Staff/Principal/Lead either (the prior `uyears<=2 and req>=5`
+    check left mid-level users unprotected). A small gap (a stretch role) is kept and softly
+    penalized by the score instead. With gap=3: 0yr drops 3+, 2yr drops 5+ (=old behaviour), 3yr
+    drops 6+ (lead/staff), 5yr drops 8+ (staff/principal)."""
+    try:
+        return (int(req_years) - int(user_years)) >= SENIORITY_DROP_GAP
+    except (TypeError, ValueError):
+        return False
+
+
 # Ordered most-specific -> most-generic (first match wins). Title is weighted: a term in the title
 # decides the tag even if a more-generic term appears in the body. Keep tags granular (LeetCode-style)
 # so "Other" is rare.
@@ -500,9 +516,10 @@ def rank_matches(jobs: list, keywords: list, locations: list, min_score: int,
         # while the floor still kills incidental one-keyword noise for users with no role filter.
         if in_cat or (score >= min_score and (len(matched) >= 2 or title_bonus >= 1)):
             req = required_experience(job)  # stated years OR title level (Senior/Staff/Lead/...)
-            # Drop clearly-senior roles for fresher/junior users (<=2 yrs): a Senior/Staff/Lead/5+yr
-            # role is noise for them. This is the "I set 0-2 but get Senior Data Engineer" complaint.
-            if user_years <= 2 and req >= 5:
+            # Hard-drop roles materially too senior for the user (gap-based, applies at ALL levels):
+            # the "I set 0-2 but get Senior Data Engineer" complaint AND the mid-level "I keep getting
+            # Staff/Principal" one. Stretch roles (small gap) survive and get the score penalty below.
+            if over_leveled(req, user_years):
                 continue
             job = dict(job)
             yrs = req

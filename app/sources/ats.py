@@ -23,6 +23,9 @@ import requests
 _FULL_CONTENT = os.environ.get("ATS_FULL_CONTENT", "0") == "1"
 _WORKERS = int(os.environ.get("ATS_WORKERS", "") or "20")
 _DESC_CHARS = int(os.environ.get("ATS_DESC_CHARS", "") or "2000")
+# Wall-clock budget for the concurrent board fetch. Slow providers (Workday) need a little headroom;
+# stragglers past this are abandoned so ATS never stalls the whole run. Env-tunable.
+_FETCH_BUDGET = int(os.environ.get("ATS_FETCH_BUDGET", "") or "30")
 # Send a real browser User-Agent. Some board APIs (notably Lever) return 0/403 to the bare
 # python-requests UA from a datacenter IP (Render), which silently zeroed out all Lever companies in
 # production even though they work from a normal client.
@@ -356,18 +359,22 @@ def fetch(limit_companies: int = 0) -> list:
     lv = list(lv) + [s for s in disc.get("lever", []) if s not in lv]
     ab = list(ab) + [s for s in disc.get("ashby", []) if s not in ab]
     sr = list(sr) + [s for s in disc.get("smartrecruiters", []) if s not in sr]
-    tasks += [(_greenhouse, s) for s in gh]
-    tasks += [(_lever, s) for s in lv]
-    tasks += [(_ashby, s) for s in ab]
-    tasks += [(_smartrecruiters, s) for s in sr]
+    # Submit the SLOW, few providers FIRST (Workday POSTs + SmartRecruiters), then the many fast ones.
+    # Otherwise WD/SR sit at the back of a _WORKERS-wide queue behind ~160 fast Greenhouse/Ashby tasks
+    # and the as_completed budget expires before a worker even starts them , which is why they were
+    # silently dropping to 0 in the catalog. (Lever returns 0 from Render's IP anyway; it's relayed.)
     tasks += [(_workday, e) for e in wd]
+    tasks += [(_smartrecruiters, s) for s in sr]
+    tasks += [(_greenhouse, s) for s in gh]
+    tasks += [(_ashby, s) for s in ab]
+    tasks += [(_lever, s) for s in lv]
     jobs = []
     # Don't use `with` here: its shutdown(wait=True) on exit blocks on in-flight requests past our
     # budget. We collect whatever finished within the timeout, then abandon stragglers immediately.
     ex = concurrent.futures.ThreadPoolExecutor(max_workers=_WORKERS)
     try:
         futures = [ex.submit(fn, slug) for fn, slug in tasks]
-        for f in concurrent.futures.as_completed(futures, timeout=25):
+        for f in concurrent.futures.as_completed(futures, timeout=_FETCH_BUDGET):
             try:
                 jobs += f.result() or []
             except Exception:

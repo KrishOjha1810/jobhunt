@@ -145,10 +145,39 @@ ATS_CAP = int(_os.environ.get("ATS_CAP", "") or "300")
 ADZUNA_CAP = int(_os.environ.get("ADZUNA_CAP", "") or "60")
 
 
+ATS_PROVIDER_FLOOR = int(_os.environ.get("ATS_PROVIDER_FLOOR", "") or "60")
+
+
 def _ats_capped():
     aj = ats.fetch()
-    aj.sort(key=lambda j: str(j.get("posted_at") or ""), reverse=True)
-    return aj[:ATS_CAP]
+    # Sort newest-first by NORMALIZED age, not by the raw posted_at string: Workday/SmartRecruiters
+    # carry free-text dates ("Posted 30+ Days Ago") that a string sort ranks below every ISO-dated
+    # Greenhouse row, which used to bury them out of the cap. Unknown-age board listings are treated
+    # as fresh (boards expire server-side, so a listing with no clean date is still live).
+    from .. import db as _db
+
+    def _age(j):
+        a = _db.posted_age_days(j.get("posted_at"))
+        return a if a is not None else 0
+    aj.sort(key=_age)
+    if len(aj) <= ATS_CAP:
+        return aj
+    # Guarantee every provider a floor of its freshest jobs so high-volume Greenhouse can't crowd
+    # Workday/SmartRecruiters/Ashby out of the capped slice entirely (the coverage regression).
+    by_prov = {}
+    for j in aj:
+        by_prov.setdefault((j.get("source") or "?").split(":")[0], []).append(j)
+    kept, seen = [], set()
+    for lst in by_prov.values():
+        for j in lst[:ATS_PROVIDER_FLOOR]:
+            kept.append(j)
+            seen.add(id(j))
+    for j in aj:  # fill remaining slots by global freshness
+        if len(kept) >= ATS_CAP:
+            break
+        if id(j) not in seen:
+            kept.append(j)
+    return kept[:ATS_CAP]
 
 
 def _cap_source(jobs: list, prefix: str, cap: int) -> list:

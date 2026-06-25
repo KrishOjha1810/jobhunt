@@ -23,6 +23,30 @@ def test_lead_generation_not_senior():
     assert m.title_level("Lead Gen Associate") <= 2
 
 
+# --- seniority hard-drop generalized to all levels (was only protecting <=2 yr users) ---
+
+def test_over_leveled_gap_based_all_levels():
+    # fresher (0): drops 3+ yr roles, keeps 0-2
+    assert m.over_leveled(3, 0) and not m.over_leveled(2, 0)
+    # 2 yr: old behaviour preserved , drops Senior(5)+, keeps 4
+    assert m.over_leveled(5, 2) and not m.over_leveled(4, 2)
+    # 3 yr (mid): THE FIX , now drops Lead(6)/Staff(8), still keeps Senior(5)
+    assert m.over_leveled(6, 3) and m.over_leveled(8, 3) and not m.over_leveled(5, 3)
+    # 5 yr (senior): drops Staff(8)/Principal(9), keeps a small stretch
+    assert m.over_leveled(8, 5) and not m.over_leveled(7, 5)
+    # bad inputs never crash or drop
+    assert not m.over_leveled(None, 2) and not m.over_leveled(5, None)
+
+
+def test_rank_matches_drops_staff_role_for_mid_user():
+    # a 3-yr user must NOT be matched to a Staff role (req 8), even with strong skill overlap
+    jobs = [{"title": "Staff Software Engineer", "company": "Acme", "location": "Remote India",
+             "description": "python backend distributed systems, 8+ years required",
+             "url": "https://x/staff", "posted_at": ""}]
+    out = m.rank_matches(jobs, ["python", "backend", "distributed"], ["india"], 1, 3, None)
+    assert out == []  # hard-dropped as over-leveled
+
+
 def test_real_lead_is_senior():
     assert m.title_level("Tech Lead") >= 5
     assert m.title_level("Lead Engineer") >= 5
