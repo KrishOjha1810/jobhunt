@@ -78,6 +78,9 @@
     .ra-ghost { background:transparent; border:1px solid var(--ok-border); color:var(--ok-ink); }
     .foot { text-align:center; color:var(--muted); font-size:.76rem; margin-top:22px; line-height:1.5; }
     .foot a { color:var(--accent); font-weight:600; text-decoration:none; }
+    .wchip { font-size:.78rem; font-weight:600; color:var(--accent); background:var(--accent-soft);
+             border-radius:999px; padding:5px 11px; }
+    .browsefirst:hover { border-color:var(--accent); }
 
     @media (max-width:480px) { .card { padding:30px 22px; } h1 { font-size:1.4rem; } }
   </style>
@@ -98,9 +101,24 @@
     <div class="card">
       <div class="brand">
         <div class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/><circle cx="11" cy="11" r="2.5"/></svg></div>
-        <h1>Get matched jobs</h1>
+        <h1>Your personal job scout</h1>
       </div>
-      <p class="sub">Upload your resume once. We scan job boards daily and send only the matches that fit you, with apply links, to your inbox or Telegram.</p>
+      <p class="sub">Upload your resume once and get a daily shortlist of jobs that actually fit you, India-first, delivered to your inbox or Telegram. No recruiter spam, no $50/month, no auto-applying to junk.</p>
+
+      <!-- why us: the one-line differentiators a first-time visitor needs -->
+      <div class="whyus" style="display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px">
+        <span class="wchip">✓ Matched to your resume, not keyword alerts</span>
+        <span class="wchip">✓ India + remote roles, dev and non-dev</span>
+        <span class="wchip">✓ One clean daily digest, free</span>
+      </div>
+
+      <!-- let first-timers skim before committing (Senjuu: "let me skim through your site first") -->
+      <a class="browsefirst" href="/jobs" style="display:flex;align-items:center;gap:10px;text-decoration:none;
+         background:var(--field);border:1px solid var(--field-border);border-radius:12px;padding:11px 14px;margin:0 0 18px;color:var(--ink)">
+        <span style="font-size:1.1rem">⌕</span>
+        <span style="font-size:.88rem">New here? <b>Browse live jobs first</b> , no signup needed. Subscribe when you're ready.</span>
+        <span style="margin-left:auto;color:var(--accent);font-weight:700">→</span>
+      </a>
 
       <div id="subEditBanner" style="display:none;background:var(--accent-soft);border:1px solid var(--accent);border-radius:12px;padding:11px 14px;margin:0 0 16px;font-size:.86rem;color:var(--ink)">
         You're already subscribed. Saving here <b>replaces</b> your current setup (last one wins). Your resume stays unless you upload a new one. All resumes you upload are used for matching.
@@ -183,6 +201,9 @@
         <small>We read only your public repos (languages, projects) to recommend jobs that fit what you actually build. No login needed.</small>
 
         <button type="submit" class="submit">Start getting matches</button>
+        <div style="margin-top:14px;background:var(--accent-soft);border:1px solid var(--accent);border-radius:12px;padding:11px 14px;font-size:.84rem;color:var(--ink)">
+          <b>Optional, but it sharpens every match:</b> after you subscribe, open <a href="/preferences" style="color:var(--accent);font-weight:700">Tune my matches</a> to add the exact roles you want (you can know Java but only want Data roles), a minimum salary, and anything to never show you. The more we know, the better the shortlist.
+        </div>
       </form>
 
       <div id="result"></div>
