@@ -134,6 +134,17 @@ meta = Table(
 
 
 def init_db():
+    """Create tables + run migrations, but NEVER crash the app if the DB is briefly unreachable
+    (e.g. Neon over its free compute quota, or a cold start). Tables already exist in prod and
+    create_all/migrations are idempotent, so we just log and let the app boot , DB-backed routes
+    recover automatically once the DB is back, instead of Render crash-looping the whole service."""
+    try:
+        _init_db_impl()
+    except Exception as e:
+        print(f"[init_db] DB unavailable at boot, skipping schema init (will retry next boot): {e}")
+
+
+def _init_db_impl():
     metadata.create_all(engine)
     # lightweight migrations for older DBs (add missing user columns; works on sqlite + postgres)
     insp = inspect(engine)

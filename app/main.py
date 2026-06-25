@@ -264,11 +264,14 @@ def _on_startup():
     # unseen jobs (is_seen). For a deliberate one-off blast, set FORCE_BROADCAST=1 for one boot,
     # or hit /run?force=1&token=RUN_TOKEN.
     import os as _os
-    if _os.environ.get("FORCE_BROADCAST", "") == "1" and db.get_meta("force_done_version") != APP_VERSION:
-        db.set_meta("force_done_version", APP_VERSION)
-        _trigger_run(force=True)
-    else:
-        _trigger_run()  # no-op unless a normal run is overdue (and it respects is_seen)
+    try:
+        if _os.environ.get("FORCE_BROADCAST", "") == "1" and db.get_meta("force_done_version") != APP_VERSION:
+            db.set_meta("force_done_version", APP_VERSION)
+            _trigger_run(force=True)
+        else:
+            _trigger_run()  # no-op unless a normal run is overdue (and it respects is_seen)
+    except Exception as e:
+        print(f"[startup] boot run trigger skipped (DB unavailable?): {e}")
     if not ENABLE_SCHEDULER:
         return
     try:
@@ -1788,9 +1791,11 @@ async def api_resume_export_original(request: Request, token: str = ""):
 
 @app.get("/healthz")
 def healthz():
-    # The keep-awake ping doubles as the daily run trigger: this no-ops unless a run is overdue.
-    started = _trigger_run()
-    return {"ok": True, "run_started": started, "last_run_age_h": round(_last_run_age_hours(), 1)}
+    # PURE liveness , deliberately NO database access. Render pings /healthz constantly to keep the
+    # instance healthy; when this used to query Postgres (get_meta) it kept Neon awake 24/7 and burned
+    # its free compute quota, which took the whole app down. Runs are triggered by the GitHub
+    # scheduled-run cron (/run?force=1), so the healthcheck no longer needs to touch the DB.
+    return {"ok": True}
 
 
 @app.get("/status")
@@ -1813,7 +1818,12 @@ def health():
     run staleness, run duration, source coverage, per-user match coverage). A scheduled GitHub Action
     polls this and FAILS its job on a problem , which auto-emails the owner (the same mechanism that
     surfaced the dead cron). Returns HTTP 200 on ok/warn, 503 on fail so curl --fail reddens the job."""
-    rep = db.health_report()
+    try:
+        rep = db.health_report()
+    except Exception as e:
+        # a DB outage (e.g. Neon over compute quota) is itself the most important thing to alert on
+        rep = {"status": "fail", "checks": [{"name": "database", "status": "fail",
+               "detail": f"DB unreachable: {str(e)[:160]}"}]}
     code = 503 if rep.get("status") == "fail" else 200
     return JSONResponse(rep, status_code=code)
 
