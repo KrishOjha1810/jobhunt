@@ -319,7 +319,7 @@ import math as _math
 # brand-new user's ranking ~= the old keyword behaviour; learned/global signals only re-sort within.
 SCORE_WEIGHTS = {"content": 4.2, "pref": 1.4, "seniority": 1.2, "location": 1.0,
                  "recency": 0.5, "collab": 0.7, "trending": 0.5, "semantic": 1.3, "source": 1.0,
-                 "category": 1.5, "prioritize": 1.6}
+                 "category": 1.5, "prioritize": 1.6, "comp": 0.5}
 # Baseline subtracted from the logistic input so a SHALLOW match (one common keyword like "java")
 # scores low, not ~50%+. Tuned with content=4.2 so 1 skill ~30%, 3 skills ~70%, 5+ skills ~90%.
 SCORE_BIAS = 2.8
@@ -352,6 +352,31 @@ def pref_features(job: dict) -> dict:
     for k in (job.get("matched") or [])[:8]:
         phi["skill:" + k] = 1.0
     return phi
+
+
+def has_salary(job: dict) -> bool:
+    """True if the posting discloses pay (a real salary string, not just a stray symbol)."""
+    s = (job.get("salary") or "").strip()
+    return len(s) >= 3 and any(c.isdigit() for c in s)
+
+
+def freshness_label(job: dict) -> str:
+    """Short human freshness tag for the digest/Browse ('be first to apply' , early applicants get
+    seen). Empty when we can't date it confidently, so we never imply false freshness."""
+    try:
+        from .db import posted_age_days
+        age = posted_age_days(job.get("posted_at"))
+    except Exception:
+        age = None
+    if age is None:
+        return ""
+    if age <= 1:
+        return "🆕 Just posted"
+    if age <= 3:
+        return f"Fresh , {age}d ago"
+    if age <= 7:
+        return "Posted this week"
+    return ""
 
 
 def _recency_unit(job: dict) -> float:
@@ -457,8 +482,12 @@ def blended_score(job: dict, ctx: dict) -> tuple:
     if adj is not None:
         Sq = max(-1.2, min(1.2, Sq + adj * 0.6))  # learned net-action rate moves the prior, doesn't replace it
 
-    # Require REAL skill overlap before the circumstantial bonuses (source/location/category) can lift
-    # the score. Otherwise one common keyword on a company board in India could fake a strong match.
+    # Comp-disclosed bonus (a Wellfound mechanic): a posting that states pay is more applicable and
+    # respects the candidate, so nudge it up as a tiebreak. Small weight , never dominates skills.
+    Cmp = 1.0 if has_salary(job) else 0.0
+
+    # Require REAL skill overlap before the circumstantial bonuses (source/location/category/comp) can
+    # lift the score. Otherwise one common keyword on a company board in India could fake a strong match.
     # Penalties (Adzuna, domain-mismatch) are kept regardless.
     strong_overlap = (n >= 2) or (core >= 1)
     if not strong_overlap:
@@ -468,13 +497,15 @@ def blended_score(job: dict, ctx: dict) -> tuple:
             L = 0.0
         if Cat > 0:
             Cat = 0.0
+        Cmp = 0.0
 
     w = SCORE_WEIGHTS
     contrib = {"content": w["content"] * C, "pref": w["pref"] * Pf, "seniority": w["seniority"] * S,
                "location": w["location"] * L, "recency": w["recency"] * R,
                "collab": w["collab"] * Co, "trending": w["trending"] * Tr,
                "semantic": w["semantic"] * Sem, "source": w["source"] * Sq,
-               "category": w["category"] * Cat, "prioritize": w["prioritize"] * Pri}
+               "category": w["category"] * Cat, "prioritize": w["prioritize"] * Pri,
+               "comp": w["comp"] * Cmp}
     z = sum(contrib.values()) - SCORE_BIAS
     score = int(round(100 / (1 + _math.exp(-max(-30, min(30, z))))))
     score = max(15, min(100, score))
@@ -485,7 +516,7 @@ _CONTRIB_LABEL = {"content": "skills match", "pref": "roles you favour", "senior
                   "location": "location fit", "recency": "freshly posted", "collab": "popular with similar users",
                   "trending": "trending role", "semantic": "matches your resume",
                   "source": "from a company board", "category": "a role you chose",
-                  "prioritize": "a role you want"}
+                  "prioritize": "a role you want", "comp": "salary disclosed"}
 
 
 def blended_reason(job: dict, score: int, contrib: dict) -> str:

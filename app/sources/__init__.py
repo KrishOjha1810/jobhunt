@@ -6,7 +6,7 @@ path kept for tests/compatibility.
 """
 import re as _re
 from . import remotive, remoteok, arbeitnow, adzuna, jsearch, jobicy, himalayas, ats, telegram_channels
-from . import themuse, internships
+from . import themuse, internships, theirstack, jooble
 
 PRIORITY_TERMS = [
     "rust", "solidity", "typescript", "python", "java", "golang", "go",
@@ -85,6 +85,7 @@ _SOURCE_RANK = {
     "greenhouse": 0, "lever": 0, "ashby": 0, "smartrecruiters": 0, "workday": 0,
     "remotive": 1, "remoteok": 1, "arbeitnow": 1, "jobicy": 1, "himalayas": 1,
     "themuse": 1, "internships": 1,  # employer-posted / structured , above the noisier aggregators
+    "theirstack": 1, "jooble": 1,    # licensed aggregators (incl. Naukri via TheirStack)
     "telegram": 2, "jsearch": 2, "adzuna": 3,
 }
 
@@ -222,6 +223,12 @@ def _fetch(terms: list, india_wanted: bool, max_adzuna_terms: int = 3) -> list:
         base = " ".join(terms[:3]) or "software engineer"
         q = (base + " jobs in India") if india_wanted else (base + " remote")
         tasks.append(lambda: jsearch.fetch(q))
+    if jooble.available():  # free licensed aggregator, India coverage (off until JOOBLE_API_KEY set)
+        jq = " ".join(terms[:3]) or "software engineer"
+        tasks.append(lambda: jooble.fetch(jq, "India" if india_wanted else ""))
+    if theirstack.available():  # the only legit Naukri-inclusive source (off until THEIRSTACK_API_KEY)
+        for term in (terms[:2] or [""]):
+            tasks.append(lambda t=term: theirstack.fetch(t))
     jobs = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as ex:
         futures = [ex.submit(t) for t in tasks]

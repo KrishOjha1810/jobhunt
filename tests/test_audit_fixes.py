@@ -38,6 +38,22 @@ def test_over_leveled_gap_based_all_levels():
     assert not m.over_leveled(None, 2) and not m.over_leveled(5, None)
 
 
+def test_comp_disclosed_and_freshness_helpers():
+    assert m.has_salary({"salary": "₹12,00,000 - 18,00,000"})
+    assert not m.has_salary({"salary": ""})
+    assert not m.has_salary({"salary": "competitive"})  # no digits = not disclosed
+    # a salary-disclosed job scores >= an identical one without (comp bonus, gated on real overlap)
+    base = {"title": "Backend Engineer", "company": "Acme", "location": "Remote India",
+            "description": "python backend api", "url": "u", "raw_score": 4,
+            "matched": ["python", "backend", "api"], "core_overlap": 2, "category": "Backend",
+            "req_years": 2, "region": "india"}
+    ctx = {"uyears": 2, "india_user": True}
+    with_sal = dict(base, salary="₹20,00,000")
+    s_no, _ = m.blended_score(dict(base), ctx)
+    s_yes, _ = m.blended_score(with_sal, ctx)
+    assert s_yes >= s_no
+
+
 def test_internship_detection_and_gating():
     intern = {"title": "Product Design Intern", "source": "internships", "description": "", "url": "u1"}
     senior = {"title": "Senior Engineer", "source": "greenhouse:x", "description": "", "url": "u2"}

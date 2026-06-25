@@ -3,6 +3,7 @@ import smtplib
 import urllib.parse
 from email.mime.text import MIMEText
 import requests
+from . import matcher
 from .config import (
     TELEGRAM_BOT_TOKEN, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, EMAIL_FROM, BREVO_API_KEY,
     BASE_URL,
@@ -191,8 +192,13 @@ def format_digest(user: dict, jobs: list) -> str:
         cat = f" [{j.get('category')}]" if j.get("category") else ""
         badge = "⭐ Strong match , " if j.get("verdict") == "strong" else (
             "\U0001F50E Worth a look , " if j.get("verdict") == "maybe" else "")
-        b = [f"\U0001F539 {j.get('title','')} @ {j.get('company','')}{cat}",
-             f"   {j.get('location','')} | match {j.get('score','')}"]
+        line2 = f"   {j.get('location','')} | match {j.get('score','')}"
+        if j.get("salary"):
+            line2 += f" | {j['salary']}"
+        fresh = matcher.freshness_label(j)
+        if fresh:
+            line2 += f" | {fresh}"
+        b = [f"\U0001F539 {j.get('title','')} @ {j.get('company','')}{cat}", line2]
         if j.get("why_fit"):
             b.append(f"   {badge}{j['why_fit']}")
         elif j.get("reason"):
