@@ -908,6 +908,30 @@ def api_gamify(request: Request, token: str = "", year: int = 0, month: int = 0)
             "calendar": db.applied_calendar(user["id"], y, m), "year": y, "month": m}
 
 
+@app.get("/api/jobs/{job_id}/jd")
+def api_job_jd(request: Request, job_id: int, token: str = ""):
+    """Full job description for a tracked job, shown IN-APP (read the JD on the site before deciding to
+    apply). Backfills the JD on demand if the board listing shipped empty, and logs the read as a
+    'clicked' engagement signal (reading the JD = real interest)."""
+    user = _resolve_user(request, token)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    job = db.get_job_log(job_id, user["id"])
+    if not job:
+        return JSONResponse({"error": "job not found"}, status_code=404)
+    desc = _job_jd(job)
+    if job.get("url"):
+        try:
+            db.log_event(user["id"], job.get("url"), "clicked",
+                         category=job.get("category"), source="tracker")
+        except Exception:
+            pass
+    return {"ok": True, "title": job.get("title"), "company": job.get("company"),
+            "url": job.get("url"), "category": job.get("category"),
+            "location": job.get("region") or job.get("location") or "",
+            "description": desc or "", "status": job.get("status") or "saved"}
+
+
 @app.post("/api/jobs/{job_id}")
 def api_update_job(request: Request, job_id: int, token: str = "", applied: int = None,
                    responded: int = None, resume_used: str = None, notes: str = None,

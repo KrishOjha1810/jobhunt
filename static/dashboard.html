@@ -82,6 +82,9 @@
     .applylink{color:var(--accent-ink);background:var(--accent)}
     .applylink:hover{background:var(--accent-2);transform:translateY(-1px)}
     .applylink svg{width:13px;height:13px}
+    .jdlink{background:none;border:0;padding:0;margin:0;font:inherit;font-weight:600;color:var(--ink);text-align:left;cursor:pointer;text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:2px}
+    .jdlink:hover{color:var(--accent);text-decoration-color:var(--accent)}
+    .jdtext{white-space:pre-wrap;line-height:1.6;max-height:46vh;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:14px;font-size:.9rem;color:var(--ink)}
     .tailorbtn{border:1px solid var(--field-border);background:var(--field);color:var(--accent)}
     .tailorbtn:hover{border-color:var(--accent);background:var(--accent-soft)}
     .statussel{padding:6px 24px 6px 11px;border-radius:var(--r-pill);border:1px solid var(--field-border);font-size:var(--fs-xs);font-weight:600;cursor:pointer;width:auto}
@@ -498,11 +501,11 @@
         <tr>
           <td class="company" data-label="Company">${esc(j.company)}</td>
           <td data-label="Role"><span class="tag" style="${tagStyle(j.category)}">${esc(j.category || 'Other')}</span></td>
-          <td class="title" data-label="Job">${esc(j.title)}</td>
+          <td class="title" data-label="Job"><button class="jdlink" onclick="openJD(${j.id})" title="Read the full job description here">${esc(j.title)}</button></td>
           <td class="date" data-label="Date">${esc((j.sent_at||'').slice(0,10))}</td>
           <td data-label="Match">${j.score ? `<span class="score">${esc(j.score)}</span>` : ''}</td>
           <td data-label="Apply & status"><div class="actions">
-            ${safeUrl(j.url)?`<a class="applylink" href="${esc(safeUrl(j.url))}" target="_blank" rel="noopener" onclick="logClick('${esc(safeUrl(j.url))}','${esc(j.category||'')}')">Apply <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8"/></svg></a>`:''}
+            <button class="applylink" onclick="openJD(${j.id})">View JD <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8"/></svg></button>
             <select class="statussel" style="${statusStyle(j.status)}" onchange="updStatus(${j.id}, this)">${statusOpts(j.status).map(o=>`<option value="${o.v}" ${ (j.status||'saved')===o.v ? 'selected':''}>${o.label}</option>`).join('')}</select>
             <button class="tailorbtn ai-more" onclick="aiMenu(${j.id},'${esc(safeUrl(j.url))}','${esc(j.category||'')}')" title="Tailor resume, outreach, interview prep, feedback...">⋯</button>
           </div></td>
@@ -581,6 +584,67 @@
       b.innerHTML = '<div style="display:flex;flex-direction:column;gap:8px">' + opts.map((o,i)=>
         `<button class="aiopt" data-i="${i}"><b>${o[0]}</b><div style="color:var(--muted);font-size:.8rem">${o[1]}</div></button>`).join('') + '</div>';
       b.querySelectorAll('.aiopt').forEach(btn=>btn.onclick=()=>opts[+btn.dataset.i][2](id));
+    }
+
+    // Set a job's status from anywhere (modal or table) and keep the table/counts/streak in sync.
+    async function setStatusVal(id, value){
+      await upd(id, 'status', value);           // upd() also updates the local all[] row
+      updateStatusCounts(); render(); loadGamify();
+    }
+
+    // Read the JD ON THE SITE, then ask "did you apply?" and reveal tracking , the requested flow.
+    async function openJD(id){
+      const j = all.find(x => x.id === id) || {};
+      tov.classList.add('show');
+      document.getElementById('ttitle').textContent = j.title || 'Job description';
+      const body = document.getElementById('tbody');
+      body.innerHTML = '<div class="sub">Loading the full description…</div>';
+      let d = {};
+      try {
+        const r = await fetch(`/api/jobs/${id}/jd?token=${encodeURIComponent(token)}`);
+        d = await r.json();
+      } catch (e) {}
+      if (!d || !d.ok) { body.innerHTML = '<div class="err">Could not load the description.</div>'; return; }
+      const url = safeUrl(d.url);
+      const meta = [d.company, d.location, j.score ? ('match ' + j.score) : ''].filter(Boolean).map(esc).join(' · ');
+      const jd = (d.description || '').trim();
+      body.innerHTML = `
+        <div style="color:var(--muted);font-size:.85rem;margin:0 0 12px">${meta}</div>
+        <div class="jdtext">${jd ? esc(jd) : 'No description text available for this posting , open it on the company site to read it.'}</div>
+        <div id="jdApplyRow" style="margin-top:16px;border-top:1px solid var(--line);padding-top:14px"></div>`;
+      renderApplyTrack(id, url, d.category || j.category || '', d.status || j.status || 'saved');
+    }
+
+    function renderApplyTrack(id, url, cat, status){
+      const row = document.getElementById('jdApplyRow');
+      if (!row) return;
+      const isApplied = status === 'applied' || status === 'rejected';
+      let html = '';
+      if (url) {
+        html += `<a class="applylink" id="jdApplyBtn" href="${esc(url)}" target="_blank" rel="noopener" style="text-decoration:none">Apply on company site <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8"/></svg></a>`;
+      }
+      if (!isApplied) {
+        html += `<div style="margin-top:14px;font-weight:600">Did you apply?</div>
+          <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+            <button class="applylink" id="jdYes" style="border:0">✓ Yes, I applied , track it</button>
+            <button class="tailorbtn" id="jdNo" style="border:1px solid var(--field-border);background:transparent">Not yet</button>
+          </div>`;
+      } else {
+        html += `<div style="margin-top:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <span style="color:var(--c-applied,#16a34a);font-weight:700">✓ Tracked as Applied</span>
+          <span class="sub" style="margin:0">Update status:</span>
+          <select class="statussel" id="jdStatus" style="${statusStyle(status)}">${statusOpts('applied').map(o=>`<option value="${o.v}" ${status===o.v?'selected':''}>${o.label}</option>`).join('')}</select>
+        </div>`;
+      }
+      row.innerHTML = html;
+      const applyBtn = document.getElementById('jdApplyBtn');
+      if (applyBtn) applyBtn.onclick = () => logClick(url, cat);  // count the click-through
+      const yes = document.getElementById('jdYes');
+      if (yes) yes.onclick = async () => { await setStatusVal(id, 'applied'); renderApplyTrack(id, url, cat, 'applied'); };
+      const no = document.getElementById('jdNo');
+      if (no) no.onclick = () => tov.classList.remove('show');
+      const sel = document.getElementById('jdStatus');
+      if (sel) sel.onchange = async () => { sel.setAttribute('style', statusStyle(sel.value)); await setStatusVal(id, sel.value); };
     }
 
     function wireChips(groupId, attr, apply) {

@@ -38,6 +38,27 @@ def test_over_leveled_gap_based_all_levels():
     assert not m.over_leveled(None, 2) and not m.over_leveled(5, None)
 
 
+def test_job_jd_endpoint_shows_description_and_logs_read(client, make_user):
+    from app import db
+    u = make_user(name="JD Reader", keywords=["python"])
+    tok = u["dash_token"]
+    job = {"url": "https://jobs.lever.co/acme/jd-1", "title": "Backend Engineer", "company": "Acme",
+           "location": "Remote India", "category": "Backend", "source": "lever:acme",
+           "description": "Build Python APIs. 2+ years experience."}
+    db.upsert_jobs([job])              # seed catalog description so the endpoint returns it (no network)
+    db.log_job(u["id"], job)
+    jid = db.list_jobs(u["id"])[0]["id"]
+    assert client.get(f"/api/jobs/{jid}/jd").status_code == 401      # token required
+    r = client.get(f"/api/jobs/{jid}/jd?token={tok}")
+    assert r.status_code == 200
+    d = r.json()
+    assert d["ok"] and d["title"] == "Backend Engineer" and "Python" in d["description"]
+    # reading the JD on-site is logged as a 'clicked' engagement signal
+    diag = client.get("/admin/user?token=test-run-token&q=JD Reader").json()
+    assert diag["events_last_30d"].get("clicked", 0) >= 1
+    assert client.get(f"/api/jobs/999999/jd?token={tok}").status_code == 404
+
+
 def test_comp_disclosed_and_freshness_helpers():
     assert m.has_salary({"salary": "₹12,00,000 - 18,00,000"})
     assert not m.has_salary({"salary": ""})
