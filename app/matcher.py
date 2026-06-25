@@ -523,7 +523,7 @@ def rank_matches(jobs: list, keywords: list, locations: list, min_score: int,
         score, matched = score_job(job, keywords)
         title_l = (job.get("title", "") or "").lower()
         title_bonus = sum(1 for k in keywords if _matches(title_l, k))
-        cat = categorize(job)
+        cat = job.get("category") or categorize(job)  # pool is pre-categorized once; don't redo it per user
         in_cat = bool(cats_set) and cat in cats_set
         # Relevance = real keyword overlap (>=2 or a title-role hit) OR the job is in a role the user
         # explicitly chose. The latter keeps role-relevant jobs the old overlap floor was dropping,
