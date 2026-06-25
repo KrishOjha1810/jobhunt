@@ -1363,6 +1363,95 @@ def global_stats():
     }
 
 
+def health_report():
+    """Self-monitoring: grade the live metrics into ok/warn/fail checks so we (and a scheduled
+    GitHub Action) can SEE degradation instead of finding out from a user. Each check is
+    {name, status, detail}; overall status is the worst check. Designed to be cheap (reuses
+    global_stats + the last_run_detail meta) and non-sensitive (safe to expose at /health)."""
+    import json as _json
+    s = global_stats()
+    checks = []
+
+    def add(name, status, detail):
+        checks.append({"name": name, "status": status, "detail": detail})
+
+    # 1) memory headroom vs the 512MB Render cap (the OOM we just hit)
+    try:
+        rss = int(s.get("peak_rss_mb") or 0)
+    except (TypeError, ValueError):
+        rss = 0
+    if rss >= 480:
+        add("memory", "fail", f"peak_rss {rss}MB , at/over the 512MB cap (OOM risk)")
+    elif rss >= 430:
+        add("memory", "warn", f"peak_rss {rss}MB , thin headroom under 512MB")
+    else:
+        add("memory", "ok", f"peak_rss {rss}MB")
+
+    # 2) is the scheduled run still firing? (the dead-cron failure mode)
+    last = get_meta("last_run")
+    age_h = None
+    if last:
+        try:
+            age_h = (datetime.utcnow() - datetime.strptime(last, "%Y-%m-%d %H:%M UTC")).total_seconds() / 3600
+        except Exception:
+            age_h = None
+    if age_h is None:
+        add("runs", "warn", "no last_run recorded yet")
+    elif age_h > 13:
+        add("runs", "fail", f"last run {age_h:.1f}h ago , scheduled runs may be dead (cron/keep-awake)")
+    elif age_h > 8:
+        add("runs", "warn", f"last run {age_h:.1f}h ago")
+    else:
+        add("runs", "ok", f"last run {age_h:.1f}h ago")
+
+    # 3) run duration vs the wake window
+    try:
+        secs = int(s.get("last_run_secs") or 0)
+    except (TypeError, ValueError):
+        secs = 0
+    if secs >= 280:
+        add("run_duration", "fail", f"{secs}s , risks exceeding the wake window")
+    elif secs >= 230:
+        add("run_duration", "warn", f"{secs}s , creeping up")
+    else:
+        add("run_duration", "ok", f"{secs}s")
+
+    # 4) source coverage , core providers must not be zero, and the mix shouldn't collapse to one
+    srcs = s.get("catalog_sources") or {}
+    total = sum(srcs.values()) or 1
+    missing = [p for p in ("greenhouse", "lever", "adzuna") if srcs.get(p, 0) == 0]
+    top_share = (max(srcs.values()) / total) if srcs else 1.0
+    if not srcs:
+        add("sources", "fail", "catalog is empty")
+    elif missing:
+        add("sources", "warn", f"core providers missing: {', '.join(missing)}")
+    elif top_share > 0.6:
+        add("sources", "warn", f"one source is {top_share:.0%} of the catalog (low diversity)")
+    else:
+        add("sources", "ok", f"{len(srcs)} sources, top {top_share:.0%}")
+
+    # 5) per-user coverage , are subscribed users actually getting matches?
+    try:
+        detail = _json.loads(get_meta("last_run_detail") or "[]")
+    except Exception:
+        detail = []
+    subs = [d for d in detail if (d.get("kw") or 0) > 0]  # subscribers (have a resume/keywords)
+    if subs:
+        served = sum(1 for d in subs if (d.get("matched") or 0) >= 3)
+        frac = served / len(subs)
+        msg = f"{served}/{len(subs)} subscribers got >=3 matches"
+        add("match_coverage", "ok" if frac >= 0.7 else ("warn" if frac >= 0.4 else "fail"), msg)
+    else:
+        add("match_coverage", "warn", "no subscribers with a resume in the last run")
+
+    order = {"ok": 0, "warn": 1, "fail": 2}
+    overall = max((c["status"] for c in checks), key=lambda st: order[st], default="ok")
+    return {"status": overall, "checks": checks,
+            "metrics": {"peak_rss_mb": rss, "last_run": last, "last_run_age_h": age_h,
+                        "last_run_secs": secs, "catalog_sources": srcs,
+                        "active_users": s.get("active_users"), "subscribed_users": s.get("subscribed_users")}}
+
+
 # ---- auth ----
 
 def hash_password(pw):

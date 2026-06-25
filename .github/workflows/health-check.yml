@@ -1,0 +1,33 @@
+name: health-check
+
+# Self-monitoring. Polls /health (graded ok/warn/fail checks over memory, run-staleness, run-duration,
+# source coverage, and per-user match coverage). /health returns HTTP 503 when any check FAILS, so
+# `curl --fail` reddens this job , and GitHub emails the repo owner on a failed run (the same path
+# that surfaced the dead-cron + relay failures). Warnings keep the job green but are printed in the log.
+#
+# This is the "we'll know ourselves when something degrades" system: no new notification infra, the
+# alert is the workflow-failure email you already get.
+
+on:
+  schedule:
+    - cron: "0 4,16 * * *"   # ~30 min after the 03:30 + 15:30 UTC matching runs, twice a day
+  workflow_dispatch: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Poll /health
+        run: |
+          echo "Fetching health report..."
+          body=$(curl -sS --max-time 60 "https://jobhunt-8i1m.onrender.com/health" || true)
+          echo "$body" | python3 -m json.tool || echo "$body"
+          # surface warnings prominently (job stays green, but they're visible in the log)
+          echo "$body" | grep -o '"status": *"warn"' && echo "::warning::health has WARN checks , review /health" || true
+          # fail (and email the owner) only on a hard FAIL , re-fetch with --fail to catch the 503
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 60 "https://jobhunt-8i1m.onrender.com/health")
+          echo "HTTP $code"
+          if [ "$code" = "503" ]; then
+            echo "::error::health-check FAILED , one or more checks are in FAIL state. See /health."
+            exit 1
+          fi

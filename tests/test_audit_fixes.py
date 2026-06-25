@@ -38,6 +38,17 @@ def test_over_leveled_gap_based_all_levels():
     assert not m.over_leveled(None, 2) and not m.over_leveled(5, None)
 
 
+def test_health_endpoint_grades_metrics(client):
+    r = client.get("/health")
+    assert r.status_code in (200, 503)
+    body = r.json()
+    assert body["status"] in ("ok", "warn", "fail")
+    names = {c["name"] for c in body["checks"]}
+    assert {"memory", "runs", "sources", "match_coverage"} <= names
+    for c in body["checks"]:
+        assert c["status"] in ("ok", "warn", "fail")
+
+
 def test_rank_matches_drops_staff_role_for_mid_user():
     # a 3-yr user must NOT be matched to a Staff role (req 8), even with strong skill overlap
     jobs = [{"title": "Staff Software Engineer", "company": "Acme", "location": "Remote India",

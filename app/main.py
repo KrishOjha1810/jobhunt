@@ -1783,6 +1783,17 @@ def status():
     return s
 
 
+@app.get("/health")
+def health():
+    """Self-monitoring: graded ok/warn/fail checks over the live metrics (memory vs the 512MB cap,
+    run staleness, run duration, source coverage, per-user match coverage). A scheduled GitHub Action
+    polls this and FAILS its job on a problem , which auto-emails the owner (the same mechanism that
+    surfaced the dead cron). Returns HTTP 200 on ok/warn, 503 on fail so curl --fail reddens the job."""
+    rep = db.health_report()
+    code = 503 if rep.get("status") == "fail" else 200
+    return JSONResponse(rep, status_code=code)
+
+
 @app.get("/diag")
 def diag():
     """Non-sensitive per-user breakdown of the last run (ids + counts only) for debugging coverage:
