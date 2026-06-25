@@ -19,10 +19,13 @@ _TIME = re.compile(r'<time[^>]+datetime="([^"]+)"')
 _TAG = re.compile(r"<[^>]+>")
 
 
-# Public job channels Krish provided (dev / fullstack / blockchain / fresher-internship centric).
-# Override/extend with the TELEGRAM_JOB_CHANNELS env var (comma-separated usernames).
-DEFAULT_CHANNELS = ("internfreak, fresherearth, web3hiring, jobs_and_internships_updates, "
-                    "offcampusjobs4u, jobs_sql, AiIndiaJobs, fresheroffcampus, freshershunt")
+# Public job/internship channels (verified live & posting in 2026). Mix of tech AND non-dev/fresher
+# channels , fresherjobsadda + jobsinternshipswale carry IT & Non-IT (design/marketing/finance/ops)
+# roles, which our non-dev users need (no large *dedicated* design Telegram channel exists in India,
+# so we lean on these mixed feeds + per-user role filtering). Override via TELEGRAM_JOB_CHANNELS.
+DEFAULT_CHANNELS = ("internfreak, fresherjobsadda, jobsandinternshipsupdates, dot_aware, "
+                    "offcampusjobs4u, fresheroffcampus, jobsinternshipswale, web3hiring, "
+                    "freshershunt, AiIndiaJobs, fresherearth, jobs_sql")
 
 
 def channels():

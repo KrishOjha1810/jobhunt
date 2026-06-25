@@ -38,6 +38,19 @@ def test_over_leveled_gap_based_all_levels():
     assert not m.over_leveled(None, 2) and not m.over_leveled(5, None)
 
 
+def test_internship_detection_and_gating():
+    intern = {"title": "Product Design Intern", "source": "internships", "description": "", "url": "u1"}
+    senior = {"title": "Senior Engineer", "source": "greenhouse:x", "description": "", "url": "u2"}
+    assert m.is_internship(intern) and not m.is_internship(senior)
+    # "internal"/"international" must NOT be misread as an internship
+    assert not m.is_internship({"title": "Internal Tools Engineer", "source": "x", "url": "u3"})
+    # early-career user keeps the internship; an experienced user does not
+    intern_job = {"title": "Data Analyst Intern", "company": "Acme", "location": "Remote India",
+                  "description": "excel sql", "url": "https://x/intern", "posted_at": ""}
+    assert m.rank_matches([intern_job], ["excel", "sql"], ["india"], 1, 1, None)  # 1-yr user: kept
+    assert m.rank_matches([intern_job], ["excel", "sql"], ["india"], 1, 8, None) == []  # 8-yr: dropped
+
+
 def test_health_endpoint_grades_metrics(client):
     r = client.get("/health")
     assert r.status_code in (200, 503)

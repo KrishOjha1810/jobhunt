@@ -6,6 +6,7 @@ path kept for tests/compatibility.
 """
 import re as _re
 from . import remotive, remoteok, arbeitnow, adzuna, jsearch, jobicy, himalayas, ats, telegram_channels
+from . import themuse, internships
 
 PRIORITY_TERMS = [
     "rust", "solidity", "typescript", "python", "java", "golang", "go",
@@ -83,6 +84,7 @@ def _canon_url(u: str) -> str:
 _SOURCE_RANK = {
     "greenhouse": 0, "lever": 0, "ashby": 0, "smartrecruiters": 0, "workday": 0,
     "remotive": 1, "remoteok": 1, "arbeitnow": 1, "jobicy": 1, "himalayas": 1,
+    "themuse": 1, "internships": 1,  # employer-posted / structured , above the noisier aggregators
     "telegram": 2, "jsearch": 2, "adzuna": 3,
 }
 
@@ -204,6 +206,8 @@ def _fetch(terms: list, india_wanted: bool, max_adzuna_terms: int = 3) -> list:
     # arbeitnow dropped , it returns almost exclusively Germany-based roles (low value for our users)
     tasks.append(lambda: jobicy.fetch(""))
     tasks.append(lambda: himalayas.fetch(""))
+    tasks.append(lambda: themuse.fetch(""))     # keyless; India city-level + non-dev/early-career
+    tasks.append(lambda: internships.fetch(""))  # community GitHub internship JSON (India/Remote)
     tasks.append(_ats_capped)  # Greenhouse/Lever/Ashby niche roles (already concurrent internally)
     if telegram_channels.channels():  # public Telegram job channels (set TELEGRAM_JOB_CHANNELS)
         tasks.append(lambda: telegram_channels.fetch(""))

@@ -515,6 +515,8 @@ def list_catalog_ranked(user, category=None, q=None, limit=200):
         req = matcher.required_experience(j)
         if matcher.over_leveled(req, uyears):
             continue  # seniority hard-drop (gap-based, all levels , same rule as the digest)
+        if uyears > matcher.INTERN_MAX_YEARS and matcher.is_internship(j):
+            continue  # internships only for early-career users
         sc, matched = matcher.score_job(j, kw)
         j["raw_score"] = sc
         j["matched"] = matched

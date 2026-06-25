@@ -131,6 +131,8 @@ def _embedding_retrieve(user, pool, have_urls, cats, uyears, emb_map=None, limit
         req = matcher.required_experience(j)
         if matcher.over_leveled(req, uyears):
             continue  # don't drag in roles materially too senior for the user (gap-based, all levels)
+        if uyears > matcher.INTERN_MAX_YEARS and matcher.is_internship(j):
+            continue  # internships only for early-career users
         jj = dict(j)
         sc, matched = matcher.score_job(jj, user["keywords"])
         jj["raw_score"] = sc

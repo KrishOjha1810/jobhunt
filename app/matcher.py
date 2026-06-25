@@ -154,6 +154,20 @@ def required_experience(job: dict) -> int:
                title_level(job.get("title", "") or ""))
 
 
+_INTERN_RE = re.compile(r"\bintern(ship)?\b|\bco-?op\b")
+
+
+def is_internship(job: dict) -> bool:
+    """True for internship/co-op postings (by source tag or title), so matching can route them to
+    early-career users and keep them away from clearly-senior ones."""
+    if (job.get("source") or "").startswith("internships") or job.get("category") == "Internship":
+        return True
+    return bool(_INTERN_RE.search((job.get("title") or "").lower()))
+
+
+INTERN_MAX_YEARS = 3  # don't show internships to users with more than this much experience
+
+
 SENIORITY_DROP_GAP = 3  # hard-drop a job that wants >= this many more years than the user has
 
 
@@ -520,6 +534,9 @@ def rank_matches(jobs: list, keywords: list, locations: list, min_score: int,
             # the "I set 0-2 but get Senior Data Engineer" complaint AND the mid-level "I keep getting
             # Staff/Principal" one. Stretch roles (small gap) survive and get the score penalty below.
             if over_leveled(req, user_years):
+                continue
+            # Internships only for early-career users (don't show a 5-yr engineer an intern role).
+            if user_years > INTERN_MAX_YEARS and is_internship(job):
                 continue
             job = dict(job)
             yrs = req
