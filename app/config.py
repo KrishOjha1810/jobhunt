@@ -76,10 +76,10 @@ GIT_COMMIT = (os.environ.get("RENDER_GIT_COMMIT", "") or "")[:7]
 ENABLE_SCHEDULER = os.environ.get("ENABLE_SCHEDULER", "") == "1"
 SCHEDULER_HOURS = int(os.environ.get("SCHEDULER_HOURS", "8"))
 # Fixed daily run times so users know exactly when to expect matches. Comma-separated local hours
-# in RUN_TZ. Default: 9 AM, 3 PM, 9 PM India time (3x/day keeps the catalog + trending fresh; user
-# delivery is still throttled by each user's cadence, so this doesn't spam). Drives the UI schedule too.
+# in RUN_TZ. Default: 9 AM, 9 PM India time (2x/day , matches the GitHub scheduled-run cron and keeps
+# Neon free-tier compute in budget; delivery is also throttled by each user's cadence). Drives the UI.
 RUN_TZ = os.environ.get("RUN_TZ", "") or "Asia/Kolkata"
-RUN_HOURS = [int(h) for h in (os.environ.get("RUN_HOURS", "") or "9,15,21").split(",") if h.strip()]
+RUN_HOURS = [int(h) for h in (os.environ.get("RUN_HOURS", "") or "9,21").split(",") if h.strip()]
 # Self-healing safety net: any HTTP traffic (incl. the keep-awake ping) triggers a matcher run if
 # it's been at least this many hours since the last one. This makes daily alerts robust on hosts
 # whose background schedulers freeze when the instance sleeps (Render free). ~13h => ~2 runs/day.

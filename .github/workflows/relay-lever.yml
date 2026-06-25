@@ -9,7 +9,7 @@ name: relay-lever
 
 on:
   schedule:
-    - cron: "20 3,9,15 * * *"   # 10 min before the matching run, so jobs land before matching reads them
+    - cron: "20 3,15 * * *"   # 10 min before each matching run (2x/day: 09:00 / 21:00 IST)
   workflow_dispatch: {}
 
 concurrency:

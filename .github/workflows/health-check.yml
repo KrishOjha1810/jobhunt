@@ -10,7 +10,7 @@ name: health-check
 
 on:
   schedule:
-    - cron: "0 4,16 * * *"   # ~30 min after the 03:30 + 15:30 UTC matching runs, twice a day
+    - cron: "0 4 * * *"   # once a day, ~30 min after the morning (03:30 UTC) matching run
   workflow_dispatch: {}
 
 jobs:
