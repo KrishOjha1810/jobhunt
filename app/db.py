@@ -861,6 +861,20 @@ def profile_extra_text(user_id):
     return "\n\n".join(parts)
 
 
+def github_repos(user_id):
+    """The user's cached public GitHub repos (list of {name, lang, stars, description, topics, ...}),
+    or [] if none. Fed to the resume tailor so it can surface JD-relevant REAL projects."""
+    with engine.connect() as c:
+        raw = c.execute(select(users.c.github_data).where(users.c.id == user_id)).scalar()
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+        return data.get("top_repos") or []
+    except Exception:
+        return []
+
+
 def set_keywords(user_id, keywords):
     with engine.begin() as c:
         c.execute(update(users).where(users.c.id == user_id).values(keywords=json.dumps(keywords)))

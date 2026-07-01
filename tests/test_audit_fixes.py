@@ -38,6 +38,31 @@ def test_over_leveled_gap_based_all_levels():
     assert not m.over_leveled(None, 2) and not m.over_leveled(5, None)
 
 
+def test_github_repo_selection_for_jd():
+    from app import enrich
+    repos = [{"name": "k8s-operator", "lang": "Go", "topics": ["kubernetes", "devops"],
+              "description": "A Kubernetes operator", "stars": 10},
+             {"name": "todo", "lang": "JavaScript", "topics": ["react"], "description": "todo", "stars": 1}]
+    picked = enrich._select_repos(repos, "We need Kubernetes and Go for infra", limit=2)
+    assert [r["name"] for r in picked] == ["k8s-operator"]        # only the relevant repo
+    assert enrich._select_repos(repos, "senior pastry chef baking bread", 2) == []  # nothing forced
+
+
+def test_github_repos_db_roundtrip(make_user):
+    from app import db
+    u = make_user(name="GH User", keywords=["python"])
+    assert db.github_repos(u["id"]) == []                          # none cached yet
+    db.set_github(u["id"], username="octocat",
+                  data={"top_repos": [{"name": "r1", "lang": "Go", "description": "infra tool"}]})
+    repos = db.github_repos(u["id"])
+    assert len(repos) == 1 and repos[0]["name"] == "r1"
+    # tailor_edits accepts the github kwarg without error even with the LLM off (deterministic path)
+    from app import enrich
+    edits, _ = enrich.tailor_edits({"experience": [{"bullets": ["worked on stuff"]}]},
+                                   "Backend Engineer", "python backend", github=repos)
+    assert edits is None or isinstance(edits, dict)
+
+
 def test_job_jd_endpoint_shows_description_and_logs_read(client, make_user):
     from app import db
     u = make_user(name="JD Reader", keywords=["python"])

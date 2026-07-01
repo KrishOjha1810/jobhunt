@@ -545,6 +545,7 @@
         [...(R.experience||[]),...(R.projects||[])].forEach(x=>{ (x.bullets||[]).forEach((t,j)=>{ if(!hit && tgt && _norm(t)===tgt){ hit=true; s._loc={a:x.bullets,j,prev:t}; x.bullets[j]=s.after; } }); });
         if(!hit){ if(!R.experience.length) R.experience.push({title:'',company:'',dates:'',bullets:[]}); R.experience[0].bullets.push(s.after); s._loc={a:R.experience[0].bullets,j:R.experience[0].bullets.length-1,append:true}; }
       }
+      else if(s.kind==='project'){ const proj={name:s.name||'',stack:'',dates:'',bullets:[s.after].filter(Boolean)}; R.projects=R.projects||[]; R.projects.push(proj); s._proj=proj; }
       renderAll();
     }
     function unapplyS(s){
@@ -552,6 +553,7 @@
       if(s.kind==='summary'){ R.summary=s._prev||''; $('summary').value=R.summary; }
       else if(s.kind==='skill'){ if(s._added){ R.skills=R.skills.filter(x=>x!==s.value); s._added=false; } }
       else if(s.kind==='bullet' && s._loc){ const L=s._loc; if(L.append){ L.a.splice(L.j,1); } else { L.a[L.j]=L.prev; } s._loc=null; }
+      else if(s.kind==='project' && s._proj){ R.projects=(R.projects||[]).filter(p=>p!==s._proj); s._proj=null; }
       renderAll();
     }
     function showEdits(e, jobName){
@@ -559,6 +561,8 @@
       if(e.summary) S.push({kind:'summary', after:e.summary});
       (e.add_skills||[]).forEach(v=>S.push({kind:'skill', value:v}));
       (e.bullets||[]).forEach(b=>{ if(b && b.improved) S.push({kind:'bullet', before:b.original||'', after:b.improved, why:b.why||''}); });
+      // JD-relevant projects mined from the user's GitHub , add as a new project entry if accepted
+      (e.gh_projects||[]).forEach(p=>{ if(p && (p.bullet||p.name)) S.push({kind:'project', name:p.name||'', after:p.bullet||'', why:p.why||''}); });
       if(!S.length){ $('jcEdits').innerHTML='<p class="sub">No AI rewrites this time , add the missing keywords above; the score updates live.</p>'; return; }
       $('jcEdits').innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin:4px 0 8px">
         <span class="card-kicker" style="margin:0">Tailored suggestions , accept, tweak, or reject each</span>
@@ -566,8 +570,9 @@
       const list=$('jcList');
       S.forEach(s=>{
         const card=document.createElement('div'); card.className='edit';
-        const label = s.kind==='summary'?'Summary':(s.kind==='skill'?'+ Skill':'Bullet');
+        const label = s.kind==='summary'?'Summary':(s.kind==='skill'?'+ Skill':(s.kind==='project'?'⌥ GitHub project':'Bullet'));
         let body = s.kind==='skill' ? `<b>${esc(s.value)}</b>`
+          : s.kind==='project' ? `<div style="font-weight:700;margin-bottom:2px">${esc(s.name)}</div><div class="after" data-after>${esc(s.after)}</div>${s.why?`<div class="sub" style="font-size:.72rem;margin-top:2px">${esc(s.why)}</div>`:''}`
           : `${s.before?`<div class="before">${esc(s.before)}</div>`:''}<div class="after" data-after>${esc(s.after)}</div>${s.why?`<div class="sub" style="font-size:.72rem;margin-top:2px">${esc(s.why)}</div>`:''}`;
         card.innerHTML = `<span class="pill">${label}</span>${body}<div class="acts row" style="margin-top:6px"></div>`;
         const acts=card.querySelector('.acts');

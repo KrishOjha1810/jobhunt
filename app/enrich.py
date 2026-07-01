@@ -165,7 +165,27 @@ def parse_resume_structured(resume_text: str):
     return obj, err
 
 
-def tailor_edits(resume_json: dict, job_title: str, job_desc: str, extra: str = ""):
+def _select_repos(repos: list, job_desc: str, limit: int = 4) -> list:
+    """Pick the user's GitHub repos most relevant to THIS JD by token overlap of the repo's
+    name/language/topics/description with the JD text. A cheap pre-filter so we only hand the LLM a
+    few genuinely-relevant candidate repos (keeps the call focused + grounded, no fabrication)."""
+    import re as _re
+    if not repos or not (job_desc or "").strip():
+        return []
+    jd_set = {w for w in _re.findall(r"[a-z0-9+.#]+", job_desc.lower()) if len(w) > 2}
+    scored = []
+    for r in repos:
+        text = " ".join(str(r.get(k, "")) for k in ("name", "lang", "description"))
+        text += " " + " ".join(r.get("topics") or [])
+        toks = {w for w in _re.findall(r"[a-z0-9+.#]+", text.lower()) if len(w) > 2}
+        overlap = len(toks & jd_set)
+        if overlap:
+            scored.append((overlap, r))
+    scored.sort(key=lambda t: (-t[0], -(t[1].get("stars") or 0)))
+    return [r for _, r in scored[:limit]]
+
+
+def tailor_edits(resume_json: dict, job_title: str, job_desc: str, extra: str = "", github: list = None):
     """Produce concrete, reviewable edits to tailor the resume to a job. Returns (dict, error) where
     dict = {summary, add_skills:[...], bullets:[{original, improved, why}]}.
 
@@ -189,6 +209,16 @@ def tailor_edits(resume_json: dict, job_title: str, job_desc: str, extra: str = 
         for w in weak
     ) or "(no obviously weak bullets , still improve any that can be sharper)"
 
+    # GitHub: surface the candidate's REAL repos that match this JD as ready-to-add project bullets,
+    # so a JD asking for e.g. Kubernetes can pull in their actual k8s repo instead of generic filler.
+    gh_repos = _select_repos(github or [], job_desc)
+    gh_block = "\n".join(
+        f"- {r.get('name')} ({r.get('lang') or 'n/a'}"
+        + (f"; topics: {', '.join(r.get('topics') or [])}" if r.get('topics') else "")
+        + f"): {r.get('description') or 'no description'}"
+        for r in gh_repos
+    )
+
     sys = (
         "You are an expert resume writer who rewrites bullets the way ResumeWorded and Jobscan teach. "
         "Rewrite using the Google XYZ formula: 'Accomplished [X] as measured by [Y], by doing [Z]' , "
@@ -210,7 +240,13 @@ def tailor_edits(resume_json: dict, job_title: str, job_desc: str, extra: str = 
         "list omits; [] if none), "
         "bullets (array of {original, improved, why}; 'original' MUST be the verbatim existing bullet "
         "text so we can locate it; rewrite EVERY bullet listed under WEAK BULLETS plus any other that "
-        "can be sharper; 'why' names the specific fix, e.g. 'added a metric + JD keyword Kafka')."
+        "can be sharper; 'why' names the specific fix, e.g. 'added a metric + JD keyword Kafka'), "
+        "gh_projects (array of {name, bullet, why}; ONLY from the CANDIDATE GITHUB PROJECTS listed "
+        "below, and ONLY repos whose relevance to THIS JD is genuine and that the resume does not "
+        "already cover , each becomes a suggested projects-section entry: 'name' = the repo name, "
+        "'bullet' = one XYZ-formula line describing what it demonstrates for this role (use a bracketed "
+        "[add metric] placeholder rather than inventing numbers), 'why' = which JD requirement it "
+        "satisfies; [] if none of the repos genuinely fit , never invent a repo or its contents)."
     )
     user_msg = (
         f"RESUME JSON:\n{_json.dumps(resume_json)[:8000]}\n\n"
@@ -221,6 +257,8 @@ def tailor_edits(resume_json: dict, job_title: str, job_desc: str, extra: str = 
         + (f"\n\nCANDIDATE-PROVIDED ACHIEVEMENTS / PROJECTS (real , weave a concrete metric or proof "
            f"from here into a bullet or the summary where it genuinely fits; never copy verbatim, never "
            f"fabricate):\n{extra[:1800]}" if (extra or '').strip() else "")
+        + (f"\n\nCANDIDATE GITHUB PROJECTS (real public repos , surface the ones that truly fit this JD "
+           f"as gh_projects; use ONLY these, never invent):\n{gh_block}" if gh_block else "")
     )
     obj, err = _json_call(sys, user_msg, max_tokens=2200)
     if not obj:

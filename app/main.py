@@ -1489,7 +1489,8 @@ def api_resume_tailor(request: Request, job_id: int = 0, token: str = ""):
     if not job:
         return JSONResponse({"error": "job not found"}, status_code=404)
     edits, err = enrich.tailor_edits(rj, job.get("title") or "", _job_jd(job),
-                                     extra=db.profile_extra_text(user["id"]))
+                                     extra=db.profile_extra_text(user["id"]),
+                                     github=db.github_repos(user["id"]))
     if not edits:
         return {"ok": False, "reason": err or "Could not generate edits."}
     return {"ok": True, "edits": edits, "job": {"title": job.get("title"), "company": job.get("company")}}
@@ -1608,7 +1609,8 @@ def api_resume_context(request: Request, job_id: int = 0, url: str = "", token: 
                 "job": {"id": job["id"], "title": job.get("title"), "company": job.get("company"), "url": job.get("url")}}
     # tailor_edits returns concrete rewrites even with no LLM (deterministic XYZ-formula fallback),
     # so experience lines always get actionable suggestions, AI or not.
-    edits, _err = enrich.tailor_edits(rj, job.get("title") or "", jd, extra=db.profile_extra_text(user["id"]))
+    edits, _err = enrich.tailor_edits(rj, job.get("title") or "", jd, extra=db.profile_extra_text(user["id"]),
+                                      github=db.github_repos(user["id"]))
     return {"ok": True, "job": jobinfo, "keeps_format": True,
             "resume": rj, "match": _resume.ats_job_match(rj, jd),
             "health": resume_export.ats_health(rj, years=_user_years(user)), "edits": edits, "llm": enrich.available()}
@@ -1666,7 +1668,8 @@ async def api_resume_tailor_adhoc(request: Request, token: str = ""):
     if rj is None:
         return {"ok": False, "needs_upload": True, "reason": "Upload your resume first, then paste the job description."}
     context = jd if not years else f"Candidate has about {years} years of experience.\n\n{jd}"
-    edits, _err = enrich.tailor_edits(rj, role, context, extra=db.profile_extra_text(user["id"]))
+    edits, _err = enrich.tailor_edits(rj, role, context, extra=db.profile_extra_text(user["id"]),
+                                      github=db.github_repos(user["id"]))
     return {"ok": True, "role": role, "resume": rj, "keeps_format": True,
             "match": _resume.ats_job_match(rj, jd),
             "health": resume_export.ats_health(rj, years=_user_years(user)), "edits": edits, "llm": enrich.available()}

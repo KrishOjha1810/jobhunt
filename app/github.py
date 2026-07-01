@@ -75,13 +75,17 @@ def fetch_profile(username):
         if pushed and pushed[:10] >= _ACTIVE_CUTOFF:
             recent_active = True
         top.append({"name": r.get("name"), "lang": lang, "stars": r.get("stargazers_count", 0),
-                    "pushed_at": pushed[:10]})
+                    "pushed_at": pushed[:10],
+                    # description + per-repo topics let the tailor surface JD-relevant REAL projects
+                    "description": (r.get("description") or "")[:300],
+                    "topics": (r.get("topics") or [])[:8]})
     total = sum(lang_count.values()) or 1
     languages = {k: round(v / total, 3) for k, v in sorted(lang_count.items(), key=lambda kv: -kv[1])}
     top.sort(key=lambda r: r.get("stars", 0), reverse=True)
     return {"languages": languages, "topics": sorted(topics, key=lambda t: -topics[t])[:15],
             "recent_active": recent_active, "public_repos": prof.get("public_repos", 0),
-            "followers": prof.get("followers", 0), "top_repos": top[:5]}
+            # keep more repos (12) so the tailor has a real pool to match a JD against, not just 5
+            "followers": prof.get("followers", 0), "top_repos": top[:12]}
 
 
 def extract_skills(profile: dict) -> list:
