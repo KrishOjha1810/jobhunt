@@ -92,6 +92,98 @@ def _user_years(user):
     return _EXP_YEARS.get((user or {}).get("experience") or "", None)
 
 
+from html.parser import HTMLParser as _HTMLParser  # noqa: E402
+import html as _htmlmod  # noqa: E402
+
+_JD_ALLOWED = {"p", "br", "ul", "ol", "li", "strong", "em", "h3", "h4"}
+_JD_REMAP = {"h1": "h3", "h2": "h3", "b": "strong", "i": "em"}
+
+
+class _JDSanitizer(_HTMLParser):
+    """Whitelist-sanitize a job description to a SAFE display subset (keeps paragraphs, lists, bold,
+    headings; drops scripts/styles/links/images/attributes). JD HTML is third-party , default-deny."""
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.out = []
+        self._skip = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag in ("script", "style"):
+            self._skip += 1
+            return
+        t = _JD_REMAP.get(tag, tag)
+        if t == "br":
+            self.out.append("<br>")
+        elif t in _JD_ALLOWED:
+            self.out.append(f"<{t}>")
+        # any other tag (div, span, a, img, table, ...): drop the tag, keep its inner text
+
+    def handle_startendtag(self, tag, attrs):
+        if tag == "br":
+            self.out.append("<br>")
+
+    def handle_endtag(self, tag):
+        if tag in ("script", "style"):
+            self._skip = max(0, self._skip - 1)
+            return
+        t = _JD_REMAP.get(tag, tag)
+        if t in _JD_ALLOWED and t != "br":
+            self.out.append(f"</{t}>")
+
+    def handle_data(self, data):
+        if not self._skip:
+            self.out.append(_htmlmod.escape(data))
+
+
+def _plain_to_html(text):
+    """Turn plain-text JDs into readable HTML: consecutive bullet lines become a <ul>, other lines
+    group into <p> paragraphs (blank line = paragraph break). Handles mixed heading+bullet blocks."""
+    text = _htmlmod.escape(text or "")
+    out, para, bullets = [], [], []
+
+    def flush_para():
+        if para:
+            out.append("<p>" + "<br>".join(para) + "</p>")
+            para.clear()
+
+    def flush_ul():
+        if bullets:
+            out.append("<ul>" + "".join("<li>" + b + "</li>" for b in bullets) + "</ul>")
+            bullets.clear()
+
+    for ln in text.split("\n"):
+        s = ln.strip()
+        if not s:
+            flush_para(); flush_ul(); continue
+        if re.match(r"^[-*•‣●]\s+", s):
+            flush_para(); bullets.append(re.sub(r"^[-*•‣●]\s+", "", s))
+        else:
+            flush_ul(); para.append(s)
+    flush_para(); flush_ul()
+    return "".join(out)
+
+
+def _jd_display_html(raw):
+    """Render a job description as clean, safe HTML (so the UI shows formatting, not raw <p> tags)."""
+    raw = (raw or "").strip()
+    if not raw:
+        return ""
+    if "<" in raw and ">" in raw:  # looks like HTML , sanitize to the safe subset
+        cleaned = re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", "", raw)
+        s = _JDSanitizer()
+        try:
+            s.feed(cleaned)
+            s.close()
+        except Exception:
+            return _plain_to_html(re.sub(r"<[^>]+>", " ", raw))
+        html_out = "".join(s.out).strip()
+        # if nothing block-level survived, paragraph-ize the plain text so it still reads well
+        if not any(t in html_out for t in ("<p>", "<li>", "<br>", "<h3>", "<h4>")):
+            html_out = _plain_to_html(_htmlmod.unescape(re.sub(r"<[^>]+>", "", html_out)))
+        return html_out
+    return _plain_to_html(raw)
+
+
 def _job_jd(job):
     """The job's description, with ON-DEMAND backfill. Board listings (Greenhouse/Workday/etc.) and
     browse-saved jobs often have an empty catalog description, which made the detail/AI tools run on a
@@ -1017,7 +1109,8 @@ def api_job_jd(request: Request, job_id: int, token: str = ""):
     return {"ok": True, "title": job.get("title"), "company": job.get("company"),
             "url": job.get("url"), "category": job.get("category"),
             "location": job.get("region") or job.get("location") or "",
-            "description": desc or "", "status": job.get("status") or "saved"}
+            "description": desc or "", "description_html": _jd_display_html(desc),
+            "status": job.get("status") or "saved"}
 
 
 @app.post("/api/jobs/{job_id}")

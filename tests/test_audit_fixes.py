@@ -38,6 +38,18 @@ def test_over_leveled_gap_based_all_levels():
     assert not m.over_leveled(None, 2) and not m.over_leveled(5, None)
 
 
+def test_jd_display_html_formats_and_sanitizes():
+    from app import main
+    h = main._jd_display_html('<div><h2>Role</h2><p>Need <strong>Python</strong>.</p>'
+                             '<ul><li>APIs</li></ul><script>alert(1)</script>'
+                             '<img src=x onerror=alert(1)><a href="javascript:e()">x</a></div>')
+    assert "<h3>Role</h3>" in h and "<strong>Python</strong>" in h and "<li>APIs</li>" in h
+    assert "script" not in h.lower() and "onerror" not in h.lower() and "javascript:" not in h.lower()
+    # plain text: heading line + bullets -> a paragraph then a real <ul>
+    p = main._jd_display_html("Responsibilities:\n- Build APIs\n- Own deploys")
+    assert "<ul>" in p and "<li>Build APIs</li>" in p and "<p>Responsibilities:</p>" in p
+
+
 def test_yc_boost_ranks_good_fit_yc_higher():
     assert m.is_yc({"source": "greenhouse:coinbase"}) and m.is_yc({"company": "Stripe"})
     assert not m.is_yc({"source": "greenhouse:somerandomco", "company": "Random Co"})

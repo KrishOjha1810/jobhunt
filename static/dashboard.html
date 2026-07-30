@@ -90,7 +90,13 @@
     .applylink svg{width:13px;height:13px}
     .jdlink{background:none;border:0;padding:0;margin:0;font:inherit;font-weight:600;color:var(--ink);text-align:left;cursor:pointer;text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:2px}
     .jdlink:hover{color:var(--accent);text-decoration-color:var(--accent)}
-    .jdtext{white-space:pre-wrap;line-height:1.6;max-height:46vh;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:14px;font-size:.9rem;color:var(--ink)}
+    .jdtext{line-height:1.6;max-height:52vh;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:16px;font-size:.9rem;color:var(--ink)}
+    .jdtext p{margin:0 0 10px}
+    .jdtext ul,.jdtext ol{margin:0 0 10px;padding-left:20px}
+    .jdtext li{margin:3px 0}
+    .jdtext h3,.jdtext h4{margin:14px 0 6px;font-size:.95rem;font-weight:700;color:var(--ink)}
+    .jdtext strong{font-weight:700;color:var(--ink)}
+    .jdtext > *:first-child{margin-top:0}
     .tailorbtn{border:1px solid var(--field-border);background:var(--field);color:var(--accent)}
     .tailorbtn:hover{border-color:var(--accent);background:var(--accent-soft)}
     .statussel{padding:6px 24px 6px 11px;border-radius:var(--r-pill);border:1px solid var(--field-border);font-size:var(--fs-xs);font-weight:600;cursor:pointer;width:auto}
@@ -517,7 +523,8 @@
           <td class="date" data-label="Date">${esc((j.sent_at||'').slice(0,10))}</td>
           <td data-label="Match">${j.score ? `<span class="score">${esc(j.score)}</span>` : ''}</td>
           <td data-label="Apply & status"><div class="actions">
-            <button class="applylink" onclick="openJD(${j.id})">View JD <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8"/></svg></button>
+            ${safeUrl(j.url)?`<a class="applylink" href="${esc(safeUrl(j.url))}" target="_blank" rel="noopener" onclick="logClick('${esc(safeUrl(j.url))}','${esc(j.category||'')}')">Apply <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8"/></svg></a>`:''}
+            <button class="tailorbtn" onclick="openJD(${j.id})" title="Read the job description here">JD</button>
             <select class="statussel" style="${statusStyle(j.status)}" onchange="updStatus(${j.id}, this)">${statusOpts(j.status).map(o=>`<option value="${o.v}" ${ (j.status||'saved')===o.v ? 'selected':''}>${o.label}</option>`).join('')}</select>
             <button class="tailorbtn ai-more" onclick="aiMenu(${j.id},'${esc(safeUrl(j.url))}','${esc(j.category||'')}')" title="Tailor resume, outreach, interview prep, feedback...">⋯</button>
           </div></td>
@@ -633,10 +640,11 @@
       if (!d || !d.ok) { body.innerHTML = '<div class="err">Could not load the description.</div>'; return; }
       const url = safeUrl(d.url);
       const meta = [d.company, d.location, j.score ? ('match ' + j.score) : ''].filter(Boolean).map(esc).join(' · ');
-      const jd = (d.description || '').trim();
+      // description_html is sanitized server-side (safe whitelist) , render it as formatted HTML
+      const jd = (d.description_html || '').trim();
       body.innerHTML = `
         <div style="color:var(--muted);font-size:.85rem;margin:0 0 12px">${meta}</div>
-        <div class="jdtext">${jd ? esc(jd) : 'No description text available for this posting , open it on the company site to read it.'}</div>
+        <div class="jdtext">${jd || '<p>No description text available for this posting , use Apply to open it on the company site.</p>'}</div>
         <div id="jdApplyRow" style="margin-top:16px;border-top:1px solid var(--line);padding-top:14px"></div>`;
       renderApplyTrack(id, url, d.category || j.category || '', d.status || j.status || 'saved');
     }
