@@ -104,6 +104,14 @@ BREVO_API_KEY = os.environ.get("BREVO_API_KEY", "")
 # "mark applied" links work even when BASE_URL isn't explicitly set.
 BASE_URL = (os.environ.get("BASE_URL", "") or "https://jobhunt-8i1m.onrender.com").rstrip("/")
 
+# Web Push (installable PWA apply-reminders). Public key is safe to ship (the browser needs it);
+# the PRIVATE key is a secret and must be set in the environment (VAPID_PRIVATE_KEY, PKCS8 PEM).
+# Push is simply disabled if the private key isn't set.
+VAPID_PUBLIC_KEY = os.environ.get("VAPID_PUBLIC_KEY", "") or \
+    "BKIOvb9RYpIejZjcpqVYL562-q8PGjpe7OQUtSYxPxieTV2FkJ9B1CLFHfpU49_FWpL94GqDbXtCZYWgTrUAfmE"
+VAPID_PRIVATE_KEY = os.environ.get("VAPID_PRIVATE_KEY", "")  # PKCS8 PEM; secret; unset = push off
+VAPID_SUBJECT = os.environ.get("VAPID_SUBJECT", "") or "mailto:11krishojha08@gmail.com"
+
 # Auth: session signing key. Defaults to a secure random per-process value (sessions reset on
 # restart). Set SECRET_KEY in the environment to keep sessions persistent across restarts.
 SECRET_KEY = os.environ.get("SECRET_KEY") or secrets.token_hex(32)

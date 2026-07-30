@@ -9,3 +9,7 @@ data/*.log
 __pycache__/
 *.pyc
 .DS_Store
+
+# Web Push VAPID private key (secret , set in Render env, never commit)
+.vapid_private.pem
+static/vapid_public.txt

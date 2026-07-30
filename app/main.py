@@ -302,6 +302,91 @@ def _page(name):
     return HTMLResponse((STATIC_DIR / name).read_text(), headers=_NOCACHE)
 
 
+# ---------------- Installable PWA (home-screen app + Web Push apply-reminders) ----------------
+@app.get("/manifest.webmanifest")
+def manifest():
+    """Web app manifest , makes JobHunt installable (Chrome mints a WebAPK from this on Android)."""
+    return JSONResponse({
+        "name": "JobHunt", "short_name": "JobHunt",
+        "description": "Resume-matched job alerts + one-tap apply tracker.",
+        "start_url": "/dashboard", "scope": "/", "display": "standalone",
+        "background_color": "#0f1117", "theme_color": "#0f1117",
+        "icons": [
+            {"src": "/static/icons/icon-192.png", "sizes": "192x192", "type": "image/png"},
+            {"src": "/static/icons/icon-512.png", "sizes": "512x512", "type": "image/png"},
+            {"src": "/static/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
+        ],
+    }, media_type="application/manifest+json")
+
+
+@app.get("/sw.js")
+def service_worker():
+    """Service worker served from ROOT so its scope covers the whole app (required for push)."""
+    return Response((STATIC_DIR / "sw.js").read_text(), media_type="application/javascript",
+                    headers={"Service-Worker-Allowed": "/", **_NOCACHE})
+
+
+@app.get("/api/push/vapid-public")
+def push_vapid_public():
+    """Public VAPID key the browser needs to create a push subscription. Empty if push isn't set up."""
+    from .config import VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY
+    return {"key": VAPID_PUBLIC_KEY if VAPID_PRIVATE_KEY else ""}
+
+
+@app.post("/api/push/subscribe")
+async def push_subscribe(request: Request, token: str = ""):
+    """Store this device's Web Push subscription so the daily apply-reminder can reach it."""
+    user = _resolve_user(request, token)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    endpoint = body.get("endpoint")
+    keys = body.get("keys") or {}
+    ok = db.save_push_subscription(user["id"], endpoint, keys.get("p256dh"), keys.get("auth"))
+    return {"ok": bool(ok)}
+
+
+@app.api_route("/push/send-reminders", methods=["GET", "POST"])
+def push_send_reminders(token: str = ""):
+    """Send the daily 'time to apply' push to every subscribed device. RUN_TOKEN-guarded (hit by the
+    apply-reminder GitHub cron). No-ops safely if push isn't configured or pywebpush isn't installed."""
+    from .config import VAPID_PRIVATE_KEY, VAPID_SUBJECT
+    if not RUN_TOKEN or token != RUN_TOKEN:
+        return JSONResponse({"error": "valid token required"}, status_code=403)
+    if not VAPID_PRIVATE_KEY:
+        return {"ok": False, "reason": "VAPID_PRIVATE_KEY not set , push disabled"}
+    try:
+        from pywebpush import webpush, WebPushException
+    except Exception:
+        return {"ok": False, "reason": "pywebpush not installed"}
+    import json as _json
+    sent = dead = 0
+    for s in db.list_push_subscriptions():
+        try:
+            n = db.pending_saved_count(s["user_id"])
+        except Exception:
+            n = 0
+        body = (f"You have {n} saved job(s) waiting , open JobHunt and apply." if n
+                else "Open JobHunt and check today's matches, then apply to the best few.")
+        try:
+            webpush(
+                subscription_info={"endpoint": s["endpoint"],
+                                   "keys": {"p256dh": s["p256dh"], "auth": s["auth"]}},
+                data=_json.dumps({"title": "Time to apply", "body": body, "url": "/dashboard"}),
+                vapid_private_key=VAPID_PRIVATE_KEY, vapid_claims={"sub": VAPID_SUBJECT})
+            sent += 1
+        except WebPushException as e:
+            code = getattr(getattr(e, "response", None), "status_code", None)
+            if code in (404, 410):  # subscription expired , drop it
+                db.delete_push_subscription(s["endpoint"]); dead += 1
+        except Exception:
+            pass
+    return {"ok": True, "sent": sent, "removed_dead": dead}
+
+
 @app.get("/")
 def home(request: Request):
     # Land everyone on login first; logged-in users go straight to the home (jobs) page.

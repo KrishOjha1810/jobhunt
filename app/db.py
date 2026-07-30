@@ -132,6 +132,18 @@ meta = Table(
     Column("value", Text),
 )
 
+# Web Push subscriptions (for the installable PWA's apply-reminders). One row per browser/device.
+push_subscriptions = Table(
+    "push_subscriptions", metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("user_id", Integer, nullable=False),
+    Column("endpoint", Text, nullable=False, unique=True),
+    Column("p256dh", Text, nullable=False),
+    Column("auth", Text, nullable=False),
+    Column("created_at", DateTime, default=datetime.utcnow),
+)
+Index("ix_push_user", push_subscriptions.c.user_id)
+
 
 def init_db():
     """Create tables + run migrations, but NEVER crash the app if the DB is briefly unreachable
@@ -859,6 +871,37 @@ def profile_extra_text(user_id):
     if d.get("projects"):
         parts.append("Notable projects:\n" + d["projects"])
     return "\n\n".join(parts)
+
+
+def save_push_subscription(user_id, endpoint, p256dh, auth):
+    """Store (or refresh) a Web Push subscription for the installable PWA. Idempotent on endpoint."""
+    if not (endpoint and p256dh and auth):
+        return False
+    with engine.begin() as c:
+        exists = c.execute(select(push_subscriptions.c.id).where(
+            push_subscriptions.c.endpoint == endpoint)).first()
+        if exists:
+            c.execute(update(push_subscriptions).where(push_subscriptions.c.endpoint == endpoint)
+                      .values(user_id=user_id, p256dh=p256dh, auth=auth))
+        else:
+            c.execute(insert(push_subscriptions).values(
+                user_id=user_id, endpoint=endpoint, p256dh=p256dh, auth=auth))
+    return True
+
+
+def delete_push_subscription(endpoint):
+    """Remove a dead/expired subscription (called when a push returns 404/410)."""
+    with engine.begin() as c:
+        c.execute(delete(push_subscriptions).where(push_subscriptions.c.endpoint == endpoint))
+
+
+def list_push_subscriptions(user_id=None):
+    """All push subscriptions, or just one user's. Returns [{user_id, endpoint, p256dh, auth}]."""
+    q = select(push_subscriptions)
+    if user_id is not None:
+        q = q.where(push_subscriptions.c.user_id == user_id)
+    with engine.connect() as c:
+        return [dict(r) for r in c.execute(q).mappings().all()]
 
 
 def github_repos(user_id):

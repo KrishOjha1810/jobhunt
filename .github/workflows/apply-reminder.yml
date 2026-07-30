@@ -1,0 +1,23 @@
+name: apply-reminder
+
+# Daily Web Push nudge to the installed PWA: "time to apply, N saved jobs waiting".
+# Hits /push/send-reminders (RUN_TOKEN-guarded), which pushes to every subscribed device.
+# No-ops safely if push isn't configured (VAPID_PRIVATE_KEY unset). 7 PM IST = 13:30 UTC.
+
+on:
+  schedule:
+    - cron: "30 13 * * *"   # 13:30 UTC = 19:00 (7 PM) IST, daily
+  workflow_dispatch: {}
+
+jobs:
+  remind:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send apply reminders
+        env:
+          RUN_TOKEN: ${{ secrets.RUN_TOKEN }}
+        run: |
+          if [ -z "$RUN_TOKEN" ]; then echo "RUN_TOKEN not set"; exit 1; fi
+          curl -fsS --max-time 90 -X POST \
+            "https://jobhunt-8i1m.onrender.com/push/send-reminders?token=${RUN_TOKEN}" \
+            -w '\nHTTP %{http_code}\n'

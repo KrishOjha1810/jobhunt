@@ -38,6 +38,34 @@ def test_over_leveled_gap_based_all_levels():
     assert not m.over_leveled(None, 2) and not m.over_leveled(5, None)
 
 
+def test_pwa_manifest_and_service_worker(client):
+    m = client.get("/manifest.webmanifest")
+    assert m.status_code == 200
+    j = m.json()
+    assert j["start_url"] == "/dashboard" and j["display"] == "standalone" and len(j["icons"]) >= 2
+    sw = client.get("/sw.js")
+    assert sw.status_code == 200 and sw.headers.get("service-worker-allowed") == "/"
+    assert "push" in sw.text and "notificationclick" in sw.text
+
+
+def test_push_subscribe_and_reminders(client, make_user):
+    from app import db
+    # vapid-public returns a 'key' field (empty in tests since VAPID_PRIVATE_KEY isn't set)
+    assert "key" in client.get("/api/push/vapid-public").json()
+    # subscribe requires auth
+    assert client.post("/api/push/subscribe", json={}).status_code == 401
+    u = make_user(name="Push User", keywords=["python"])
+    tok = u["dash_token"]
+    sub = {"endpoint": "https://push.example/abc", "keys": {"p256dh": "kkk", "auth": "aaa"}}
+    r = client.post(f"/api/push/subscribe?token={tok}", json=sub)
+    assert r.status_code == 200 and r.json()["ok"] is True
+    assert any(s["endpoint"] == "https://push.example/abc" for s in db.list_push_subscriptions(u["id"]))
+    # send-reminders is token-guarded and no-ops cleanly when push isn't configured
+    assert client.post("/push/send-reminders").status_code == 403
+    body = client.post("/push/send-reminders?token=test-run-token").json()
+    assert body["ok"] is False and "VAPID" in body["reason"]
+
+
 def test_github_repo_selection_for_jd():
     from app import enrich
     repos = [{"name": "k8s-operator", "lang": "Go", "topics": ["kubernetes", "devops"],

@@ -4,7 +4,13 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>JobHunt , my tracker</title>
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta name="theme-color" content="#0f1117" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <link rel="apple-touch-icon" href="/static/icons/icon-192.png" />
   <link rel="stylesheet" href="/static/theme.css?v=7" />
+  <script src="/static/pwa.js" defer></script>
   <style>
     /* page-local: table + filter toggles + hero (everything else comes from theme.css) */
     .wrap{padding-top:var(--sp-4)}
@@ -199,6 +205,12 @@
           <div class="cal-head"><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span></div>
           <div class="cal" id="cal"></div>
           <div class="sub" id="calMonth" style="margin-top:8px;text-align:center"></div>
+        </div>
+
+        <div class="card" id="remindCard">
+          <div class="card-kicker">daily reminder</div>
+          <button class="applylink" id="remindBtn" style="border:0;width:100%;justify-content:center">🔔 Enable apply reminders</button>
+          <span class="sub" id="remindMsg" style="margin:6px 0 0;display:block">Install this app (Add to Home screen) then tap to get a daily 7 PM nudge to apply.</span>
         </div>
 
         <details class="card" id="trackCard">
@@ -530,6 +542,20 @@
         else { msg.innerHTML=`<span class="err">${esc(d.reason||'Could not track.')}</span>`; }
       }catch(e){ msg.innerHTML='<span class="err">Error.</span>'; }
     };
+    // Enable daily apply-reminder push (uses window.jhEnableReminders from pwa.js)
+    (function(){
+      const b=document.getElementById('remindBtn'), m=document.getElementById('remindMsg');
+      if(!b) return;
+      b.onclick=async ()=>{
+        if(!window.jhEnableReminders){ m.innerHTML='<span class="err">Reminders need the app , open it over HTTPS / install it first.</span>'; return; }
+        b.disabled=true; m.textContent='Enabling...';
+        const r=await window.jhEnableReminders();
+        b.disabled=false;
+        m.innerHTML = r && r.ok
+          ? '<span class="ok">Reminders on , you\'ll get a daily nudge to apply.</span>'
+          : `<span class="err">${esc((r&&r.reason)||'Could not enable.')}</span>`;
+      };
+    })();
     function logClick(url, cat){
       if(!token) return;
       try{ fetch('/api/event?token='+encodeURIComponent(token),{method:'POST',keepalive:true,

@@ -11,3 +11,4 @@ itsdangerous
 authlib
 httpx
 tzdata
+pywebpush>=1.14.0
