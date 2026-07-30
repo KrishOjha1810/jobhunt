@@ -38,6 +38,27 @@ def test_over_leveled_gap_based_all_levels():
     assert not m.over_leveled(None, 2) and not m.over_leveled(5, None)
 
 
+def test_prune_old_saved_keeps_recent_and_applied(make_user):
+    from app import db
+    from datetime import datetime, timedelta
+    from sqlalchemy import update as _upd
+    u = make_user(name="Prune User", keywords=["python"])
+    def add(url, status, age_days):
+        db.log_job(u["id"], {"url": url, "title": "t", "company": "c", "category": "Backend"})
+        db.set_status_by_url(u["id"], url, status)
+        with db.engine.begin() as c:
+            c.execute(_upd(db.job_log).where(db.job_log.c.url == url)
+                      .values(sent_at=datetime.utcnow() - timedelta(days=age_days)))
+    add("https://x/old-saved", "saved", 40)      # stale saved -> pruned
+    add("https://x/new-saved", "saved", 3)        # recent saved -> kept
+    add("https://x/old-applied", "applied", 40)   # old but APPLIED -> kept (history)
+    removed = db.prune_old_saved(max_age_days=30)
+    assert removed == 1
+    urls = {j["url"] for j in db.list_jobs(u["id"])}
+    assert "https://x/old-saved" not in urls
+    assert "https://x/new-saved" in urls and "https://x/old-applied" in urls
+
+
 def test_jd_display_html_formats_and_sanitizes():
     from app import main
     h = main._jd_display_html('<div><h2>Role</h2><p>Need <strong>Python</strong>.</p>'

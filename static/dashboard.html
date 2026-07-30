@@ -330,7 +330,7 @@
         .forEach(a => a.href = a.getAttribute('href') + tq); }
     let all = [], RESUME_NAMES = [];
     // default to the SAVED inbox (actionable, un-applied jobs) , not All, so applied jobs don't clutter
-    let state = { days: 0, minScore: 0, sortKey: 'score', sortDir: 'desc', status: 'saved', loc: '', roles: new Set() };
+    let state = { days: 0, minScore: 0, sortKey: 'score', sortDir: 'desc', status: 'saved', loc: '', roles: new Set(), limit: 50 };
 
     function resumeOpts(current){
       const opts = ['', ...RESUME_NAMES];
@@ -515,7 +515,8 @@
         const cf = document.getElementById('clearFilters');
         if (cf) cf.onclick = clearFilters;
       }
-      tb.innerHTML = rows.map(j => `
+      const shown = rows.slice(0, state.limit);   // show newest ~50 at a time, not hundreds
+      tb.innerHTML = shown.map(j => `
         <tr>
           <td class="company" data-label="Company">${esc(j.company)}</td>
           <td data-label="Role"><span class="tag" style="${tagStyle(j.category)}">${esc(j.category || 'Other')}</span></td>
@@ -533,6 +534,16 @@
           </select></td>
           <td data-label="Notes"><input class="notes" value="${esc(j.notes)}" onblur="upd(${j.id},'notes',this.value)" placeholder="notes..."></td>
         </tr>`).join('');
+      // "Show more" when there are more than the current display cap , keeps the tracker focused
+      if (rows.length > shown.length) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td colspan="8" style="text-align:center;padding:12px">
+          <button class="btn-quiet" id="showMore" style="color:var(--accent);font-weight:600;background:none;border:0;cursor:pointer">
+            Show ${Math.min(50, rows.length - shown.length)} more (${rows.length - shown.length} hidden)</button></td>`;
+        tb.appendChild(tr);
+        const sm = document.getElementById('showMore');
+        if (sm) sm.onclick = () => { state.limit += 50; render(); };
+      }
     }
 
     document.getElementById('extBtn').onclick = async ()=>{
@@ -700,7 +711,7 @@
     document.getElementById('statusGroup').addEventListener('click', e => {
       const b = e.target.closest('.btn'); if (!b) return;
       document.querySelectorAll('#statusGroup .btn').forEach(x => x.classList.remove('active'));
-      b.classList.add('active'); state.status = b.dataset.status; render();
+      b.classList.add('active'); state.status = b.dataset.status; state.limit = 50; render();
     });
     function updateStatusCounts() {
       const c = { '': 0, saved: 0, applied: 0, not_interested: 0, rejected: 0, closed: 0 };

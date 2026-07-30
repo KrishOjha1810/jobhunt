@@ -1590,6 +1590,17 @@ def reset_all_matches():
     return {"catalog_deleted": cat, "job_log_deleted": jl, "kept": "applied/rejected history"}
 
 
+def prune_old_saved(max_age_days=30):
+    """Keep the tracker focused: drop UN-actioned 'saved' matches older than max_age_days. Safe from
+    re-send churn because the catalog itself ages jobs out well before this, so a pruned job is no
+    longer matchable. NEVER touches applied/rejected (application history) or recent saves."""
+    cutoff = datetime.utcnow() - timedelta(days=max_age_days)
+    with engine.begin() as c:
+        n = c.execute(delete(job_log).where(
+            job_log.c.status == "saved", job_log.c.sent_at < cutoff)).rowcount or 0
+    return n
+
+
 def get_user_by_id(uid):
     with engine.connect() as c:
         r = c.execute(select(users).where(users.c.id == uid)).mappings().first()

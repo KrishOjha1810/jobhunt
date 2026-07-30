@@ -235,6 +235,61 @@ def _semantic_rerank(user, ranked, emb_map=None, verbose=False):
         return ranked
 
 
+def _prewarm_jds(jobs, cap=60):
+    """Fetch + CACHE the full JD for delivered jobs so the tracker's 'JD' button opens instantly.
+    Deduped, bounded (cap), concurrent with a short budget, best-effort. Persists to the catalog via
+    cache_catalog_description so browse/tailoring reuse it too (upsert_jobs would skip existing rows)."""
+    import concurrent.futures as _cf
+    from .sources import ats as _ats
+    todo, seen = [], set()
+    for j in jobs:
+        u = (j.get("url") or "").strip()
+        if not u or u in seen:
+            continue
+        seen.add(u)
+        try:
+            if len(db.catalog_description(u) or "") >= 200:
+                continue  # already have a real JD cached
+        except Exception:
+            continue
+        todo.append(j)
+        if len(todo) >= cap:
+            break
+
+    def _warm(j):
+        u = j.get("url")
+        try:
+            src = (j.get("source") or "").split(":")[0]
+            body = ""
+            if src in ("workday", "smartrecruiters", "greenhouse"):
+                body = _ats.fetch_detail(j) or ""
+            if len(body) < 200:
+                from . import jobfetch
+                body = (jobfetch.fetch_jd(u) or {}).get("description", "") or ""
+            if len(body) >= 200:
+                db.cache_catalog_description(u, body[:4000], j.get("title"), j.get("company"))
+                return 1
+        except Exception:
+            pass
+        return 0
+
+    warmed = 0
+    if not todo:
+        return 0
+    try:
+        ex = _cf.ThreadPoolExecutor(max_workers=6)
+        futs = [ex.submit(_warm, j) for j in todo]
+        for f in _cf.as_completed(futs, timeout=90):
+            try:
+                warmed += f.result() or 0
+            except Exception:
+                pass
+        ex.shutdown(wait=False, cancel_futures=True)
+    except Exception:
+        pass
+    return warmed
+
+
 def _precompute_embeddings(users, pool, verbose=False):
     """Embed user resumes + a bounded batch of catalog jobs that lack vectors. Runs AFTER delivery
     so it never delays alerts. Vectors are cached, so semantic ranking improves over successive runs
@@ -330,6 +385,7 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
         print(f"[runner] {len(users)} user(s), shared pool of {len(pool)} jobs")
     sent = 0
     detail = []  # non-sensitive per-user breakdown for diagnosing coverage (ids + counts only)
+    sent_jobs = {}  # url -> job dict of everything delivered this run, for JD pre-warming (deduped)
     # Global signals for the v2 scorer, computed ONCE per run (cheap grouped queries).
     g_trending, g_collab, g_source_q = {}, {}, {}
     if SCORE_V2 and PREF_LEARNING:
@@ -555,6 +611,9 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
                 # (e.g. email misconfigured) gets retried on the next run instead of vanishing.
                 for job in to_send:
                     db.log_job(user["id"], job)
+                    u = job.get("url")
+                    if u and u not in sent_jobs:
+                        sent_jobs[u] = job  # dedup across users , shared catalog, warm each JD once
                 # log impressions so the recommender has negatives (shown-but-skipped) + positions
                 db.log_events_bulk([
                     {"user_id": user["id"], "url": j.get("url"),
@@ -574,6 +633,22 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
     del g_trending, g_collab, g_source_q
     gc.collect()
     _phase(f"sent:{sent}")
+    # Pre-warm the JDs of everything we just delivered, so opening 'JD' in the tracker is instant
+    # (was fetched live on click). Deduped across users, bounded, persisted to the catalog.
+    try:
+        warmed = _prewarm_jds(list(sent_jobs.values()))
+        if verbose and warmed:
+            print(f"[runner] pre-warmed {warmed} JDs")
+    except Exception as e:
+        print(f"[runner] JD pre-warm skipped: {e}")
+    # Keep the tracker focused: drop un-actioned 'saved' matches older than the catalog's own window
+    # (applied/rejected history is untouched). Prevents the 'saved' inbox ballooning to hundreds.
+    try:
+        pruned = db.prune_old_saved()
+        if verbose and pruned:
+            print(f"[runner] pruned {pruned} stale saved matches")
+    except Exception as e:
+        print(f"[runner] prune_old_saved skipped: {e}")
     if only_user_id is not None:
         return  # partial (single-user) run, don't record it as the global last_run
     # Record completion FIRST (delivery is done), so /status & /diag reflect the run immediately.
