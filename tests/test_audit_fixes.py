@@ -38,6 +38,24 @@ def test_over_leveled_gap_based_all_levels():
     assert not m.over_leveled(None, 2) and not m.over_leveled(5, None)
 
 
+def test_yc_boost_ranks_good_fit_yc_higher():
+    assert m.is_yc({"source": "greenhouse:coinbase"}) and m.is_yc({"company": "Stripe"})
+    assert not m.is_yc({"source": "greenhouse:somerandomco", "company": "Random Co"})
+    base = {"title": "Backend Engineer", "location": "Remote India", "description": "python backend api",
+            "raw_score": 4, "matched": ["python", "backend", "api"], "core_overlap": 2,
+            "category": "Backend", "req_years": 2, "region": "india"}
+    ctx = {"uyears": 2, "india_user": True}
+    yc, _ = m.blended_score(dict(base, source="greenhouse:coinbase", company="coinbase"), ctx)
+    non, _ = m.blended_score(dict(base, source="greenhouse:randomco", company="randomco"), ctx)
+    assert yc >= non  # a good-fit YC job ranks at least as high as an identical non-YC one
+    # but the boost is gated on real fit: a shallow (1-keyword) YC match is NOT lifted
+    shallow = {"title": "X", "location": "Remote India", "description": "", "raw_score": 1,
+               "matched": ["python"], "core_overlap": 0, "category": "Backend", "req_years": 2,
+               "region": "india", "source": "greenhouse:coinbase", "company": "coinbase"}
+    s, contrib = m.blended_score(shallow, ctx)
+    assert contrib.get("yc", 0) == 0  # not boosted without strong overlap
+
+
 def test_pwa_manifest_and_service_worker(client):
     m = client.get("/manifest.webmanifest")
     assert m.status_code == 200

@@ -319,7 +319,7 @@ import math as _math
 # brand-new user's ranking ~= the old keyword behaviour; learned/global signals only re-sort within.
 SCORE_WEIGHTS = {"content": 4.2, "pref": 1.4, "seniority": 1.2, "location": 1.0,
                  "recency": 0.5, "collab": 0.7, "trending": 0.5, "semantic": 1.3, "source": 1.0,
-                 "category": 1.5, "prioritize": 1.6, "comp": 0.5}
+                 "category": 1.5, "prioritize": 1.6, "comp": 0.5, "yc": 1.5}
 # Baseline subtracted from the logistic input so a SHALLOW match (one common keyword like "java")
 # scores low, not ~50%+. Tuned with content=4.2 so 1 skill ~30%, 3 skills ~70%, 5+ skills ~90%.
 SCORE_BIAS = 2.8
@@ -392,6 +392,25 @@ def _recency_unit(job: dict) -> float:
         src = (job.get("source") or "").split(":")[0]
         return 0.25 if src in ("adzuna", "jsearch") else 0.4
     return _math.exp(-max(0, age) / 14.0)
+
+
+# Curated set of YC-backed / top startups present in our board lists (slugs + names, lowercase).
+# High-confidence only , mislabeling would erode trust in the boost. Expand as boards are added.
+YC_COMPANIES = {
+    "coinbase", "stripe", "airbnb", "dropbox", "reddit", "doordash", "instacart", "gitlab", "brex",
+    "faire", "gusto", "razorpay", "checkr", "deel", "twitch", "supabase", "posthog", "resend",
+    "inngest", "meesho", "flexport",
+}
+
+
+def is_yc(job) -> bool:
+    """True if a job is from a YC-backed / top startup (matched by board slug or company name).
+    These are the remote, high-paying roles we surface first when they also fit the resume."""
+    src = job.get("source") or ""
+    slug = src.split(":", 1)[1].lower() if ":" in src else ""
+    if slug and slug in YC_COMPANIES:
+        return True
+    return (job.get("company") or "").strip().lower() in YC_COMPANIES
 
 
 def blended_score(job: dict, ctx: dict) -> tuple:
@@ -486,9 +505,14 @@ def blended_score(job: dict, ctx: dict) -> tuple:
     # respects the candidate, so nudge it up as a tiebreak. Small weight , never dominates skills.
     Cmp = 1.0 if has_salary(job) else 0.0
 
-    # Require REAL skill overlap before the circumstantial bonuses (source/location/category/comp) can
-    # lift the score. Otherwise one common keyword on a company board in India could fake a strong match.
-    # Penalties (Adzuna, domain-mismatch) are kept regardless.
+    # YC / top-startup boost: these are the remote, high-paying roles worth surfacing first, so when a
+    # YC-backed company's job ALSO fits the resume well, float it up. Gated on real overlap below, so
+    # it only lifts good-fit YC jobs (not every YC posting).
+    Yc = 1.0 if is_yc(job) else 0.0
+
+    # Require REAL skill overlap before the circumstantial bonuses (source/location/category/comp/yc)
+    # can lift the score. Otherwise one common keyword on a company board in India could fake a strong
+    # match. Penalties (Adzuna, domain-mismatch) are kept regardless.
     strong_overlap = (n >= 2) or (core >= 1)
     if not strong_overlap:
         if Sq > 0:
@@ -498,6 +522,7 @@ def blended_score(job: dict, ctx: dict) -> tuple:
         if Cat > 0:
             Cat = 0.0
         Cmp = 0.0
+        Yc = 0.0
 
     w = SCORE_WEIGHTS
     contrib = {"content": w["content"] * C, "pref": w["pref"] * Pf, "seniority": w["seniority"] * S,
@@ -505,7 +530,7 @@ def blended_score(job: dict, ctx: dict) -> tuple:
                "collab": w["collab"] * Co, "trending": w["trending"] * Tr,
                "semantic": w["semantic"] * Sem, "source": w["source"] * Sq,
                "category": w["category"] * Cat, "prioritize": w["prioritize"] * Pri,
-               "comp": w["comp"] * Cmp}
+               "comp": w["comp"] * Cmp, "yc": w["yc"] * Yc}
     z = sum(contrib.values()) - SCORE_BIAS
     score = int(round(100 / (1 + _math.exp(-max(-30, min(30, z))))))
     score = max(15, min(100, score))
@@ -516,7 +541,8 @@ _CONTRIB_LABEL = {"content": "skills match", "pref": "roles you favour", "senior
                   "location": "location fit", "recency": "freshly posted", "collab": "popular with similar users",
                   "trending": "trending role", "semantic": "matches your resume",
                   "source": "from a company board", "category": "a role you chose",
-                  "prioritize": "a role you want", "comp": "salary disclosed"}
+                  "prioritize": "a role you want", "comp": "salary disclosed",
+                  "yc": "YC / top startup"}
 
 
 def blended_reason(job: dict, score: int, contrib: dict) -> str:
