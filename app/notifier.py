@@ -215,7 +215,7 @@ def format_digest(user: dict, jobs: list) -> str:
             cq = urllib.parse.quote(j.get("category") or "", safe="")
             # route Apply through /click so we capture the click-through (the highest-volume engagement
             # signal); /click logs 'clicked' then redirects to the real posting.
-            b.append(f"   Apply: {BASE_URL}/click?t={tok}&u={u}" + (f"&c={cq}" if cq else ""))
+            b.append(f"   Apply: {url}")  # direct link (the /click redirect broke: free app sleeps/cold-starts)
             # (Mark-applied + good/bad feedback links moved to the dashboard to keep the card clean.)
         else:
             b.append(f"   Apply: {url}")
