@@ -286,7 +286,8 @@ def score_job(job: dict, keywords: list) -> tuple:
     text = title + " " + (job.get("description", "") or "").lower()
     matched, title_bonus, core = [], 0, 0
     for k in keywords:
-        vs = _variants_of(k)
+        vs = _variants_of(k.lower())  # job text is lowercased; lowercase the keyword too so
+        #                               Title-case prefs (e.g. "Python", "Backend Engineer") still match
         if any(_contains(text, v) for v in vs):
             matched.append(k)
             if any(_contains(title, v) for v in vs):

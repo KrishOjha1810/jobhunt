@@ -38,6 +38,10 @@ def _norm(j):
     }
 
 
+_HDRS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+         "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"}
+
+
 def fetch(query: str = "", pages: int = 2, limit: int = 60) -> list:
     """Fetch early-career India + remote roles. `query` is accepted for adapter-signature parity but
     Muse filters by level/location/category, not free text, so we ignore it and rely on our matcher."""
@@ -54,7 +58,7 @@ def fetch(query: str = "", pages: int = 2, limit: int = 60) -> list:
         for loc in _LOCATIONS:
             params_multi.append(("location", loc))
         try:
-            r = requests.get(URL, params=params_multi, timeout=20)
+            r = requests.get(URL, params=params_multi, headers=_HDRS, timeout=20)
             r.raise_for_status()
             results = r.json().get("results", []) or []
         except Exception as e:

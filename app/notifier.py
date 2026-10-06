@@ -183,6 +183,10 @@ def format_digest(user: dict, jobs: list) -> str:
     head = (f"\U0001F4CB {len(jobs)} hand-picked match(es) for you"
             + (f" , {strong} we'd apply to today" if strong else "") + ":")
     footer = []
+    if strong:
+        footer.append("Referral ask template: \"Hi [name], saw [company] is hiring a [role]. "
+                      "I'm a software engineer (~1.5 yrs, backend / Rust / Python) and think I'd fit well. "
+                      "Would you be open to referring me? Happy to share my resume.\"")
     if tok:
         footer.append(f"Your tracker: {BASE_URL}/dashboard?token={tok}")
         footer.append(f"Pause these alerts: {BASE_URL}/unsubscribe?t={tok}")
@@ -212,11 +216,15 @@ def format_digest(user: dict, jobs: list) -> str:
             # route Apply through /click so we capture the click-through (the highest-volume engagement
             # signal); /click logs 'clicked' then redirects to the real posting.
             b.append(f"   Apply: {BASE_URL}/click?t={tok}&u={u}" + (f"&c={cq}" if cq else ""))
-            b.append(f"   Mark applied: {BASE_URL}/track?t={tok}&u={u}&s=applied")
-            b.append(f"   Good match: {BASE_URL}/feedback?t={tok}&u={u}&v=good"
-                     f"   |   Not for me: {BASE_URL}/feedback?t={tok}&u={u}&v=bad")
+            # (Mark-applied + good/bad feedback links moved to the dashboard to keep the card clean.)
         else:
             b.append(f"   Apply: {url}")
+        # Referral nudge for strong matches: a ToS-safe LinkedIn people-search link for the company
+        # (find someone to ask), paired with the footer template for what to say.
+        if j.get("verdict") == "strong" and j.get("company"):
+            comp_q = urllib.parse.quote(j["company"], safe="")
+            b.append(f"   \U0001F91D Seek a referral , people at {j['company']}: "
+                     f"https://www.linkedin.com/search/results/people/?keywords={comp_q}")
         b.append("")
         return "\n".join(b)
 

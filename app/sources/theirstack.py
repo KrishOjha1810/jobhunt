@@ -16,15 +16,16 @@ def available() -> bool:
     return bool(_KEY)
 
 
-def fetch(query: str = "", limit: int = 50) -> list:
+def fetch(query: str = "", limit: int = 6) -> list:
+    # Budget guard: free tier ~200 results/mo. Runner fires 1x/day, so 6/run = ~180/mo. Bump if you upgrade.
     if not _KEY:
         return []
     body = {
         "page": 0,
-        "limit": min(limit, 50),
+        "limit": min(limit, 25),        # free plan rejects >25 results/request (E-020)
         "job_country_code_or": ["IN"],
         "posted_at_max_age_days": 14,        # fresh only , protects the small monthly budget
-        "order_by": [{"field": "date_posted", "desc": True}],
+        # NOTE: free tier rejects `order_by` (sorting) with 403; posted_at_max_age_days keeps it fresh.
     }
     if query:
         body["job_title_or"] = [query]

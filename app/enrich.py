@@ -366,12 +366,19 @@ def recruiter_screen(resume_text: str, jobs: list, prefs: dict = None):
                            "clearly pays well below this, lower the fit (don't reject on unknown pay).")
     sys = (
         "You are a sharp technical recruiter screening jobs for ONE candidate. For EACH numbered job, "
-        "judge how good a match it REALLY is for THIS candidate's resume , and crucially, how likely "
-        "they are to actually get an interview (callback odds), not just topical relevance. Be strict: "
-        "a job the candidate is clearly under-qualified for (asks far more experience/seniority than "
-        "they have), over-qualified for, in the wrong domain, or that violates a stated hard constraint "
-        "is a REJECT, even if keywords overlap. Reserve 'strong' for jobs you'd genuinely tell them to "
-        "apply to today. Output ONLY a JSON array, one object per job IN ORDER, each: "
+        "judge how good a match it REALLY is for THIS candidate's resume, and how likely they are to "
+        "actually get an interview (callback odds), not just topical relevance. Be STRICT and default to "
+        "rejecting. Set verdict 'no' (REJECT) if ANY of these hold, even when keywords overlap: "
+        "(1) the role needs materially more experience than the candidate has (roughly 2+ years beyond "
+        "theirs) OR is titled Senior / Staff / Principal / Lead / Architect / Manager / Director while the "
+        "candidate is early-career; (2) it is an internship, trainee, apprentice, graduate-batch or student "
+        "role (this candidate is a working engineer, not a student); (3) it clearly EXCLUDES India-based or "
+        "international applicants, e.g. requires local citizenship / existing work authorization, or states "
+        "no visa sponsorship (the candidate is in India and open to remote, India, or international roles "
+        "that can hire from India, so do NOT reject merely for being abroad); (4) wrong domain, or it violates a stated "
+        "hard constraint. Reserve 'strong' ONLY for roles inside the candidate's experience band, "
+        "location-compatible, and a genuine stack fit , ones you'd tell them to apply to today. "
+        "Output ONLY a JSON array, one object per job IN ORDER, each: "
         '{"i": <1-based index>, "fit": <0-100 honest match+callback score>, '
         '"verdict": "strong"|"maybe"|"no", "why": "<=12 words, concrete & specific to this candidate", '
         '"catch": "<=12 words, the main gap/risk, or empty string if none"}. '
@@ -393,7 +400,17 @@ def recruiter_screen(resume_text: str, jobs: list, prefs: dict = None):
         import re as _re
         raw = _re.sub(r"^```(?:json)?|```$", "", raw.strip(), flags=_re.M).strip()
         m = _re.search(r"\[.*\]", raw, _re.S)
-        arr = _json.loads(m.group(0)) if m else []
+        try:
+            arr = _json.loads(m.group(0)) if m else _json.loads(raw)
+        except Exception:
+            # One malformed item must not discard the WHOLE screen (that silently drops every
+            # candidate to 'maybe' and loses the precision pass). Recover each {...} object.
+            arr = []
+            for _obj in _re.findall(r"\{[^{}]*\}", raw, _re.S):
+                try:
+                    arr.append(_json.loads(_obj))
+                except Exception:
+                    continue
     except Exception as e:
         print(f"[enrich] recruiter_screen failed: {e}")
         return []

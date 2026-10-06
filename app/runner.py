@@ -328,6 +328,42 @@ def _precompute_embeddings(users, pool, verbose=False):
         print(f"[runner] embedding precompute failed: {e}")
 
 
+def _salary_lpa(j):
+    """Best-effort annual pay in LPA (lakhs/yr) from a job's salary string; 0 when unknown.
+    Used only as a tie-breaker, so ambiguous/foreign salaries safely fall back to 0."""
+    import re
+    s = (j.get("salary") or "").lower().replace(",", "")
+    if not s:
+        return 0.0
+    nums = [float(x) for x in re.findall(r"\d+(?:\.\d+)?", s)]
+    if not nums:
+        return 0.0
+    val = max(nums)
+    if "cr" in s or "crore" in s:
+        return val * 100
+    if any(k in s for k in ("lac", "lakh", "lpa")):
+        return val
+    if val >= 100000:          # bare annual INR figure
+        return val / 100000.0
+    return 0.0                 # $/k/ambiguous -> treat as unknown for ranking
+
+
+def _loc_pref(j):
+    """2 = remote, 1 = India location, 0 = otherwise (ranking tie-break toward remote/India)."""
+    loc = (j.get("location") or "").lower()
+    if "remote" in loc:
+        return 2      # remote wins ties
+    return 1          # India or international both fine, below remote
+
+
+def _recency_days(j):
+    try:
+        a = db.posted_age_days(j.get("posted_at"))
+        return a if a is not None else 999
+    except Exception:
+        return 999
+
+
 def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
     """Fetch the shared pool and notify users. If only_user_id is set, match just that one user
     (used to give a brand-new subscriber their first matches immediately on subscribe).
@@ -589,8 +625,15 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
             if screened and not used_fallback:
                 passers = [j for j in fresh if j.get("verdict") in ("strong", "maybe")]
                 # strong first; within a tier order by recruiter fit (falls back to blended score)
-                passers.sort(key=lambda j: (0 if j.get("verdict") == "strong" else 1,
-                                            -(j.get("fit") if j.get("fit") is not None else (j.get("score") or 0))))
+                # Ranked order: (1) strong first, (2) recruiter fit desc, (3) freshest post,
+                # then TIE-BREAKS only when the above match: (4) higher salary, (5) remote/India.
+                passers.sort(key=lambda j: (
+                    0 if j.get("verdict") == "strong" else 1,
+                    -(j.get("fit") if j.get("fit") is not None else (j.get("score") or 0)),
+                    _recency_days(j),
+                    -_salary_lpa(j),
+                    -_loc_pref(j),
+                ))
                 to_send = _cap_aggregator(passers)[:PRECISION_MAX]
             else:
                 strong = [j for j in fresh if (j.get("score") or 0) >= 50]

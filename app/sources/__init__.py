@@ -6,7 +6,7 @@ path kept for tests/compatibility.
 """
 import re as _re
 from . import remotive, remoteok, arbeitnow, adzuna, jsearch, jobicy, himalayas, ats, telegram_channels
-from . import themuse, internships, theirstack, jooble
+from . import themuse, internships, theirstack, jooble, amazon, apple, google
 
 PRIORITY_TERMS = [
     "rust", "solidity", "typescript", "python", "java", "golang", "go",
@@ -209,6 +209,11 @@ def _fetch(terms: list, india_wanted: bool, max_adzuna_terms: int = 3) -> list:
     tasks.append(lambda: himalayas.fetch(""))
     tasks.append(lambda: themuse.fetch(""))     # keyless; India city-level + non-dev/early-career
     tasks.append(lambda: internships.fetch(""))  # community GitHub internship JSON (India/Remote)
+    if india_wanted:
+        # Big-tech that run their OWN portals (not on ATS boards), reachable with a plain request:
+        tasks.append(lambda: amazon.fetch())     # amazon.jobs India SDE/backend
+        tasks.append(lambda: apple.fetch())      # jobs.apple.com India SWE (hydration JSON)
+        tasks.append(lambda: google.fetch())     # google.com/careers India early-career SWE (HTML)
     tasks.append(_ats_capped)  # Greenhouse/Lever/Ashby niche roles (already concurrent internally)
     if telegram_channels.channels():  # public Telegram job channels (set TELEGRAM_JOB_CHANNELS)
         tasks.append(lambda: telegram_channels.fetch(""))
@@ -223,6 +228,12 @@ def _fetch(terms: list, india_wanted: bool, max_adzuna_terms: int = 3) -> list:
         base = " ".join(terms[:3]) or "software engineer"
         q = (base + " jobs in India") if india_wanted else (base + " remote")
         tasks.append(lambda: jsearch.fetch(q))
+        if india_wanted:  # FAANG + big-tech that run their OWN portals (not on our ATS boards): pull via
+            # Google-for-Jobs, one company per run (rotates daily) so a week covers all without burning quota.
+            import datetime as _dt
+            _bigtech = ["Microsoft", "Google", "Uber", "Meta", "Apple", "Netflix", "Flipkart"]
+            _co = _bigtech[_dt.date.today().toordinal() % len(_bigtech)]
+            tasks.append(lambda c=_co: jsearch.fetch(f"{c} software engineer India"))
     if jooble.available():  # free licensed aggregator, India coverage (off until JOOBLE_API_KEY set)
         jq = " ".join(terms[:3]) or "software engineer"
         tasks.append(lambda: jooble.fetch(jq, "India" if india_wanted else ""))
