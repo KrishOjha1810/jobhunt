@@ -87,7 +87,16 @@ def location_ok(job_location: str, locations: list) -> bool:
         return True
     wants = [w.lower().strip() for w in locations]
     india_user = any(w == "india" or w in INDIA_CITIES for w in wants)
+    # USD-remote target: the user listed worldwide/international, so a remote role at a US/EU company
+    # is exactly what we want. Keep India + global + unknown AND any REMOTE-looking role regardless of
+    # country; drop only clearly ONSITE-foreign. The geo-eligibility gate (regex + LLM on the JD body)
+    # does the real filtering of US/EU-only remote roles downstream.
+    intl_remote = any(w in ("worldwide", "international", "anywhere", "global") for w in wants)
     region = job_region(job_location)
+    if intl_remote:
+        if region in ("india", "global", "unknown"):
+            return True
+        return "remote" in (job_location or "").lower()  # remote-foreign kept, onsite-foreign dropped
     if india_user:
         # keep India + true global remote + unknown (vaguely-located remote roles); drop only clearly
         # foreign postings. The overlap floor + neutral location weight keep 'unknown' honest.

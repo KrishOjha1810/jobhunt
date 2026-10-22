@@ -290,6 +290,10 @@ def fetch_pool(users: list) -> list:
     """Fetch ONE shared pool this run: union of subscribers' query terms PLUS the common roles, so
     the browse catalog stays broad and useful even to people who haven't subscribed yet."""
     terms, india = [], False
+    try:
+        from ..db import get_profile_extra as _gpx
+    except Exception:
+        _gpx = lambda _uid: {}
     for u in users:
         for t in query_terms(u.get("keywords", [])):
             if t not in terms:
@@ -299,7 +303,14 @@ def fetch_pool(users: list) -> list:
             t = _CAT_QUERY.get(c)
             if t and t not in terms:
                 terms.append(t)
-        if any("india" in (l or "").lower() for l in u.get("locations", [])):
+        # Only a NON-usd-remote India user forces India-market sourcing (Naukri/India big-tech). A
+        # usd-remote user wants remote-first sourcing (the _fetch 'remote' query path), so their India
+        # location doesn't flip the pool India-ward.
+        try:
+            is_usd = (_gpx(u["id"]) or {}).get("target_market") == "usd_remote"
+        except Exception:
+            is_usd = False
+        if (not is_usd) and any("india" in (l or "").lower() for l in u.get("locations", [])):
             india = True
     # keep subscriber terms prioritized, but guarantee broad role coverage for browse by always
     # appending the common roles; widen the cap so many roles get polled each run

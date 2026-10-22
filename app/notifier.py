@@ -209,6 +209,8 @@ def format_digest(user: dict, jobs: list) -> str:
             b.append(f"   {j['reason']}")
         if j.get("catch"):
             b.append(f"   Heads up: {j['catch']}")
+        if j.get("tz"):  # surfaced, not filtered , the candidate decides if the overlap works
+            b.append(f"   \U0001F552 Overlap: {j['tz']}")
         url = j.get("url", "")
         if tok and url:
             u = urllib.parse.quote(url, safe="")
