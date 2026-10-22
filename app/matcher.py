@@ -94,9 +94,12 @@ def location_ok(job_location: str, locations: list) -> bool:
     intl_remote = any(w in ("worldwide", "international", "anywhere", "global") for w in wants)
     region = job_region(job_location)
     if intl_remote:
-        if region in ("india", "global", "unknown"):
-            return True
-        return "remote" in (job_location or "").lower()  # remote-foreign kept, onsite-foreign dropped
+        # Keep India + generic/worldwide remote + unknown. DROP anything tied to a specific foreign
+        # country (incl. "Remote - USA" / "Remote, Germany"): a remote role naming one foreign country
+        # is almost always restricted to it, and surfacing it is worse than useless. This holds even
+        # when the LLM screen is down. The screen (on the JD body) still catches a hidden "US only"
+        # buried in a generic "Remote"/"Worldwide" posting.
+        return region in ("india", "global", "unknown")
     if india_user:
         # keep India + true global remote + unknown (vaguely-located remote roles); drop only clearly
         # foreign postings. The overlap floor + neutral location weight keep 'unknown' honest.

@@ -403,12 +403,23 @@ def recruiter_screen(resume_text: str, jobs: list, prefs: dict = None):
     )
     # ONE call (the output is a JSON array, so we parse it directly rather than via _json_call which
     # expects an object , avoids a wasted second call/quota hit).
+    raw = None
+    for _attempt in (1, 2):  # one retry , a transient 5xx/timeout here otherwise silently drops the
+        try:                  # whole precision + geo gate for the run, which is the worst quiet failure
+            if LLM_PROVIDER == "anthropic":
+                raw = _chat_anthropic(sys, user_msg, max_tokens=2400)
+            else:
+                raw = _chat_openai_compat(
+                    [{"role": "system", "content": sys}, {"role": "user", "content": user_msg}], max_tokens=2400)
+            break
+        except Exception as e:
+            if _attempt == 1:
+                import time as _t
+                _t.sleep(1.5)
+                continue
+            print(f"[enrich] recruiter_screen failed: {e}")
+            return []
     try:
-        if LLM_PROVIDER == "anthropic":
-            raw = _chat_anthropic(sys, user_msg, max_tokens=2400)
-        else:
-            raw = _chat_openai_compat(
-                [{"role": "system", "content": sys}, {"role": "user", "content": user_msg}], max_tokens=2400)
         import json as _json
         import re as _re
         raw = _re.sub(r"^```(?:json)?|```$", "", raw.strip(), flags=_re.M).strip()
