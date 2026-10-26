@@ -1,6 +1,8 @@
 """Score jobs against a user's keyword profile and location preference."""
 import re
 
+from . import classify
+
 
 def _contains(text: str, term: str) -> bool:
     return re.search(r"(?<![a-z0-9])" + re.escape(term) + r"(?![a-z0-9])", text) is not None
@@ -562,7 +564,8 @@ def blended_reason(job: dict, score: int, contrib: dict) -> str:
 
 
 def rank_matches(jobs: list, keywords: list, locations: list, min_score: int,
-                 user_years: int = 0, user_cats: list = None) -> list:
+                 user_years: int = 0, user_cats: list = None, fresher: dict = None,
+                 dream_companies: list = None) -> list:
     """Return jobs that clear min_score and pass the location filter, sorted by fit desc.
 
     user_years (from the resume) drives a seniority-GAP penalty: a job asking far more experience
@@ -574,6 +577,7 @@ def rank_matches(jobs: list, keywords: list, locations: list, min_score: int,
     wants = [w.lower().strip() for w in (locations or [])]
     india_user = any(w == "india" or w in INDIA_CITIES for w in wants)
     cats_set = set(user_cats or [])
+    dream = [d.strip().lower() for d in (dream_companies or []) if str(d).strip()]
     results = []
     for job in jobs:
         if not location_ok(job.get("location", ""), locations):
@@ -583,10 +587,12 @@ def rank_matches(jobs: list, keywords: list, locations: list, min_score: int,
         title_bonus = sum(1 for k in keywords if _matches(title_l, k))
         cat = job.get("category") or categorize(job)  # pool is pre-categorized once; don't redo it per user
         in_cat = bool(cats_set) and cat in cats_set
+        comp_l = (job.get("company", "") or "").lower()
+        is_dream = bool(dream) and any(d in comp_l for d in dream)  # a role at a company you specifically want
         # Relevance = real keyword overlap (>=2 or a title-role hit) OR the job is in a role the user
         # explicitly chose. The latter keeps role-relevant jobs the old overlap floor was dropping,
         # while the floor still kills incidental one-keyword noise for users with no role filter.
-        if in_cat or (score >= min_score and (len(matched) >= 2 or title_bonus >= 1)):
+        if in_cat or is_dream or (score >= min_score and (len(matched) >= 2 or title_bonus >= 1)):
             req = required_experience(job)  # stated years OR title level (Senior/Staff/Lead/...)
             # Hard-drop roles materially too senior for the user (gap-based, applies at ALL levels):
             # the "I set 0-2 but get Senior Data Engineer" complaint AND the mid-level "I keep getting
@@ -606,6 +612,24 @@ def rank_matches(jobs: list, keywords: list, locations: list, min_score: int,
             loc_boost = 12 if (india_user and region == "india") else 0
             # Normalized 0-100 fit: scaled skill+title overlap, + location relevance, - seniority gap.
             fit = max(15, min(100, score * 8 + loc_boost - penalty))
+            if is_dream:  # a role at a company you specifically want , push it to the top and tag it
+                fit = min(100, fit + 20)
+                job["is_target"] = True
+            # Employment-type + fresher signals (internship / PPO / trainee / probation), tagged on
+            # EVERY job so the UI can badge "converts to full-time". In fresher mode these also boost
+            # fresher-friendly and PPO roles, and can hard-filter to only convertible ones.
+            einfo = classify.classify_employment(job.get("title", ""), job.get("description", ""))
+            job["employment_type"] = einfo["employment_type"]
+            job["has_ppo"] = einfo["has_ppo"]
+            job["converts_fulltime"] = classify.converts_to_fulltime(einfo)
+            job["is_fresher_friendly"] = einfo["is_fresher_friendly"]
+            if fresher and fresher.get("fresher_mode"):
+                if fresher.get("only_convertible") and not job["converts_fulltime"]:
+                    continue  # student wants only roles that can become a full-time job
+                fit = min(100, fit + (10 if job["converts_fulltime"]
+                                      else (6 if job["is_fresher_friendly"] else 0)))
+            elif fresher and fresher.get("open_to_internships") is False and is_internship(job):
+                continue  # user explicitly does not want internships
             job["raw_score"] = score
             job["score"] = fit
             job["region"] = region

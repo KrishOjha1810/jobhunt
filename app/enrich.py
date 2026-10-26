@@ -70,6 +70,18 @@ GAP_PROMPT = (
     "No em dashes. Be concrete and honest, not flattering."
 )
 
+COVER_LETTER_PROMPT = (
+    "You write a tight, specific cover letter for this candidate and this job. Output ONLY the letter "
+    "body (no addresses, no 'Dear Hiring Manager' header, no sign-off block), 3 short paragraphs, "
+    "about 150-200 words total:\n"
+    "1. A direct opening naming the role and the single strongest reason this candidate fits it.\n"
+    "2. Two or three concrete, resume-grounded proof points mapped to what THIS job asks for (use their "
+    "real numbers and projects, never invent any).\n"
+    "3. A brief close on why this company/role specifically, and genuine interest.\n"
+    "First person, confident but not boastful, no cliches or buzzwords, no em dashes. Ground every "
+    "claim in the resume; if the JD wants something not in the resume, do not fabricate it."
+)
+
 
 def _run(prompt: str, job: dict, resume_text: str, jd_chars: int = 3000):
     """Shared LLM call for the per-job advice features. Returns (text, error)."""
@@ -438,6 +450,11 @@ def interview_prep(job: dict, resume_text: str):
 
 def resume_gap(job: dict, resume_text: str):
     return _run(GAP_PROMPT, job, resume_text)
+
+
+def cover_letter(job: dict, resume_text: str):
+    """A tight, resume-grounded cover letter body for this job (3 short paragraphs). myjobb has none."""
+    return _run(COVER_LETTER_PROMPT, job, resume_text)
 
 
 def answer_questions(job: dict, resume_text: str, questions: list, facts: dict = None):

@@ -629,6 +629,49 @@ async def api_profile(request: Request, token: str = ""):
     return {"ok": True, "profile_extra": data}
 
 
+@app.api_route("/api/apply-profile", methods=["GET", "POST"])
+async def api_apply_profile(request: Request, token: str = ""):
+    """The static application profile powering keyless auto-answers: GET returns it, POST merges the
+    recognized fields (phone, work authorization, notice period, CTC, years, relocation, links). These
+    feed autoapply.resolve_answers so the extension fills notice-period/CTC/visa questions with no LLM
+    call. Nothing here is a credential , no board passwords, no cookies."""
+    user = _resolve_user(request, token)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    if request.method == "GET":
+        return {"ok": True, "apply_profile": db.get_apply_profile(user["id"]),
+                "fields": list(db._APPLY_PROFILE_FIELDS)}
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    fields = {k: v for k, v in body.items() if k in db._APPLY_PROFILE_FIELDS}
+    data = db.set_apply_profile(user["id"], **fields)
+    return {"ok": True, "apply_profile": data}
+
+
+@app.api_route("/api/apply-answers", methods=["GET", "POST"])
+async def api_apply_answers(request: Request, token: str = ""):
+    """The learned answer bank for screening questions. GET lists stored Q&A; POST saves a batch
+    (body {answers: {question: answer}}) as user-confirmed, so a repeat question is answered for free
+    next time. This is the write side that lets the bank actually grow from the extension."""
+    user = _resolve_user(request, token)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    if request.method == "GET":
+        return {"ok": True, "answers": db.list_apply_answers(user["id"])}
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    pairs = body.get("answers") or {}
+    if not isinstance(pairs, dict):
+        return {"ok": False, "reason": "answers must be an object of question -> answer"}
+    from . import autoapply
+    autoapply.learn_answers(user["id"], pairs, source="user")
+    return {"ok": True, "answers": db.list_apply_answers(user["id"])}
+
+
 @app.api_route("/api/preferences", methods=["GET", "POST"])
 async def api_preferences(request: Request, token: str = ""):
     """The 'tune my matches' surface , consolidates roles (categories), locations, experience, and the
@@ -644,7 +687,11 @@ async def api_preferences(request: Request, token: str = ""):
                 "categories": user.get("categories") or [], "locations": user.get("locations") or [],
                 "experience": user.get("experience") or "",
                 "remote_only": bool(px.get("remote_only")), "avoid": px.get("avoid") or [],
-                "prioritize": px.get("prioritize") or [], "min_salary": px.get("min_salary") or 0}
+                "prioritize": px.get("prioritize") or [], "min_salary": px.get("min_salary") or 0,
+                "fresher_mode": bool(px.get("fresher_mode")),
+                "open_to_internships": px.get("open_to_internships"),
+                "only_convertible": bool(px.get("only_convertible")),
+                "dream_companies": px.get("dream_companies") or []}
     try:
         body = await request.json()
     except Exception:
@@ -655,7 +702,11 @@ async def api_preferences(request: Request, token: str = ""):
                       locations=_list(body.get("locations")) if "locations" in body else None,
                       experience=body.get("experience"))
     db.set_profile_extra(user["id"], remote_only=body.get("remote_only"), avoid=body.get("avoid"),
-                         prioritize=body.get("prioritize"), min_salary=body.get("min_salary"))
+                         prioritize=body.get("prioritize"), min_salary=body.get("min_salary"),
+                         fresher_mode=body.get("fresher_mode"),
+                         open_to_internships=body.get("open_to_internships"),
+                         only_convertible=body.get("only_convertible"),
+                         dream_companies=_list(body.get("dream_companies")) if "dream_companies" in body else None)
     return {"ok": True}
 
 
@@ -1351,8 +1402,13 @@ async def api_save_job(request: Request, token: str = ""):
 
 @app.post("/api/answer")
 async def api_answer(request: Request, job_id: int = 0, token: str = ""):
-    """Draft answers to screening questions (browser extension). Body JSON: {questions:[...]}."""
-    from . import enrich, resume as _resume
+    """Draft answers to screening questions (browser extension). Body JSON: {questions:[...]}.
+
+    Two-pass, so the deterministic facts never cost an LLM call (or need a key): first the answer bank
+    + static apply-profile answer every known field (notice period, CTC, work authorization, phone,
+    years, ...); only the genuinely novel questions fall through to the LLM. Returns a list aligned to
+    `questions` so the extension fills each box by index."""
+    from . import enrich, resume as _resume, autoapply
     user = _resolve_user(request, token)
     if not user:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
@@ -1363,19 +1419,35 @@ async def api_answer(request: Request, job_id: int = 0, token: str = ""):
     questions = [str(q) for q in (body.get("questions") or [])][:8]
     if not questions:
         return {"ok": False, "reason": "no questions"}
-    if not enrich.available():
-        return {"ok": False, "reason": "Needs a free Groq key to draft answers."}
-    job = db.get_job_log(job_id, user["id"]) or {}
-    txt = user.get("resume_text") or ""
-    facts = {"name": user.get("name"), "years": _resume.years_experience(txt) or "",
-             "locations": user.get("locations") or []}
-    answers, err = enrich.answer_questions(
-        {"title": job.get("title"), "company": job.get("company"),
-         "description": _job_jd(job) if job else ""},
-        txt, questions, facts)
-    if not answers:
-        return {"ok": False, "reason": err or "Could not draft answers."}
-    return {"ok": True, "answers": answers}
+
+    # pass 1: deterministic , the answer bank, then the static apply-profile. No LLM, works keyless.
+    resolved = autoapply.resolve_answers(user["id"], questions)
+    answered = resolved["answered"]          # {question: answer}
+    unanswered = resolved["unanswered"]      # [question, ...] , the novel ones only
+
+    # pass 2: LLM drafts ONLY the novel questions (cheaper, fewer 429s). Not persisted to the bank:
+    # open-ended answers (e.g. "why this company") are company-specific and must not be reused.
+    drafted = {}
+    if unanswered and enrich.available():
+        job = db.get_job_log(job_id, user["id"]) or {}
+        txt = user.get("resume_text") or ""
+        facts = {"name": user.get("name"), "years": _resume.years_experience(txt) or "",
+                 "locations": user.get("locations") or []}
+        drafts, _err = enrich.answer_questions(
+            {"title": job.get("title"), "company": job.get("company"),
+             "description": _job_jd(job) if job else ""},
+            txt, unanswered, facts)
+        for q, a in zip(unanswered, drafts or []):
+            drafted[q] = a
+
+    # assemble a list aligned to the ORIGINAL question order
+    out = [answered.get(q) or drafted.get(q) or "[please answer]" for q in questions]
+    if all(str(a).startswith("[please answer]") for a in out):
+        return {"ok": False,
+                "reason": "Could not answer , add your application details in Profile, or set a Groq key."}
+    return {"ok": True, "answers": out,
+            "known": [q for q in questions if q in answered],
+            "drafted": [q for q in questions if q in drafted]}
 
 
 @app.get("/booster")
@@ -1605,6 +1677,15 @@ def preferences_page(request: Request, token: str = ""):
     if not (current_user(request) or db.user_by_token(token)):
         return RedirectResponse("/login")
     return _page("preferences.html")
+
+
+@app.get("/apply", response_class=HTMLResponse)
+def apply_page(request: Request, token: str = ""):
+    """The apply cockpit: the strong matches worth applying to, each prepared (tailored resume,
+    pre-filled answers, cover letter) so applying is review-and-send."""
+    if not (current_user(request) or db.user_by_token(token)):
+        return RedirectResponse("/login")
+    return _page("apply.html")
 
 
 @app.get("/api/resume")
@@ -1921,6 +2002,137 @@ async def api_resume_export(request: Request, token: str = ""):
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={"Content-Disposition": f'attachment; filename="{safe}_JobHunt.docx"'},
     )
+
+
+@app.get("/api/resume/tailored.docx")
+def api_resume_tailored_docx(request: Request, job_id: int = 0, url: str = "", token: str = ""):
+    """The per-job apply artifact: tailor the user's resume to this job, render it in the gold format,
+    auto-fit it to the page budget, and VALIDATE it. Returns the .docx only when it passes validation
+    (so a broken or overflowing resume is never handed to the apply flow); otherwise 422 with reasons.
+    X-Resume-Trimmed reports how many low-value bullets were cut to make it fit."""
+    from . import enrich, resume_render
+    user = _resolve_user(request, token)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    job = _resolve_job_for_context(user, job_id, url)
+    if not job:
+        return JSONResponse({"ok": False, "reason": "job not found"}, status_code=404)
+    rj = db.get_resume_json(user["id"])
+    if not rj:
+        return JSONResponse({"ok": False, "needs_upload": True,
+                             "reason": "Upload your resume first , we tailor your real resume."},
+                            status_code=409)
+    jd = _job_jd(job) or (job.get("title") or "")
+    edits, _err = enrich.tailor_edits(rj, job.get("title") or "", jd,
+                                      extra=db.profile_extra_text(user["id"]),
+                                      github=db.github_repos(user["id"]))
+    tailored = resume_render.apply_edits_to_json(rj, edits)
+    out = resume_render.build_validated(tailored, _user_years(user))
+    if not out["validation"]["ok"]:
+        return JSONResponse({"ok": False, "reason": "tailored resume did not pass validation",
+                             "failures": out["validation"]["failures"],
+                             "checks": out["validation"]["checks"]}, status_code=422)
+    safe = "".join(c for c in (rj.get("name") or "resume") if c.isalnum() or c in "-_") or "resume"
+    comp = "".join(c for c in (job.get("company") or "job") if c.isalnum() or c in "-_") or "job"
+    return Response(
+        content=out["docx"],
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{safe}_{comp}.docx"',
+                 "X-Resume-Trimmed": str(out["trimmed"]),
+                 "X-ATS-Score": str(out.get("ats") or ""),
+                 "X-Resume-Valid": "true"},
+    )
+
+
+# The handful of questions almost every application asks , pre-resolved from the answer bank/profile
+# so the apply package arrives mostly filled, with no LLM call for these.
+_COMMON_APPLY_QUESTIONS = [
+    "What is your notice period?",
+    "Expected CTC / salary?",
+    "Do you need visa sponsorship / work authorization?",
+    "Total years of experience?",
+    "Are you willing to relocate?",
+]
+
+
+@app.get("/api/apply-queue")
+def api_apply_queue(request: Request, token: str = ""):
+    """The human-review apply queue: the strong, geo-eligible matches worth applying to, throttled so
+    no single company floods it. Quality-first , these are the few roles we'd actually apply to, not a
+    firehose. Each item carries the recruiter's why_fit + whether a tailored resume can be built."""
+    from . import autoapply
+    user = _resolve_user(request, token)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    has_resume = bool(db.get_resume_json(user["id"]) or user.get("resume_text"))
+    dream = [d.lower() for d in ((db.get_profile_extra(user["id"]) or {}).get("dream_companies") or [])]
+    queue = []
+    for c in autoapply.review_queue(user["id"]):
+        comp = (c.get("company") or "").lower()
+        queue.append({**c, "resume_ready": has_resume,
+                      "is_target": bool(dream) and any(d in comp for d in dream)})
+    return {"ok": True, "queue": queue, "count": len(queue)}
+
+
+@app.get("/api/cover_letter")
+def api_cover_letter(request: Request, job_id: int = 0, url: str = "", token: str = ""):
+    """A tight, resume-grounded cover letter for a job (a differentiator , myjobb has none)."""
+    from . import enrich
+    user = _resolve_user(request, token)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    job = _resolve_job_for_context(user, job_id, url)
+    if not job:
+        return JSONResponse({"ok": False, "reason": "job not found"}, status_code=404)
+    if not enrich.available():
+        return {"ok": False, "reason": "Needs a free Groq key to write the cover letter."}
+    text, err = enrich.cover_letter(
+        {"title": job.get("title"), "company": job.get("company"), "description": _job_jd(job)},
+        user.get("resume_text") or "")
+    if not text:
+        return {"ok": False, "reason": err or "Could not write a cover letter right now."}
+    return {"ok": True, "cover_letter": text}
+
+
+@app.get("/api/apply-package")
+def api_apply_package(request: Request, job_id: int = 0, url: str = "", token: str = ""):
+    """One call that assembles everything needed to apply to a job: the recruiter's fit reasoning, the
+    common screening answers pre-resolved from the answer bank/profile (no LLM), a link to the validated
+    per-job tailored resume, and a cover letter. The automation centerpiece the dashboard + extension
+    both use, so applying is review-and-send, not fill-from-scratch."""
+    from . import autoapply, enrich
+    user = _resolve_user(request, token)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    job = _resolve_job_for_context(user, job_id, url)
+    if not job:
+        return JSONResponse({"ok": False, "reason": "job not found"}, status_code=404)
+    resolved = autoapply.resolve_answers(user["id"], _COMMON_APPLY_QUESTIONS)
+    rj = db.get_resume_json(user["id"])
+    has_resume = bool(rj or user.get("resume_text"))
+    ats_score = None
+    if rj:
+        from . import resume_export
+        try:
+            ats_score = resume_export.ats_health(rj, years=_user_years(user)).get("score")
+        except Exception:
+            ats_score = None
+    cover = ""
+    if enrich.available():
+        cover, _e = enrich.cover_letter(
+            {"title": job.get("title"), "company": job.get("company"), "description": _job_jd(job)},
+            user.get("resume_text") or "")
+    return {
+        "ok": True,
+        "job": {"id": job.get("id"), "title": job.get("title"),
+                "company": job.get("company"), "url": job.get("url")},
+        "verdict": job.get("verdict"), "fit": job.get("fit"), "why_fit": job.get("why_fit"),
+        "catch": job.get("catch"),
+        "resume": {"ready": has_resume, "ats_score": ats_score,
+                   "download_path": f"/api/resume/tailored.docx?job_id={job.get('id')}"},
+        "answers": resolved["answered"], "unanswered": resolved["unanswered"],
+        "cover_letter": cover,
+    }
 
 
 @app.post("/api/resume/phrasings")

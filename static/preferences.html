@@ -31,6 +31,7 @@
     <a class="brand" href="/jobs"><span class="brand-mark">JH</span> JobHunt</a>
     <a class="nlink" href="/jobs">⌕ <span class="lbl">Browse</span></a>
     <a class="nlink" href="/dashboard">◎ <span class="lbl">Tracker</span></a>
+    <a class="nlink" href="/apply">⚡ <span class="lbl">Apply</span></a>
     <a class="nlink" href="/resume">▤ <span class="lbl">Resume</span></a>
     <a class="nlink active" href="/preferences">⚙ <span class="lbl">Preferences</span></a>
     <button class="theme-toggle" id="themeToggle" aria-label="Toggle theme"></button>
@@ -53,6 +54,13 @@
       <p class="sub">Titles or keywords to push to the top when they fit (e.g. "machine learning", "data analyst").</p>
       <div class="tagwrap" id="priChips"></div>
       <input type="text" id="priAdd" placeholder="Add a title/keyword, press Enter" />
+    </div>
+
+    <div class="pcard">
+      <h2>Dream companies</h2>
+      <p class="sub">Companies you specifically want to work at (e.g. your target remote / web3 employers). Roles from these are pushed to the top and marked as a target, even with thin keyword overlap.</p>
+      <div class="tagwrap" id="dreamChips"></div>
+      <input type="text" id="dreamAdd" placeholder="Add a company, press Enter" />
     </div>
 
     <div class="pcard">
@@ -82,6 +90,36 @@
       </label>
     </div>
 
+    <div class="pcard">
+      <h2>Students &amp; freshers</h2>
+      <p class="sub">Final year or just graduated? Turn this on to get internships, trainee/graduate programs, and roles that convert to full-time, instead of being filtered out for having no experience yet.</p>
+      <label class="fld" style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600">
+        <input type="checkbox" id="fresherMode" style="width:auto"> I am a student / fresher
+      </label>
+      <label class="fld" style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600">
+        <input type="checkbox" id="openInternships" style="width:auto"> Open to internships
+      </label>
+      <label class="fld" style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600">
+        <input type="checkbox" id="onlyConvertible" style="width:auto"> Only internships that can convert to a full-time job (PPO)
+      </label>
+    </div>
+
+    <div class="pcard">
+      <h2>Application details</h2>
+      <p class="sub">Fill once. These auto-answer the common screening questions (notice period, CTC, work authorization) on applications, with no AI needed , so applying is faster and consistent.</p>
+      <label class="fld">Phone</label><input type="text" id="ap_phone" />
+      <label class="fld">Current city</label><input type="text" id="ap_location_city" />
+      <label class="fld">Work authorization</label><input type="text" id="ap_work_authorization" placeholder="e.g. Indian citizen, no US sponsorship needed" />
+      <label class="fld">Notice period</label><input type="text" id="ap_notice_period_days" placeholder="e.g. 30 days / immediate" />
+      <label class="fld">Current CTC</label><input type="text" id="ap_current_ctc" />
+      <label class="fld">Expected CTC</label><input type="text" id="ap_expected_ctc" />
+      <label class="fld">Total experience (years)</label><input type="text" id="ap_total_experience_years" />
+      <label class="fld">Willing to relocate</label><input type="text" id="ap_willing_to_relocate" placeholder="e.g. No, remote only" />
+      <label class="fld">LinkedIn URL</label><input type="text" id="ap_linkedin_url" />
+      <label class="fld">GitHub URL</label><input type="text" id="ap_github_url" />
+      <label class="fld">Portfolio URL</label><input type="text" id="ap_portfolio_url" />
+    </div>
+
     <div class="savebar">
       <button class="btn btn-primary" id="save" style="width:100%;padding:13px">Save preferences</button>
       <span class="sub" id="msg" style="display:block;text-align:center;margin-top:8px"></span>
@@ -99,7 +137,7 @@
     applyT(localStorage.getItem('theme')||'dark');
     tg.onclick = () => { const n = document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark'; localStorage.setItem('theme',n); applyT(n); };
 
-    let ROLES = new Set(), PRI = [], EX = [];
+    let ROLES = new Set(), PRI = [], EX = [], DREAM = [];
     function renderRoles(all){
       $('roleChips').innerHTML = all.map(c =>
         `<button class="chip${ROLES.has(c)?' active':''}" data-c="${esc(c)}">${esc(c)}</button>`).join('');
@@ -119,6 +157,7 @@
     }
     wireAdd('priAdd', PRI, 'priChips', false);
     wireAdd('exAdd', EX, 'exChips', true);
+    wireAdd('dreamAdd', DREAM, 'dreamChips', false);
 
     fetch(apiq('/api/preferences')).then(r => r.ok ? r.json() : null).then(d => {
       if(!d || !d.ok) { $('msg').innerHTML = '<span class="err">Please log in first.</span>'; return; }
@@ -126,25 +165,47 @@
       PRI = (d.prioritize || []).slice();
       EX = (d.avoid || []).slice();
       renderRoles(d.roles_all || []);
+      DREAM = (d.dream_companies || []).slice();
       renderTags(PRI, 'priChips', false);
       renderTags(EX, 'exChips', true);
+      renderTags(DREAM, 'dreamChips', false);
       $('minSalary').value = d.min_salary || '';
       $('experience').value = d.experience || '';
       $('locations').value = (d.locations || []).join(', ');
       $('remoteOnly').checked = !!d.remote_only;
+      $('fresherMode').checked = !!d.fresher_mode;
+      $('openInternships').checked = d.open_to_internships === true;
+      $('onlyConvertible').checked = !!d.only_convertible;
     }).catch(() => { $('msg').innerHTML = '<span class="err">Could not load.</span>'; });
+
+    // Application details (the answer-bank profile) , loaded and saved alongside preferences.
+    const AP_FIELDS = ["phone","location_city","work_authorization","notice_period_days","current_ctc",
+      "expected_ctc","total_experience_years","willing_to_relocate","linkedin_url","github_url","portfolio_url"];
+    fetch(apiq('/api/apply-profile')).then(r => r.ok ? r.json() : null).then(d => {
+      const p = (d && d.apply_profile) || {};
+      AP_FIELDS.forEach(f => { const el = $('ap_'+f); if (el && p[f]) el.value = p[f]; });
+    }).catch(() => {});
+    async function saveApplyProfile(){
+      const body = {};
+      AP_FIELDS.forEach(f => { const el = $('ap_'+f); if (el && el.value.trim()) body[f] = el.value.trim(); });
+      try { await fetch(apiq('/api/apply-profile'), { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(body) }); } catch(e){}
+    }
 
     $('save').onclick = async () => {
       $('save').disabled = true; $('msg').textContent = 'Saving...';
       const body = {
-        categories: [...ROLES], prioritize: PRI, avoid: EX,
+        categories: [...ROLES], prioritize: PRI, avoid: EX, dream_companies: DREAM,
         min_salary: parseInt($('minSalary').value || '0', 10) || 0,
         experience: $('experience').value,
         locations: $('locations').value.split(',').map(s=>s.trim()).filter(Boolean),
         remote_only: $('remoteOnly').checked,
+        fresher_mode: $('fresherMode').checked,
+        open_to_internships: $('openInternships').checked,
+        only_convertible: $('onlyConvertible').checked,
       };
       try {
         const r = await fetch(apiq('/api/preferences'), { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(body) });
+        await saveApplyProfile();
         $('msg').innerHTML = r.ok ? '<span class="ok">Saved , your next matches will use these.</span>' : '<span class="err">Save failed.</span>';
       } catch(e){ $('msg').innerHTML = '<span class="err">Save failed.</span>'; }
       $('save').disabled = false;

@@ -127,6 +127,7 @@
       <a class="brand" href="/jobs"><span class="brand-mark">JH</span> JobHunt</a>
       <a class="nlink" href="/jobs">⌕ <span class="lbl">Browse</span></a>
       <a class="nlink active" href="/dashboard">◎ <span class="lbl">Tracker</span></a>
+      <a class="nlink" href="/apply">⚡ <span class="lbl">Apply</span></a>
       <a class="nlink" href="/resume">▤ <span class="lbl">Resume</span></a>
       <a class="nlink" id="navPrefs" href="/preferences">⚙ <span class="lbl">Tune</span></a>
       <a class="nlink" href="/subscribe">⚑ <span class="lbl">Alerts</span></a>
@@ -151,6 +152,7 @@
       <div style="flex:1;min-width:220px">
         <div class="card-kicker">your hunt</div>
         <div class="breakdown" id="breakdown"></div>
+        <div class="sub" id="rateNote" style="margin-top:6px"></div>
         <div class="goal-row">
           <span class="sub">Weekly goal <span class="edit" id="goalEdit">edit</span></span>
           <span class="sub" id="goalTxt">0 / 10 this week</span>
@@ -326,7 +328,7 @@
     const token = new URLSearchParams(location.search).get('token') || '';
     // carry the token onto token-based nav links so they don't bounce to /login
     if (token) { const tq = '?token=' + encodeURIComponent(token);
-      document.querySelectorAll('.nav .nlink[href="/preferences"], .nav .nlink[href="/resume"]')
+      document.querySelectorAll('.nav .nlink[href="/preferences"], .nav .nlink[href="/resume"], .nav .nlink[href="/apply"]')
         .forEach(a => a.href = a.getAttribute('href') + tq); }
     let all = [], RESUME_NAMES = [];
     // default to the SAVED inbox (actionable, un-applied jobs) , not All, so applied jobs don't clutter
@@ -363,6 +365,14 @@
       ];
       document.getElementById('breakdown').innerHTML = items.map(([k,label,n])=>
         `<span class="dotcount"><i style="background:var(--c-${k})"></i><b>${n}</b> ${label}</span>`).join('');
+      // quality-first headline: interviews and the rates that actually matter (not just apply count)
+      const rn = document.getElementById('rateNote');
+      if (rn) {
+        const iv = s.interviews||0, of = s.offers||0;
+        rn.textContent = applied
+          ? `${iv} interview${iv===1?'':'s'}, ${of} offer${of===1?'':'s'} · ${s.interview_rate||0}% interview rate, ${s.response_rate||0}% reply rate`
+          : 'Apply to a few strong matches to start tracking your interview rate.';
+      }
       const goal = +(localStorage.getItem('jh_weekly_goal')||10);
       const wk = s.applied_week||0, gp = Math.min(100, Math.round(100*wk/goal));
       document.getElementById('goalTxt').textContent = `${wk} / ${goal} this week`;

@@ -470,7 +470,25 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
             cats = user.get("categories") or []
             # Pass the chosen roles so in-role jobs aren't dropped by the keyword overlap floor (aligns
             # matched with Browse-by-role, which was surfacing good jobs the matcher was discarding).
-            ranked = matcher.rank_matches(pool, user["keywords"], user["locations"], MIN_SCORE, uyears, cats)
+            # Fresher mode: students/freshers want internships (esp. ones that convert to full-time),
+            # trainee/graduate programs, and probation roles , not to be filtered out for zero experience.
+            # Auto-on when the user's level is 'fresher'; the toggles live in profile_extra.
+            fresher = None
+            dream_cos = []
+            try:
+                _px = db.get_profile_extra(user["id"]) or {}
+                dream_cos = _px.get("dream_companies") or []  # target companies the user wants, boosted
+                if _px.get("fresher_mode") or user.get("experience") == "fresher" \
+                        or _px.get("open_to_internships") is not None or _px.get("only_convertible"):
+                    fresher = {
+                        "fresher_mode": bool(_px.get("fresher_mode") or user.get("experience") == "fresher"),
+                        "open_to_internships": _px.get("open_to_internships"),
+                        "only_convertible": bool(_px.get("only_convertible")),
+                    }
+            except Exception:
+                pass
+            ranked = matcher.rank_matches(pool, user["keywords"], user["locations"], MIN_SCORE,
+                                          uyears, cats, fresher, dream_cos)
             d["matched"] = len(ranked)
             # Role filter: if the user picked specific role categories, keep ONLY those (strict , a
             # Data person should not get AI/ML roles). For breadth, the user selects more categories.
