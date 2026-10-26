@@ -74,6 +74,25 @@ def eligible_candidates(user_id, limit=DAILY_CAP, threshold=QUALITY_THRESHOLD):
     ]
 
 
+def review_queue(user_id, limit=DAILY_CAP, per_company=2):
+    """The human-review apply queue: the strong eligible matches, but throttled so one company can't
+    flood it (at most `per_company` roles each). Quality-first and anti-spam by construction , the user
+    reviews these, and only approved ones get an application prepared. Returns candidate dicts."""
+    seen = {}
+    out = []
+    # pull a wider slice than `limit` so the per-company cap still leaves us `limit` distinct roles
+    for c in eligible_candidates(user_id, limit=limit * 4):
+        comp = (c.get("company") or "").strip().lower()
+        if comp:
+            if seen.get(comp, 0) >= per_company:
+                continue
+            seen[comp] = seen.get(comp, 0) + 1
+        out.append(c)
+        if len(out) >= limit:
+            break
+    return out
+
+
 def _profile_answer(profile, question):
     """Answer a question from the static application profile, or None if no field matches/filled."""
     q = (question or "").lower()

@@ -62,6 +62,53 @@ def test_eligible_candidates_apply_quality_gate(make_user):
     assert cands[0]["title"] == "Rust Backend Eng" and cands[0]["score"] == 88
 
 
+def test_review_queue_throttles_per_company(make_user):
+    uid = make_user()["id"]
+    for i in range(5):
+        db.log_job(uid, {"title": f"Role {i}", "company": "Acme", "url": f"http://acme/{i}",
+                         "score": 80, "verdict": "strong", "fit": 90 - i, "region": "global"})
+    db.log_job(uid, {"title": "Solo", "company": "Beta", "url": "http://beta/1",
+                     "score": 80, "verdict": "strong", "fit": 70, "region": "global"})
+    q = autoapply.review_queue(uid, per_company=2)
+    acme = [c for c in q if c["company"] == "Acme"]
+    assert len(acme) == 2  # company capped
+    assert any(c["company"] == "Beta" for c in q)
+
+
+def test_apply_queue_and_package_endpoints(client, make_user, monkeypatch):
+    from app import enrich
+    monkeypatch.setattr(enrich, "available", lambda: False)  # keep it keyless/deterministic
+    u = make_user()
+    tok = u["dash_token"]
+    db.set_apply_profile(u["id"], notice_period_days="30 days", expected_ctc="40000 USD",
+                         total_experience_years="2", work_authorization="Indian citizen, no sponsorship",
+                         willing_to_relocate="No, remote only")
+    db.set_resume_json(u["id"], {"name": "Krish", "summary": "x", "experience": []})
+    db.log_job(u["id"], {"title": "Rust Eng", "company": "Acme", "url": "http://x/1",
+                         "score": 85, "verdict": "strong", "fit": 92, "why_fit": "Strong Rust match",
+                         "region": "global"})
+    q = client.get(f"/api/apply-queue?token={tok}").json()
+    assert q["ok"] and q["count"] == 1 and q["queue"][0]["why_fit"] == "Strong Rust match"
+    assert q["queue"][0]["resume_ready"] is True
+    jid = db.list_jobs(u["id"])[0]["id"]
+    pkg = client.get(f"/api/apply-package?token={tok}&job_id={jid}").json()
+    assert pkg["ok"] and pkg["job"]["company"] == "Acme"
+    # common questions pre-resolved from the profile, no LLM
+    assert any("notice" in k.lower() for k in pkg["answers"])
+    assert pkg["resume"]["ready"] is True
+    assert pkg["resume"]["download_path"].endswith(f"job_id={jid}")
+
+
+def test_cover_letter_endpoint_needs_key(client, make_user, monkeypatch):
+    from app import enrich
+    monkeypatch.setattr(enrich, "available", lambda: False)
+    u = make_user()
+    db.log_job(u["id"], {"title": "Eng", "company": "Acme", "url": "http://x/1", "score": 80, "region": "global"})
+    jid = db.list_jobs(u["id"])[0]["id"]
+    r = client.get(f"/api/cover_letter?token={u['dash_token']}&job_id={jid}").json()
+    assert r["ok"] is False and "key" in r["reason"].lower()
+
+
 def test_interview_offer_states_and_rates(make_user):
     """interview/offer are first-class states; stats reports response_rate and interview_rate."""
     uid = make_user()["id"]

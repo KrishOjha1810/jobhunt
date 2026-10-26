@@ -2026,6 +2026,84 @@ def api_resume_tailored_docx(request: Request, job_id: int = 0, url: str = "", t
     )
 
 
+# The handful of questions almost every application asks , pre-resolved from the answer bank/profile
+# so the apply package arrives mostly filled, with no LLM call for these.
+_COMMON_APPLY_QUESTIONS = [
+    "What is your notice period?",
+    "Expected CTC / salary?",
+    "Do you need visa sponsorship / work authorization?",
+    "Total years of experience?",
+    "Are you willing to relocate?",
+]
+
+
+@app.get("/api/apply-queue")
+def api_apply_queue(request: Request, token: str = ""):
+    """The human-review apply queue: the strong, geo-eligible matches worth applying to, throttled so
+    no single company floods it. Quality-first , these are the few roles we'd actually apply to, not a
+    firehose. Each item carries the recruiter's why_fit + whether a tailored resume can be built."""
+    from . import autoapply
+    user = _resolve_user(request, token)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    has_resume = bool(db.get_resume_json(user["id"]) or user.get("resume_text"))
+    queue = [{**c, "resume_ready": has_resume} for c in autoapply.review_queue(user["id"])]
+    return {"ok": True, "queue": queue, "count": len(queue)}
+
+
+@app.get("/api/cover_letter")
+def api_cover_letter(request: Request, job_id: int = 0, url: str = "", token: str = ""):
+    """A tight, resume-grounded cover letter for a job (a differentiator , myjobb has none)."""
+    from . import enrich
+    user = _resolve_user(request, token)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    job = _resolve_job_for_context(user, job_id, url)
+    if not job:
+        return JSONResponse({"ok": False, "reason": "job not found"}, status_code=404)
+    if not enrich.available():
+        return {"ok": False, "reason": "Needs a free Groq key to write the cover letter."}
+    text, err = enrich.cover_letter(
+        {"title": job.get("title"), "company": job.get("company"), "description": _job_jd(job)},
+        user.get("resume_text") or "")
+    if not text:
+        return {"ok": False, "reason": err or "Could not write a cover letter right now."}
+    return {"ok": True, "cover_letter": text}
+
+
+@app.get("/api/apply-package")
+def api_apply_package(request: Request, job_id: int = 0, url: str = "", token: str = ""):
+    """One call that assembles everything needed to apply to a job: the recruiter's fit reasoning, the
+    common screening answers pre-resolved from the answer bank/profile (no LLM), a link to the validated
+    per-job tailored resume, and a cover letter. The automation centerpiece the dashboard + extension
+    both use, so applying is review-and-send, not fill-from-scratch."""
+    from . import autoapply, enrich
+    user = _resolve_user(request, token)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    job = _resolve_job_for_context(user, job_id, url)
+    if not job:
+        return JSONResponse({"ok": False, "reason": "job not found"}, status_code=404)
+    resolved = autoapply.resolve_answers(user["id"], _COMMON_APPLY_QUESTIONS)
+    has_resume = bool(db.get_resume_json(user["id"]) or user.get("resume_text"))
+    cover = ""
+    if enrich.available():
+        cover, _e = enrich.cover_letter(
+            {"title": job.get("title"), "company": job.get("company"), "description": _job_jd(job)},
+            user.get("resume_text") or "")
+    return {
+        "ok": True,
+        "job": {"id": job.get("id"), "title": job.get("title"),
+                "company": job.get("company"), "url": job.get("url")},
+        "verdict": job.get("verdict"), "fit": job.get("fit"), "why_fit": job.get("why_fit"),
+        "catch": job.get("catch"),
+        "resume": {"ready": has_resume,
+                   "download_path": f"/api/resume/tailored.docx?job_id={job.get('id')}"},
+        "answers": resolved["answered"], "unanswered": resolved["unanswered"],
+        "cover_letter": cover,
+    }
+
+
 @app.post("/api/resume/phrasings")
 async def api_resume_phrasings(request: Request, token: str = ""):
     """3 ways to phrase a missing keyword into the user's real experience (Jobscan-style). Body:
