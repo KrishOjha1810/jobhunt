@@ -86,6 +86,25 @@
     if (el) { (el.scrollIntoView && el.scrollIntoView({ behavior: "smooth", block: "center" })); el.style.outline = "3px solid #6366f1"; el.style.outlineOffset = "3px"; return true; }
     return false;
   }
+  function fillAnswers(answers) {
+    let n = 0;
+    for (const a of (answers || [])) { const el = document.querySelector(a.sel); if (el && setVal(el, a.text)) n++; }
+    return n;
+  }
+  function findSubmit() {
+    const sels = ["#submit_app", "input[type=submit]", "button[type=submit]", ".template-btn-submit",
+      'button[data-qa="btn-submit"]', 'button[aria-label*="submit" i]'];
+    for (const s of sels) { const el = document.querySelector(s); if (el && el.offsetParent !== null && !el.disabled) return el; }
+    for (const b of document.querySelectorAll('button, input[type=submit], a[role="button"]')) {
+      const t = (b.innerText || b.value || "").trim().toLowerCase();
+      if (/^(submit application|submit your application|submit|apply now|apply)$/.test(t) && b.offsetParent !== null && !b.disabled) return b;
+    }
+    return null;
+  }
+  function submitConfirmed() {
+    const t = (document.body.innerText || "").toLowerCase();
+    return /application (submitted|received)|thank you for applying|successfully (applied|submitted)|we('| ha)ve received your application|your application has been/.test(t);
+  }
 
   chrome.runtime.onMessage.addListener((msg, _s, reply) => {
     try {
@@ -94,6 +113,17 @@
       else if (msg.type === "FILL_QUESTION") { const el = document.querySelector(msg.sel); reply({ ok: el ? setVal(el, msg.text) : false }); }
       else if (msg.type === "PASTE_COVER") reply({ ok: pasteCover(msg.text) });
       else if (msg.type === "HIGHLIGHT_UPLOAD") reply({ ok: highlightUpload() });
+      else if (msg.type === "FILL_ANSWERS") reply({ filled: fillAnswers(msg.answers) });
+      else if (msg.type === "SUBMIT") {
+        // Click the ATS submit button in the user's own session, then check for a confirmation.
+        // Mirrors myjobb's run states: Submitting -> Submitted+confirmed, or Flagged-for-review when
+        // we clicked but cannot confirm the page acknowledged it. Never reports success it cannot see.
+        const btn = findSubmit();
+        if (!btn) { reply({ ok: false, reason: "no submit button found on this page" }); return true; }
+        btn.click();
+        setTimeout(() => { reply({ ok: true, confirmed: submitConfirmed() }); }, 2800);
+        return true;  // async reply
+      }
       else reply({});
     } catch (e) { reply({ error: String(e) }); }
     return true;
