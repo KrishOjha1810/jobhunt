@@ -88,6 +88,9 @@
       <label class="fld" style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600">
         <input type="checkbox" id="remoteOnly" style="width:auto"> Remote roles only
       </label>
+      <label class="fld" style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600">
+        <input type="checkbox" id="usdRemote" style="width:auto"> Target high-paying remote USD roles (keeps only ones that can actually hire you from India)
+      </label>
     </div>
 
     <div class="pcard">
@@ -173,6 +176,7 @@
       $('experience').value = d.experience || '';
       $('locations').value = (d.locations || []).join(', ');
       $('remoteOnly').checked = !!d.remote_only;
+      $('usdRemote').checked = (d.target_market === 'usd_remote');
       $('fresherMode').checked = !!d.fresher_mode;
       $('openInternships').checked = d.open_to_internships === true;
       $('onlyConvertible').checked = !!d.only_convertible;
@@ -199,6 +203,7 @@
         experience: $('experience').value,
         locations: $('locations').value.split(',').map(s=>s.trim()).filter(Boolean),
         remote_only: $('remoteOnly').checked,
+        target_market: $('usdRemote').checked ? 'usd_remote' : 'india',
         fresher_mode: $('fresherMode').checked,
         open_to_internships: $('openInternships').checked,
         only_convertible: $('onlyConvertible').checked,
