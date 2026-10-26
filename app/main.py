@@ -2110,13 +2110,23 @@ def api_apply_package(request: Request, job_id: int = 0, url: str = "", token: s
     resolved = autoapply.resolve_answers(user["id"], _COMMON_APPLY_QUESTIONS)
     rj = db.get_resume_json(user["id"])
     has_resume = bool(rj or user.get("resume_text"))
+    jd = _job_jd(job) or (job.get("title") or "")
     ats_score = None
+    match = None
     if rj:
-        from . import resume_export
+        from . import resume_export, resume as _resume
         try:
             ats_score = resume_export.ats_health(rj, years=_user_years(user)).get("score")
         except Exception:
             ats_score = None
+        try:
+            m = _resume.ats_job_match(rj, jd)
+            # keyword gap: what this JD wants that the resume is missing (actionable, honest adds)
+            match = {"score": m.get("score"),
+                     "missing": [x.get("term") for x in (m.get("missing") or []) if isinstance(x, dict)][:10],
+                     "present": [x for x in (m.get("present") or []) if x][:10]}
+        except Exception:
+            match = None
     cover = ""
     if enrich.available():
         cover, _e = enrich.cover_letter(
@@ -2128,9 +2138,12 @@ def api_apply_package(request: Request, job_id: int = 0, url: str = "", token: s
                 "company": job.get("company"), "url": job.get("url")},
         "verdict": job.get("verdict"), "fit": job.get("fit"), "why_fit": job.get("why_fit"),
         "catch": job.get("catch"),
-        "resume": {"ready": has_resume, "ats_score": ats_score,
+        "resume": {"ready": has_resume, "ats_score": ats_score, "match": match,
                    "download_path": f"/api/resume/tailored.docx?job_id={job.get('id')}"},
         "answers": resolved["answered"], "unanswered": resolved["unanswered"],
+        # provenance tag per answer (trust feature: the candidate sees where each came from)
+        "answer_sources": {q: ("Remembered" if s == "bank" else "From profile")
+                           for q, s in resolved.get("sources", {}).items()},
         "cover_letter": cover,
     }
 

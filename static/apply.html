@@ -310,6 +310,7 @@
       html += '<div class="pkg-section"><div class="sec-label">Tailored resume</div>' +
         '<button class="btn btn-primary" id="dlResume">Download tailored resume</button>' +
         (atsNow != null ? '<span class="sub" style="display:block;margin-top:6px">Your resume ATS score: <b>' + esc(atsNow) + '/100</b>. The tailored copy is optimized for this job.</span>' : '') +
+        (((d.resume && d.resume.match && d.resume.match.missing) || []).length ? '<span class="sub" style="display:block;margin-top:4px">JD keywords to add if true: <b>' + esc(d.resume.match.missing.join(', ')) + '</b></span>' : '') +
         (resumeReady === false ? '<span class="resume-warn" style="display:block;margin-top:8px">Base resume not ready. <a href="/resume' + tq + '">Upload or build it first</a>.</span>' : '') +
         '<div class="statusline" id="resumeStatus"></div></div>';
 
@@ -317,10 +318,12 @@
       const answers = d.answers || {};
       const unanswered = d.unanswered || [];
       const ansKeys = Object.keys(answers);
+      const srcs = d.answer_sources || {};
       if(ansKeys.length || unanswered.length){
         html += '<div class="pkg-section"><div class="sec-label">Screening answers</div>';
         ansKeys.forEach((q, i) => {
-          html += '<div class="ans"><label for="ans_' + i + '">' + esc(q) + '</label>' +
+          const tag = srcs[q] ? ' <span class="flagtag" style="background:var(--accent-soft);color:var(--accent)">' + esc(srcs[q]) + '</span>' : '';
+          html += '<div class="ans"><label for="ans_' + i + '">' + esc(q) + tag + '</label>' +
             '<textarea id="ans_' + i + '">' + esc(answers[q]) + '</textarea></div>';
         });
         unanswered.forEach((q, i) => {

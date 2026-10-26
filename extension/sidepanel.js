@@ -84,7 +84,7 @@ async function loadJobs() {
 
 function renderQuestions() {
   const box = $("qlist");
-  if (!QUESTIONS.length) { box.innerHTML = '<small class="sub">No screening questions detected on this page.</small>'; $("draftAll").style.display = "none"; return; }
+  if (!QUESTIONS.length) { box.innerHTML = '<small class="sub">No screening questions detected on this page.</small>'; $("draftAll").style.display = "none"; $("fillAllAns").style.display = "none"; return; }
   box.innerHTML = QUESTIONS.map((q, i) => `
     <div class="q">
       <small>${q.kind}</small>
@@ -93,6 +93,7 @@ function renderQuestions() {
       <button class="sm ghost" data-fill="${i}" style="margin-top:5px">Fill into form</button>
     </div>`).join("");
   $("draftAll").style.display = "block";
+  $("fillAllAns").style.display = "block";
   box.querySelectorAll("[data-fill]").forEach(b => b.onclick = async () => {
     const i = +b.dataset.fill;
     const val = $("ans" + i).value;
@@ -216,6 +217,29 @@ async function scan() {
   };
 
   $("showUpload").onclick = async () => { const r = await send({ type: "HIGHLIGHT_UPLOAD" }); done("p4"); status(r.ok ? "Highlighted the upload box." : "No upload box found; look for 'Attach resume'.", r.ok ? "ok" : "err"); };
+
+  $("fillAllAns").onclick = async () => {
+    const answers = QUESTIONS.map((q, i) => ({ sel: q.sel, text: ($("ans" + i) || {}).value || "" })).filter(a => a.text);
+    if (!answers.length) return status("Draft or type answers first.", "err");
+    const r = await send({ type: "FILL_ANSWERS", answers });
+    if (r.error) return status("Open the application page first.", "err");
+    answers.forEach((a, i) => learnAnswer(QUESTIONS[i].label, a.text));  // remember what we filled
+    done("p2"); status(`Filled ${r.filled || 0} answer(s) into the form.`, "ok");
+  };
+
+  $("submitApp").onclick = async () => {
+    if (!confirm("Submit this application in your browser now? Make sure your resume is attached and every field looks right.")) return;
+    status("Submitting in your session...");
+    const r = await send({ type: "SUBMIT" });
+    if (r.error || r.ok === false) return status(r.reason || "Could not find a submit button on this page.", "err");
+    if (r.confirmed) {
+      done("p5"); status("Submitted. The page confirmed your application.", "ok");
+      const jid = $("jobPick").value;
+      if (jid) { try { await fetch(`${API_BASE}/api/jobs/${jid}?token=${encodeURIComponent(TOKEN)}&status=applied&resume_used=via%20extension`, { method: "POST" }); } catch (e) {} }
+    } else {
+      status("Clicked submit, but could not confirm it went through. Check the page, then Mark as applied if it did.", "err");
+    }
+  };
 
   $("markApplied").onclick = async () => {
     const jid = $("jobPick").value;
