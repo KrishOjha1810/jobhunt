@@ -68,6 +68,7 @@ job_log = Table(
     Column("fit", Integer),    # recruiter fit score (0-100), distinct from the blended keyword score
     Column("why_fit", Text),   # one-line reason the screen judged it a fit (shown in digest + tracker)
     Column("catch", Text),     # one-line caveat the screen flagged (e.g. seniority/location mismatch)
+    Column("employment_type", Text),  # internship / internship_with_ppo / trainee_graduate_program / ...
     Column("sent_at", DateTime, default=datetime.utcnow),
     Column("applied_at", DateTime),  # set when the row first enters an applied state (streaks/leaderboard)
 )
@@ -214,6 +215,8 @@ def _init_db_impl():
             conn.execute(text("ALTER TABLE job_log ADD COLUMN why_fit TEXT"))
         if "catch" not in jl_cols:
             conn.execute(text("ALTER TABLE job_log ADD COLUMN catch TEXT"))
+        if "employment_type" not in jl_cols:
+            conn.execute(text("ALTER TABLE job_log ADD COLUMN employment_type TEXT"))
         # jobs_catalog.salary for older DBs
         if insp.has_table("jobs_catalog"):
             cat_cols = {c["name"] for c in insp.get_columns("jobs_catalog")}
@@ -340,6 +343,7 @@ def log_job(user_id, job):
             region=job.get("region"),  # set by the matcher; null for external/manual adds
             verdict=job.get("verdict"), fit=fit,  # recruiter-screen judgment (null for manual/external adds)
             why_fit=job.get("why_fit"), catch=job.get("catch"),
+            employment_type=job.get("employment_type"),  # internship/PPO/trainee/... for fresher badges
         ))
 
 
@@ -871,10 +875,18 @@ def get_profile_extra(user_id):
 
 
 def set_profile_extra(user_id, achievements=None, projects=None, remote_only=None, avoid=None,
-                      prioritize=None, min_salary=None):
+                      prioritize=None, min_salary=None, fresher_mode=None,
+                      open_to_internships=None, only_convertible=None):
     """Store the user's achievements + projects AND match preferences (deal-breakers remote_only/avoid,
-    prioritize-list, min_salary). True MERGE: only fields passed (non-None) are updated."""
+    prioritize-list, min_salary) AND fresher mode (open_to_internships, only_convertible). True MERGE:
+    only fields passed (non-None) are updated."""
     data = get_profile_extra(user_id)
+    if fresher_mode is not None:
+        data["fresher_mode"] = bool(fresher_mode)
+    if open_to_internships is not None:
+        data["open_to_internships"] = bool(open_to_internships)
+    if only_convertible is not None:
+        data["only_convertible"] = bool(only_convertible)
     if achievements is not None:
         data["achievements"] = str(achievements).strip()[:4000]
     if projects is not None:

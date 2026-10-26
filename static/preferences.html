@@ -84,6 +84,20 @@
     </div>
 
     <div class="pcard">
+      <h2>Students &amp; freshers</h2>
+      <p class="sub">Final year or just graduated? Turn this on to get internships, trainee/graduate programs, and roles that convert to full-time, instead of being filtered out for having no experience yet.</p>
+      <label class="fld" style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600">
+        <input type="checkbox" id="fresherMode" style="width:auto"> I am a student / fresher
+      </label>
+      <label class="fld" style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600">
+        <input type="checkbox" id="openInternships" style="width:auto"> Open to internships
+      </label>
+      <label class="fld" style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600">
+        <input type="checkbox" id="onlyConvertible" style="width:auto"> Only internships that can convert to a full-time job (PPO)
+      </label>
+    </div>
+
+    <div class="pcard">
       <h2>Application details</h2>
       <p class="sub">Fill once. These auto-answer the common screening questions (notice period, CTC, work authorization) on applications, with no AI needed , so applying is faster and consistent.</p>
       <label class="fld">Phone</label><input type="text" id="ap_phone" />
@@ -149,6 +163,9 @@
       $('experience').value = d.experience || '';
       $('locations').value = (d.locations || []).join(', ');
       $('remoteOnly').checked = !!d.remote_only;
+      $('fresherMode').checked = !!d.fresher_mode;
+      $('openInternships').checked = d.open_to_internships === true;
+      $('onlyConvertible').checked = !!d.only_convertible;
     }).catch(() => { $('msg').innerHTML = '<span class="err">Could not load.</span>'; });
 
     // Application details (the answer-bank profile) , loaded and saved alongside preferences.
@@ -172,6 +189,9 @@
         experience: $('experience').value,
         locations: $('locations').value.split(',').map(s=>s.trim()).filter(Boolean),
         remote_only: $('remoteOnly').checked,
+        fresher_mode: $('fresherMode').checked,
+        open_to_internships: $('openInternships').checked,
+        only_convertible: $('onlyConvertible').checked,
       };
       try {
         const r = await fetch(apiq('/api/preferences'), { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(body) });

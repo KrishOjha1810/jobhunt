@@ -70,6 +70,15 @@ def _fixable_by_trim(validation):
     return bool(fails) and all(f.startswith("page_fit") or f.startswith("length_budget") for f in fails)
 
 
+def _ats_score(rj, years):
+    """The deterministic ATS-health score (0-100) of the resume, so every tailored copy is tracked
+    and we never ship one that quietly regressed on ATS."""
+    try:
+        return resume_export.ats_health(rj, years=years).get("score")
+    except Exception:
+        return None
+
+
 def build_validated(rj, years, autofit=True, max_trims=10):
     """Build -> (render) -> validate, trimming on overflow. Returns a dict with docx bytes, the pdf
     path (or None), the validation report, and how many bullets were trimmed to make it fit."""
@@ -81,18 +90,18 @@ def build_validated(rj, years, autofit=True, max_trims=10):
         validation = resume_validation.validate_resume(docx_bytes, work, years, pdf_path)
         if validation["ok"] or not autofit:
             return {"docx": docx_bytes, "pdf_path": pdf_path, "validation": validation,
-                    "trimmed": trimmed, "resume": work}
+                    "trimmed": trimmed, "resume": work, "ats": _ats_score(work, years)}
         if _fixable_by_trim(validation) and _trim_one(work):
             trimmed += 1
             continue
         return {"docx": docx_bytes, "pdf_path": pdf_path, "validation": validation,
-                "trimmed": trimmed, "resume": work}
+                "trimmed": trimmed, "resume": work, "ats": _ats_score(work, years)}
     # ran out of trims , return the last build with its (still-failing) validation
     docx_bytes = resume_export.build_docx(work)
     pdf_path = render_pdf(docx_bytes)
     return {"docx": docx_bytes, "pdf_path": pdf_path,
             "validation": resume_validation.validate_resume(docx_bytes, work, years, pdf_path),
-            "trimmed": trimmed, "resume": work}
+            "trimmed": trimmed, "resume": work, "ats": _ats_score(work, years)}
 
 
 def apply_edits_to_json(rj, edits):

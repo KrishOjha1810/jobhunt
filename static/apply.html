@@ -247,6 +247,8 @@
           '</div>' +
           '<div class="qcard-meta">' +
             (j.verdict ? '<span class="vchip">' + esc(j.verdict) + '</span>' : '') +
+            (j.converts_fulltime ? '<span class="vchip" style="color:var(--ok,#22c55e)">converts to full-time</span>'
+              : (j.employment_type === 'internship' ? '<span class="vchip" style="color:var(--warn,#f59e0b)">internship</span>' : '')) +
             (j.region ? '<span class="sub" style="margin:0">' + esc(j.region) + '</span>' : '') +
           '</div>' +
           (j.why_fit ? '<div class="why">' + esc(j.why_fit) + '</div>' : '') +
@@ -303,8 +305,10 @@
 
       // tailored resume
       const resumeReady = d.resume && d.resume.ready;
+      const atsNow = d.resume && d.resume.ats_score;
       html += '<div class="pkg-section"><div class="sec-label">Tailored resume</div>' +
         '<button class="btn btn-primary" id="dlResume">Download tailored resume</button>' +
+        (atsNow != null ? '<span class="sub" style="display:block;margin-top:6px">Your resume ATS score: <b>' + esc(atsNow) + '/100</b>. The tailored copy is optimized for this job.</span>' : '') +
         (resumeReady === false ? '<span class="resume-warn" style="display:block;margin-top:8px">Base resume not ready. <a href="/resume' + tq + '">Upload or build it first</a>.</span>' : '') +
         '<div class="statusline" id="resumeStatus"></div></div>';
 
@@ -371,13 +375,15 @@
           const m = /filename\*?=(?:UTF-8''|")?([^";]+)/i.exec(cd);
           if(m && m[1]) name = decodeURIComponent(m[1].replace(/"/g,'').trim());
           const trimmed = res.headers.get('X-Resume-Trimmed');
+          const ats = res.headers.get('X-ATS-Score');
           const a = document.createElement('a');
           const href = URL.createObjectURL(blob);
           a.href = href; a.download = name;
           document.body.appendChild(a); a.click(); a.remove();
           setTimeout(() => URL.revokeObjectURL(href), 4000);
           st.innerHTML = '<span class="ok">Downloaded ' + esc(name) + '.' +
-            (trimmed && +trimmed > 0 ? ' Trimmed ' + esc(trimmed) + ' line(s) to fit.' : '') + '</span>';
+            (ats ? ' ATS score ' + esc(ats) + '/100.' : '') +
+            (trimmed && +trimmed > 0 ? ' Trimmed ' + esc(trimmed) + ' line(s) to fit one page.' : '') + '</span>';
         }catch(e){ st.innerHTML = '<span class="err">Download failed, try again.</span>'; }
         return;
       }

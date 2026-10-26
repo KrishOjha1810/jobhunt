@@ -1,6 +1,8 @@
 """Score jobs against a user's keyword profile and location preference."""
 import re
 
+from . import classify
+
 
 def _contains(text: str, term: str) -> bool:
     return re.search(r"(?<![a-z0-9])" + re.escape(term) + r"(?![a-z0-9])", text) is not None
@@ -562,7 +564,7 @@ def blended_reason(job: dict, score: int, contrib: dict) -> str:
 
 
 def rank_matches(jobs: list, keywords: list, locations: list, min_score: int,
-                 user_years: int = 0, user_cats: list = None) -> list:
+                 user_years: int = 0, user_cats: list = None, fresher: dict = None) -> list:
     """Return jobs that clear min_score and pass the location filter, sorted by fit desc.
 
     user_years (from the resume) drives a seniority-GAP penalty: a job asking far more experience
@@ -606,6 +608,21 @@ def rank_matches(jobs: list, keywords: list, locations: list, min_score: int,
             loc_boost = 12 if (india_user and region == "india") else 0
             # Normalized 0-100 fit: scaled skill+title overlap, + location relevance, - seniority gap.
             fit = max(15, min(100, score * 8 + loc_boost - penalty))
+            # Employment-type + fresher signals (internship / PPO / trainee / probation), tagged on
+            # EVERY job so the UI can badge "converts to full-time". In fresher mode these also boost
+            # fresher-friendly and PPO roles, and can hard-filter to only convertible ones.
+            einfo = classify.classify_employment(job.get("title", ""), job.get("description", ""))
+            job["employment_type"] = einfo["employment_type"]
+            job["has_ppo"] = einfo["has_ppo"]
+            job["converts_fulltime"] = classify.converts_to_fulltime(einfo)
+            job["is_fresher_friendly"] = einfo["is_fresher_friendly"]
+            if fresher and fresher.get("fresher_mode"):
+                if fresher.get("only_convertible") and not job["converts_fulltime"]:
+                    continue  # student wants only roles that can become a full-time job
+                fit = min(100, fit + (10 if job["converts_fulltime"]
+                                      else (6 if job["is_fresher_friendly"] else 0)))
+            elif fresher and fresher.get("open_to_internships") is False and is_internship(job):
+                continue  # user explicitly does not want internships
             job["raw_score"] = score
             job["score"] = fit
             job["region"] = region

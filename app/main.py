@@ -687,7 +687,10 @@ async def api_preferences(request: Request, token: str = ""):
                 "categories": user.get("categories") or [], "locations": user.get("locations") or [],
                 "experience": user.get("experience") or "",
                 "remote_only": bool(px.get("remote_only")), "avoid": px.get("avoid") or [],
-                "prioritize": px.get("prioritize") or [], "min_salary": px.get("min_salary") or 0}
+                "prioritize": px.get("prioritize") or [], "min_salary": px.get("min_salary") or 0,
+                "fresher_mode": bool(px.get("fresher_mode")),
+                "open_to_internships": px.get("open_to_internships"),
+                "only_convertible": bool(px.get("only_convertible"))}
     try:
         body = await request.json()
     except Exception:
@@ -698,7 +701,10 @@ async def api_preferences(request: Request, token: str = ""):
                       locations=_list(body.get("locations")) if "locations" in body else None,
                       experience=body.get("experience"))
     db.set_profile_extra(user["id"], remote_only=body.get("remote_only"), avoid=body.get("avoid"),
-                         prioritize=body.get("prioritize"), min_salary=body.get("min_salary"))
+                         prioritize=body.get("prioritize"), min_salary=body.get("min_salary"),
+                         fresher_mode=body.get("fresher_mode"),
+                         open_to_internships=body.get("open_to_internships"),
+                         only_convertible=body.get("only_convertible"))
     return {"ok": True}
 
 
@@ -2031,6 +2037,7 @@ def api_resume_tailored_docx(request: Request, job_id: int = 0, url: str = "", t
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={"Content-Disposition": f'attachment; filename="{safe}_{comp}.docx"',
                  "X-Resume-Trimmed": str(out["trimmed"]),
+                 "X-ATS-Score": str(out.get("ats") or ""),
                  "X-Resume-Valid": "true"},
     )
 
@@ -2094,7 +2101,15 @@ def api_apply_package(request: Request, job_id: int = 0, url: str = "", token: s
     if not job:
         return JSONResponse({"ok": False, "reason": "job not found"}, status_code=404)
     resolved = autoapply.resolve_answers(user["id"], _COMMON_APPLY_QUESTIONS)
-    has_resume = bool(db.get_resume_json(user["id"]) or user.get("resume_text"))
+    rj = db.get_resume_json(user["id"])
+    has_resume = bool(rj or user.get("resume_text"))
+    ats_score = None
+    if rj:
+        from . import resume_export
+        try:
+            ats_score = resume_export.ats_health(rj, years=_user_years(user)).get("score")
+        except Exception:
+            ats_score = None
     cover = ""
     if enrich.available():
         cover, _e = enrich.cover_letter(
@@ -2106,7 +2121,7 @@ def api_apply_package(request: Request, job_id: int = 0, url: str = "", token: s
                 "company": job.get("company"), "url": job.get("url")},
         "verdict": job.get("verdict"), "fit": job.get("fit"), "why_fit": job.get("why_fit"),
         "catch": job.get("catch"),
-        "resume": {"ready": has_resume,
+        "resume": {"ready": has_resume, "ats_score": ats_score,
                    "download_path": f"/api/resume/tailored.docx?job_id={job.get('id')}"},
         "answers": resolved["answered"], "unanswered": resolved["unanswered"],
         "cover_letter": cover,
