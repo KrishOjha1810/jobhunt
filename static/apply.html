@@ -310,6 +310,7 @@
       html += '<div class="pkg-section"><div class="sec-label">Tailored resume</div>' +
         '<button class="btn btn-primary" id="dlResume">Download tailored resume</button>' +
         (atsNow != null ? '<span class="sub" style="display:block;margin-top:6px">Your resume ATS score: <b>' + esc(atsNow) + '/100</b>. The tailored copy is optimized for this job.</span>' : '') +
+        (((d.resume && d.resume.match && d.resume.match.missing) || []).length ? '<span class="sub" style="display:block;margin-top:4px">JD keywords to add if true: <b>' + esc(d.resume.match.missing.join(', ')) + '</b></span>' : '') +
         (resumeReady === false ? '<span class="resume-warn" style="display:block;margin-top:8px">Base resume not ready. <a href="/resume' + tq + '">Upload or build it first</a>.</span>' : '') +
         '<div class="statusline" id="resumeStatus"></div></div>';
 
