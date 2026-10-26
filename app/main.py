@@ -629,6 +629,49 @@ async def api_profile(request: Request, token: str = ""):
     return {"ok": True, "profile_extra": data}
 
 
+@app.api_route("/api/apply-profile", methods=["GET", "POST"])
+async def api_apply_profile(request: Request, token: str = ""):
+    """The static application profile powering keyless auto-answers: GET returns it, POST merges the
+    recognized fields (phone, work authorization, notice period, CTC, years, relocation, links). These
+    feed autoapply.resolve_answers so the extension fills notice-period/CTC/visa questions with no LLM
+    call. Nothing here is a credential , no board passwords, no cookies."""
+    user = _resolve_user(request, token)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    if request.method == "GET":
+        return {"ok": True, "apply_profile": db.get_apply_profile(user["id"]),
+                "fields": list(db._APPLY_PROFILE_FIELDS)}
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    fields = {k: v for k, v in body.items() if k in db._APPLY_PROFILE_FIELDS}
+    data = db.set_apply_profile(user["id"], **fields)
+    return {"ok": True, "apply_profile": data}
+
+
+@app.api_route("/api/apply-answers", methods=["GET", "POST"])
+async def api_apply_answers(request: Request, token: str = ""):
+    """The learned answer bank for screening questions. GET lists stored Q&A; POST saves a batch
+    (body {answers: {question: answer}}) as user-confirmed, so a repeat question is answered for free
+    next time. This is the write side that lets the bank actually grow from the extension."""
+    user = _resolve_user(request, token)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    if request.method == "GET":
+        return {"ok": True, "answers": db.list_apply_answers(user["id"])}
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    pairs = body.get("answers") or {}
+    if not isinstance(pairs, dict):
+        return {"ok": False, "reason": "answers must be an object of question -> answer"}
+    from . import autoapply
+    autoapply.learn_answers(user["id"], pairs, source="user")
+    return {"ok": True, "answers": db.list_apply_answers(user["id"])}
+
+
 @app.api_route("/api/preferences", methods=["GET", "POST"])
 async def api_preferences(request: Request, token: str = ""):
     """The 'tune my matches' surface , consolidates roles (categories), locations, experience, and the

@@ -62,6 +62,36 @@ def test_eligible_candidates_apply_quality_gate(make_user):
     assert cands[0]["title"] == "Rust Backend Eng" and cands[0]["score"] == 88
 
 
+def test_api_apply_profile_roundtrip(client, make_user):
+    """The writer endpoint must persist recognized fields and ignore unknown ones."""
+    u = make_user()
+    tok = u["dash_token"]
+    r = client.post(f"/api/apply-profile?token={tok}",
+                    json={"phone": "+91-99999", "expected_ctc": "40000 USD",
+                          "notice_period_days": "30", "junk": "ignored"})
+    assert r.status_code == 200 and r.json()["ok"] is True
+    p = r.json()["apply_profile"]
+    assert p["phone"] == "+91-99999" and p["expected_ctc"] == "40000 USD"
+    assert "junk" not in p
+    # GET returns the same + the field list
+    g = client.get(f"/api/apply-profile?token={tok}").json()
+    assert g["apply_profile"]["notice_period_days"] == "30"
+    assert "work_authorization" in g["fields"]
+
+
+def test_api_apply_answers_write_then_resolve(client, make_user):
+    """Saving answers via the endpoint must make them resolve deterministically afterwards."""
+    from app import autoapply
+    u = make_user()
+    tok = u["dash_token"]
+    r = client.post(f"/api/apply-answers?token={tok}",
+                    json={"answers": {"Why this company?": "Strong backend and web3 fit"}})
+    assert r.status_code == 200 and r.json()["ok"] is True
+    assert any(a["question"] == "Why this company?" for a in r.json()["answers"])
+    res = autoapply.resolve_answers(u["id"], ["Why this company?"])
+    assert res["answered"]["Why this company?"] == "Strong backend and web3 fit"
+
+
 def test_api_answer_uses_bank_without_llm_key(client, make_user, monkeypatch):
     """The extension's /api/answer must answer known fields from the bank/profile even with NO LLM key,
     and leave genuinely novel questions as a placeholder. We force the keyless path explicitly so the
