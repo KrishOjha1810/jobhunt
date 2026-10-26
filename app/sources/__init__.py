@@ -6,7 +6,7 @@ path kept for tests/compatibility.
 """
 import re as _re
 from . import remotive, remoteok, arbeitnow, adzuna, jsearch, jobicy, himalayas, ats, telegram_channels
-from . import themuse, internships, theirstack, jooble, amazon, apple, google, internshala, instahyre
+from . import themuse, internships, theirstack, jooble, amazon, apple, google, internshala, instahyre, foundit
 
 PRIORITY_TERMS = [
     "rust", "solidity", "typescript", "python", "java", "golang", "go",
@@ -212,6 +212,7 @@ def _fetch(terms: list, india_wanted: bool, max_adzuna_terms: int = 3) -> list:
     if india_wanted:
         tasks.append(lambda: internshala.fetch(pages=2))  # India internships + PPO (convert-to-FTE) signal
         tasks.append(lambda: instahyre.fetch(limit=60))   # India tech roles, clean public JSON (no login)
+        tasks.append(lambda: foundit.fetch("software developer", limit=25))  # Monster India, open JSON
         # Big-tech that run their OWN portals (not on ATS boards), reachable with a plain request:
         tasks.append(lambda: amazon.fetch())     # amazon.jobs India SDE/backend
         tasks.append(lambda: apple.fetch())      # jobs.apple.com India SWE (hydration JSON)
