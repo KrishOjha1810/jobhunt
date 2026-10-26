@@ -1671,6 +1671,15 @@ def preferences_page(request: Request, token: str = ""):
     return _page("preferences.html")
 
 
+@app.get("/apply", response_class=HTMLResponse)
+def apply_page(request: Request, token: str = ""):
+    """The apply cockpit: the strong matches worth applying to, each prepared (tailored resume,
+    pre-filled answers, cover letter) so applying is review-and-send."""
+    if not (current_user(request) or db.user_by_token(token)):
+        return RedirectResponse("/login")
+    return _page("apply.html")
+
+
 @app.get("/api/resume")
 def api_resume_get(request: Request, token: str = ""):
     """Return the user's structured resume (parsing it from their uploaded resume on first use) +

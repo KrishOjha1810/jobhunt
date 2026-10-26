@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>JobHunt , apply cockpit</title>
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta name="theme-color" content="#0f1117" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <link rel="apple-touch-icon" href="/static/icons/icon-192.png" />
+  <link rel="stylesheet" href="/static/theme.css?v=7" />
+  <script src="/static/pwa.js" defer></script>
+  <style>
+    /* page-local: two-pane cockpit (everything else comes from theme.css) */
+    .wrap{padding-top:var(--sp-4)}
+    .head{margin-bottom:var(--sp-4)}
+    .head h1{font-size:1.5rem}
+    .head .sub{font-size:var(--fs-sm)}
+
+    /* gentle "fill your profile" banner */
+    .banner{display:flex;gap:var(--sp-3);align-items:flex-start;background:var(--accent-soft);
+      border:1px solid var(--accent);border-radius:var(--r-md);padding:var(--sp-3) var(--sp-4);margin-bottom:var(--sp-4)}
+    .banner .bi{font-size:1.1rem;line-height:1.3}
+    .banner a{font-weight:700}
+
+    /* two-pane: queue (left) + package (right); stacks on mobile */
+    .cockpit{display:grid;grid-template-columns:minmax(0,380px) minmax(0,1fr);gap:var(--sp-5);align-items:start}
+    .queue-col{min-width:0}
+    .pane-col{min-width:0;position:sticky;top:78px}
+    @media(max-width:860px){
+      .cockpit{grid-template-columns:1fr}
+      .pane-col{position:static}
+    }
+
+    .col-kicker{font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);
+      font-weight:600;margin:0 0 var(--sp-3);display:flex;align-items:center;gap:8px}
+    .col-count{color:var(--accent);font-family:var(--font-mono)}
+
+    /* queue cards */
+    .qlist{display:flex;flex-direction:column;gap:var(--sp-3)}
+    .qcard{background:var(--card);border:1px solid var(--card-border);border-radius:var(--r-md);
+      padding:var(--sp-4);box-shadow:var(--sh-sm);cursor:pointer;transition:border-color .15s,transform .12s;text-align:left;width:100%;font-family:inherit}
+    .qcard:hover{border-color:var(--accent);transform:translateY(-1px)}
+    .qcard.active{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+    .qcard-top{display:flex;justify-content:space-between;align-items:flex-start;gap:var(--sp-3)}
+    .qcard .company{font-weight:600;color:var(--ink)}
+    .qcard .role{font-size:var(--fs-sm);color:var(--muted);margin-top:2px}
+    .qcard .why{font-size:var(--fs-sm);color:var(--ink-2);margin-top:var(--sp-3);line-height:1.5}
+    .qcard-meta{display:flex;align-items:center;gap:8px;margin-top:var(--sp-3);flex-wrap:wrap}
+    .fitbadge{display:inline-flex;align-items:center;justify-content:center;min-width:46px;padding:4px 10px;
+      border-radius:var(--r-sm);font-weight:700;font-size:var(--fs-sm);background:var(--score-bg);color:var(--score-ink);
+      border:1px solid var(--score-border);font-family:var(--font-mono);flex:0 0 auto}
+    .vchip{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:var(--r-pill);
+      font-size:var(--fs-xs);font-weight:600;background:var(--accent-soft);color:var(--accent);
+      border:1px solid transparent;text-transform:capitalize}
+    .vchip::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+    .resume-warn{font-size:var(--fs-xs);color:var(--warn);margin-top:var(--sp-3);display:block}
+    .resume-warn a{color:var(--warn);font-weight:700}
+
+    /* right package pane */
+    .pkg h2{font-size:1.15rem;margin:0 0 2px}
+    .pkg .pkg-co{color:var(--muted);font-size:var(--fs-sm)}
+    .pkg-section{margin-top:var(--sp-5)}
+    .pkg-section:first-of-type{margin-top:var(--sp-4)}
+    .sec-label{font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);
+      font-weight:600;margin:0 0 var(--sp-2)}
+    .reasoning{font-size:var(--fs-sm);color:var(--ink-2);line-height:1.6}
+    .catchbox{margin-top:var(--sp-2);padding:var(--sp-3);border-radius:var(--r-sm);background:color-mix(in srgb,var(--warn) 10%,transparent);
+      border:1px solid color-mix(in srgb,var(--warn) 30%,transparent);font-size:var(--fs-sm);color:var(--ink-2)}
+    .catchbox b{color:var(--warn)}
+
+    .ans{margin-bottom:var(--sp-4)}
+    .ans label{display:block;font-size:var(--fs-sm);color:var(--ink);font-weight:600;margin-bottom:6px}
+    .ans.flag label{color:var(--warn)}
+    .ans .flagtag{font-size:var(--fs-xs);font-weight:700;color:var(--warn);text-transform:uppercase;letter-spacing:.05em;margin-left:6px}
+    .ans textarea{min-height:66px;resize:vertical;line-height:1.5}
+    .ans.flag textarea{border-color:color-mix(in srgb,var(--warn) 55%,var(--field-border))}
+
+    .cl-head{display:flex;justify-content:space-between;align-items:center;gap:var(--sp-2);margin-bottom:var(--sp-2);flex-wrap:wrap}
+    .cl-head .sec-label{margin:0}
+    .cl-actions{display:flex;gap:6px}
+    #coverLetter{min-height:180px;resize:vertical;line-height:1.55;font-size:var(--fs-sm)}
+
+    .pane-actions{display:flex;gap:var(--sp-2);flex-wrap:wrap;margin-top:var(--sp-5);
+      padding-top:var(--sp-4);border-top:1px solid var(--line)}
+
+    /* status + empty + error */
+    .statusline{min-height:18px;font-size:var(--fs-sm);color:var(--muted);margin-top:var(--sp-3)}
+    .empty{text-align:center;color:var(--muted);padding:56px 24px;line-height:1.6}
+    .empty b{color:var(--ink);display:block;font-size:1.05rem;margin-bottom:6px}
+    .pane-empty{text-align:center;color:var(--muted);padding:64px 24px}
+    .pane-empty .pe-ic{font-size:1.6rem;display:block;margin-bottom:8px;opacity:.6}
+    .loading-center{display:flex;align-items:center;justify-content:center;gap:10px;color:var(--muted);
+      font-size:var(--fs-sm);padding:48px 20px}
+    .errbox{background:var(--card);border:1px solid var(--card-border);border-radius:var(--r-lg);
+      padding:40px 28px;text-align:center;color:var(--muted);box-shadow:var(--card-shadow)}
+    .errbox b{color:var(--ink);display:block;font-size:1.05rem;margin-bottom:6px}
+    .failrow{font-size:var(--fs-sm);color:var(--danger);margin-top:4px}
+
+    @media(max-width:640px){
+      .cockpit{gap:var(--sp-4)}
+    }
+  </style>
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-inner">
+      <a class="brand" href="/jobs"><span class="brand-mark">JH</span> JobHunt</a>
+      <a class="nlink" href="/jobs">⌕ <span class="lbl">Browse</span></a>
+      <a class="nlink" href="/dashboard">◎ <span class="lbl">Tracker</span></a>
+      <a class="nlink active" href="/apply">✦ <span class="lbl">Apply</span></a>
+      <a class="nlink" href="/resume">▤ <span class="lbl">Resume</span></a>
+      <a class="nlink" id="navPrefs" href="/preferences">⚙ <span class="lbl">Tune</span></a>
+      <a class="nlink" href="/subscribe">⚑ <span class="lbl">Alerts</span></a>
+      <button class="theme-toggle" id="themeToggle" aria-label="Toggle theme" title="Toggle theme"></button>
+    </div>
+  </nav>
+
+  <div class="wrap">
+    <div class="head">
+      <h1>Apply cockpit</h1>
+      <p class="sub">The strong matches worth applying to, prepared for you.</p>
+    </div>
+
+    <div id="profileBanner" class="banner" style="display:none">
+      <span class="bi">⚙</span>
+      <div>Your apply profile is empty, so screening answers cannot auto-resolve yet.
+      <a id="bannerLink" href="/preferences">Fill it in Tune</a> and we will prepare answers for you.</div>
+    </div>
+
+    <div class="cockpit">
+      <!-- LEFT: the queue -->
+      <div class="queue-col">
+        <div class="col-kicker">queued to apply <span class="col-count" id="queueCount"></span></div>
+        <div id="queueBox">
+          <div class="loading-center"><span class="spinner"></span> Loading your queue...</div>
+        </div>
+      </div>
+
+      <!-- RIGHT: the prepared package -->
+      <div class="pane-col">
+        <div class="card" id="paneCard">
+          <div class="pane-empty" id="paneEmpty">
+            <span class="pe-ic">✦</span>
+            Select a queued role on the left to see its prepared application package.
+          </div>
+          <div id="paneBody" style="display:none"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ---- theme toggle (identical to the other pages) ----
+    const sunIcon = '☼', moonIcon = '☾';
+    (function setupToggle(){
+      const toggle = document.getElementById('themeToggle');
+      const apply = t => { document.documentElement.setAttribute('data-theme', t); toggle.textContent = t === 'dark' ? sunIcon : moonIcon; };
+      apply(localStorage.getItem('theme') || 'dark');
+      toggle.addEventListener('click', () => {
+        const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+        localStorage.setItem('theme', next); apply(next);
+      });
+    })();
+
+    // ---- helpers (match dashboard.html) ----
+    function esc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+    function safeUrl(u){ u = String(u || ''); return /^https?:\/\//i.test(u) ? u : ''; }
+    const api = async (url, opts) => (window.jhFetch ? jhFetch(url, opts) : fetch(url, opts));
+    const asJson = async (r) => (window.jhJson ? jhJson(r) : (async()=>{ try{ return await r.json(); }catch(e){ return null; } })());
+
+    // ---- token: from ?token= in the URL, else localStorage; persist so it survives reloads ----
+    let token = new URLSearchParams(location.search).get('token') || '';
+    if (token) { try { localStorage.setItem('jh_token', token); } catch(e){} }
+    else { try { token = localStorage.getItem('jh_token') || ''; } catch(e){ token = ''; } }
+    const tq = token ? ('?token=' + encodeURIComponent(token)) : '';
+    // carry the token onto token-based nav links so they don't bounce to /login
+    if (token) {
+      document.querySelectorAll('.nav .nlink[href="/dashboard"], .nav .nlink[href="/preferences"], .nav .nlink[href="/resume"]')
+        .forEach(a => a.href = a.getAttribute('href') + tq);
+    }
+    document.getElementById('bannerLink').href = '/preferences' + tq;
+
+    let QUEUE = [], selectedId = null;
+
+    // ---- apply profile banner (answers auto-resolve only when it's filled) ----
+    async function loadProfile(){
+      try{
+        const r = await api('/api/apply-profile?token=' + encodeURIComponent(token));
+        if(!r.ok) return;
+        const d = await asJson(r) || {};
+        const prof = d.apply_profile || {};
+        const empty = !prof || Object.keys(prof).length === 0;
+        document.getElementById('profileBanner').style.display = empty ? 'flex' : 'none';
+      }catch(e){}
+    }
+
+    // ---- the queue (left column) ----
+    async function loadQueue(){
+      const box = document.getElementById('queueBox');
+      if(!token){
+        box.innerHTML = '<div class="errbox"><b>Invalid or missing link.</b>Open the apply cockpit from your private dashboard link.</div>';
+        return;
+      }
+      box.innerHTML = '<div class="loading-center"><span class="spinner"></span> Loading your queue...</div>';
+      let res;
+      try{ res = await api('/api/apply-queue?token=' + encodeURIComponent(token)); }
+      catch(e){ res = null; }
+      if(!res || (!res.ok && res.status >= 500)){
+        box.innerHTML = '<div class="errbox"><b>Server is waking up.</b>Free hosting sleeps when idle, this takes about 30 seconds. <button class="btn btn-primary" style="margin-top:10px" onclick="loadQueue()">Reload</button></div>';
+        return;
+      }
+      if(!res.ok){
+        box.innerHTML = '<div class="errbox"><b>Could not load the queue.</b>Check your private link and try again.</div>';
+        return;
+      }
+      const data = await asJson(res) || {};
+      QUEUE = data.queue || [];
+      document.getElementById('queueCount').textContent = QUEUE.length ? '(' + QUEUE.length + ')' : '';
+      renderQueue();
+    }
+
+    function renderQueue(){
+      const box = document.getElementById('queueBox');
+      if(!QUEUE.length){
+        box.innerHTML = '<div class="empty"><b>No strong matches queued right now</b>We only queue roles you\'d actually get. Check back after the next run.</div>';
+        return;
+      }
+      const list = document.createElement('div');
+      list.className = 'qlist';
+      box.innerHTML = '';
+      box.appendChild(list);
+      QUEUE.forEach(j => {
+        const card = document.createElement('button');
+        card.className = 'qcard' + (j.job_id === selectedId ? ' active' : '');
+        card.type = 'button';
+        const fit = (j.fit != null) ? (j.fit + '%') : (j.score != null ? j.score : '');
+        const resumeNote = j.resume_ready === false
+          ? '<span class="resume-warn">Resume not ready. <a href="/resume' + tq + '">Upload or build it</a> so the tailored resume works.</span>'
+          : '';
+        card.innerHTML =
+          '<div class="qcard-top">' +
+            '<div><div class="company">' + esc(j.company) + '</div>' +
+            '<div class="role">' + esc(j.title) + '</div></div>' +
+            (fit !== '' ? '<span class="fitbadge">' + esc(fit) + '</span>' : '') +
+          '</div>' +
+          '<div class="qcard-meta">' +
+            (j.verdict ? '<span class="vchip">' + esc(j.verdict) + '</span>' : '') +
+            (j.region ? '<span class="sub" style="margin:0">' + esc(j.region) + '</span>' : '') +
+          '</div>' +
+          (j.why_fit ? '<div class="why">' + esc(j.why_fit) + '</div>' : '') +
+          resumeNote;
+        card.onclick = () => selectJob(j.job_id);
+        list.appendChild(card);
+      });
+    }
+
+    // ---- the package (right pane) ----
+    async function selectJob(id){
+      selectedId = id;
+      renderQueue();
+      document.getElementById('paneEmpty').style.display = 'none';
+      const body = document.getElementById('paneBody');
+      body.style.display = 'block';
+      body.innerHTML = '<div class="loading-center"><span class="spinner"></span> Preparing the package...</div>';
+      let res;
+      try{ res = await api('/api/apply-package?token=' + encodeURIComponent(token) + '&job_id=' + encodeURIComponent(id)); }
+      catch(e){ res = null; }
+      if(!res || !res.ok){
+        body.innerHTML = '<div class="errbox"><b>Could not load this package.</b>Try selecting it again.</div>';
+        return;
+      }
+      const d = await asJson(res) || {};
+      if(!d.ok){
+        body.innerHTML = '<div class="errbox"><b>Could not prepare this one.</b>' + esc(d.reason || 'Please try again.') + '</div>';
+        return;
+      }
+      renderPackage(d);
+    }
+
+    function renderPackage(d){
+      const body = document.getElementById('paneBody');
+      const job = d.job || {};
+      const url = safeUrl(job.url);
+      const fit = (d.fit != null) ? (d.fit + '%') : '';
+
+      // fit reasoning
+      let html =
+        '<div class="pkg">' +
+          '<h2>' + esc(job.title || '') + '</h2>' +
+          '<div class="pkg-co">' + esc(job.company || '') +
+            (d.verdict ? ' &middot; <span class="vchip" style="text-transform:capitalize">' + esc(d.verdict) + '</span>' : '') +
+            (fit ? ' &middot; <b>' + esc(fit) + '</b> fit' : '') + '</div>';
+
+      // why fit + catch
+      html += '<div class="pkg-section"><div class="sec-label">Why this is a fit</div>' +
+        '<div class="reasoning">' + (d.why_fit ? esc(d.why_fit) : 'No reasoning provided.') + '</div>';
+      if(d.catch){
+        html += '<div class="catchbox"><b>Worth knowing:</b> ' + esc(d.catch) + '</div>';
+      }
+      html += '</div>';
+
+      // tailored resume
+      const resumeReady = d.resume && d.resume.ready;
+      html += '<div class="pkg-section"><div class="sec-label">Tailored resume</div>' +
+        '<button class="btn btn-primary" id="dlResume">Download tailored resume</button>' +
+        (resumeReady === false ? '<span class="resume-warn" style="display:block;margin-top:8px">Base resume not ready. <a href="/resume' + tq + '">Upload or build it first</a>.</span>' : '') +
+        '<div class="statusline" id="resumeStatus"></div></div>';
+
+      // screening answers
+      const answers = d.answers || {};
+      const unanswered = d.unanswered || [];
+      const ansKeys = Object.keys(answers);
+      if(ansKeys.length || unanswered.length){
+        html += '<div class="pkg-section"><div class="sec-label">Screening answers</div>';
+        ansKeys.forEach((q, i) => {
+          html += '<div class="ans"><label for="ans_' + i + '">' + esc(q) + '</label>' +
+            '<textarea id="ans_' + i + '">' + esc(answers[q]) + '</textarea></div>';
+        });
+        unanswered.forEach((q, i) => {
+          html += '<div class="ans flag"><label for="uans_' + i + '">' + esc(q) +
+            '<span class="flagtag">needs you</span></label>' +
+            '<textarea id="uans_' + i + '" placeholder="Fill this one in, we could not auto-resolve it."></textarea></div>';
+        });
+        html += '</div>';
+      }
+
+      // cover letter
+      html += '<div class="pkg-section">' +
+        '<div class="cl-head"><div class="sec-label">Cover letter</div>' +
+          '<div class="cl-actions">' +
+            '<button class="btn btn-ghost sm" id="clCopy">Copy</button>' +
+            '<button class="btn btn-ghost sm" id="clRegen">Regenerate</button>' +
+          '</div></div>' +
+        '<textarea id="coverLetter" placeholder="No cover letter yet, tap Regenerate to draft one.">' + esc(d.cover_letter || '') + '</textarea>' +
+        '<div class="statusline" id="clStatus"></div></div>';
+
+      // actions
+      html += '<div class="pane-actions">' +
+        (url ? '<a class="btn btn-ghost" href="' + esc(url) + '" target="_blank" rel="noopener">Open the application</a>' : '') +
+        '<button class="btn btn-ok" id="markApplied">✓ Mark as applied</button>' +
+        '</div><div class="statusline" id="applyStatus"></div>';
+
+      html += '</div>';
+      body.innerHTML = html;
+
+      // wire buttons
+      document.getElementById('dlResume').onclick = () => downloadResume(job.id, document.getElementById('dlResume'));
+      document.getElementById('clCopy').onclick = copyCover;
+      document.getElementById('clRegen').onclick = () => regenCover(job.id, document.getElementById('clRegen'));
+      document.getElementById('markApplied').onclick = () => markApplied(job.id, document.getElementById('markApplied'));
+    }
+
+    // ---- download tailored resume (200 = file, 422 = failures, 409 = no resume) ----
+    async function downloadResume(id, btn){
+      const st = document.getElementById('resumeStatus');
+      btn.disabled = true;
+      st.innerHTML = '<span class="spinner"></span> Building your tailored resume...';
+      let res;
+      try{ res = await api('/api/resume/tailored.docx?token=' + encodeURIComponent(token) + '&job_id=' + encodeURIComponent(id)); }
+      catch(e){ res = null; }
+      btn.disabled = false;
+      if(!res){ st.innerHTML = '<span class="err">Network error, try again.</span>'; return; }
+      if(res.ok){
+        try{
+          const blob = await res.blob();
+          // filename from Content-Disposition, falling back to a sensible default
+          let name = 'tailored-resume.docx';
+          const cd = res.headers.get('Content-Disposition') || '';
+          const m = /filename\*?=(?:UTF-8''|")?([^";]+)/i.exec(cd);
+          if(m && m[1]) name = decodeURIComponent(m[1].replace(/"/g,'').trim());
+          const trimmed = res.headers.get('X-Resume-Trimmed');
+          const a = document.createElement('a');
+          const href = URL.createObjectURL(blob);
+          a.href = href; a.download = name;
+          document.body.appendChild(a); a.click(); a.remove();
+          setTimeout(() => URL.revokeObjectURL(href), 4000);
+          st.innerHTML = '<span class="ok">Downloaded ' + esc(name) + '.' +
+            (trimmed && +trimmed > 0 ? ' Trimmed ' + esc(trimmed) + ' line(s) to fit.' : '') + '</span>';
+        }catch(e){ st.innerHTML = '<span class="err">Download failed, try again.</span>'; }
+        return;
+      }
+      // non-200: body is JSON {ok:false, reason, failures:[...]}
+      const d = await asJson(res) || {};
+      let msg = '<span class="err">' + esc(d.reason || (res.status === 409 ? 'No base resume on file yet.' : 'Could not build the resume.')) + '</span>';
+      if(res.status === 409 || /resume/i.test(d.reason || '')){
+        msg += ' <a href="/resume' + tq + '">Upload or build your resume</a>';
+      }
+      if(Array.isArray(d.failures) && d.failures.length){
+        msg += d.failures.map(f => '<div class="failrow">&middot; ' + esc(f) + '</div>').join('');
+      }
+      st.innerHTML = msg;
+    }
+
+    // ---- cover letter ----
+    function copyCover(){
+      const ta = document.getElementById('coverLetter');
+      const st = document.getElementById('clStatus');
+      const text = ta.value || '';
+      if(!text.trim()){ st.innerHTML = '<span class="err">Nothing to copy yet.</span>'; return; }
+      const done = () => { st.innerHTML = '<span class="ok">Copied to clipboard.</span>'; };
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(text).then(done).catch(() => { ta.select(); try{ document.execCommand('copy'); done(); }catch(e){ st.innerHTML = '<span class="err">Could not copy.</span>'; } });
+      } else { ta.select(); try{ document.execCommand('copy'); done(); }catch(e){ st.innerHTML = '<span class="err">Could not copy.</span>'; } }
+    }
+
+    async function regenCover(id, btn){
+      const st = document.getElementById('clStatus');
+      const ta = document.getElementById('coverLetter');
+      btn.disabled = true;
+      st.innerHTML = '<span class="spinner"></span> Drafting a fresh cover letter...';
+      let res;
+      try{ res = await api('/api/cover_letter?token=' + encodeURIComponent(token) + '&job_id=' + encodeURIComponent(id)); }
+      catch(e){ res = null; }
+      btn.disabled = false;
+      if(!res || !res.ok){ st.innerHTML = '<span class="err">Could not regenerate, try again.</span>'; return; }
+      const d = await asJson(res) || {};
+      if(d.ok && d.cover_letter != null){
+        ta.value = d.cover_letter;
+        st.innerHTML = '<span class="ok">New draft ready, edit it before you send.</span>';
+      } else {
+        st.innerHTML = '<span class="err">' + esc(d.reason || 'Could not regenerate.') + '</span>';
+      }
+    }
+
+    // ---- mark as applied ----
+    async function markApplied(id, btn){
+      const st = document.getElementById('applyStatus');
+      btn.disabled = true;
+      st.innerHTML = '<span class="spinner"></span> Marking as applied...';
+      let res;
+      try{
+        const qs = 'token=' + encodeURIComponent(token) + '&status=applied&resume_used=' + encodeURIComponent('via cockpit');
+        res = await api('/api/jobs/' + encodeURIComponent(id) + '?' + qs, { method: 'POST' });
+      }catch(e){ res = null; }
+      if(!res || !res.ok){
+        btn.disabled = false;
+        st.innerHTML = '<span class="err">Could not mark it, try again.</span>';
+        return;
+      }
+      btn.textContent = '✓ Applied';
+      st.innerHTML = '<span class="ok">Marked as applied. Nice one.</span>';
+      // remove from the queue and clear the pane
+      QUEUE = QUEUE.filter(j => j.job_id !== id);
+      selectedId = null;
+      document.getElementById('queueCount').textContent = QUEUE.length ? '(' + QUEUE.length + ')' : '';
+      renderQueue();
+      setTimeout(() => {
+        document.getElementById('paneBody').style.display = 'none';
+        document.getElementById('paneEmpty').style.display = 'block';
+      }, 900);
+    }
+
+    // ---- boot ----
+    loadProfile();
+    loadQueue();
+  </script>
+  <script src="/static/announce.js?v=7"></script>
+</body>
+</html>

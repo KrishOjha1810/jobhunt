@@ -31,6 +31,7 @@
     <a class="brand" href="/jobs"><span class="brand-mark">JH</span> JobHunt</a>
     <a class="nlink" href="/jobs">⌕ <span class="lbl">Browse</span></a>
     <a class="nlink" href="/dashboard">◎ <span class="lbl">Tracker</span></a>
+    <a class="nlink" href="/apply">⚡ <span class="lbl">Apply</span></a>
     <a class="nlink" href="/resume">▤ <span class="lbl">Resume</span></a>
     <a class="nlink active" href="/preferences">⚙ <span class="lbl">Preferences</span></a>
     <button class="theme-toggle" id="themeToggle" aria-label="Toggle theme"></button>
@@ -80,6 +81,22 @@
       <label class="fld" style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600">
         <input type="checkbox" id="remoteOnly" style="width:auto"> Remote roles only
       </label>
+    </div>
+
+    <div class="pcard">
+      <h2>Application details</h2>
+      <p class="sub">Fill once. These auto-answer the common screening questions (notice period, CTC, work authorization) on applications, with no AI needed , so applying is faster and consistent.</p>
+      <label class="fld">Phone</label><input type="text" id="ap_phone" />
+      <label class="fld">Current city</label><input type="text" id="ap_location_city" />
+      <label class="fld">Work authorization</label><input type="text" id="ap_work_authorization" placeholder="e.g. Indian citizen, no US sponsorship needed" />
+      <label class="fld">Notice period</label><input type="text" id="ap_notice_period_days" placeholder="e.g. 30 days / immediate" />
+      <label class="fld">Current CTC</label><input type="text" id="ap_current_ctc" />
+      <label class="fld">Expected CTC</label><input type="text" id="ap_expected_ctc" />
+      <label class="fld">Total experience (years)</label><input type="text" id="ap_total_experience_years" />
+      <label class="fld">Willing to relocate</label><input type="text" id="ap_willing_to_relocate" placeholder="e.g. No, remote only" />
+      <label class="fld">LinkedIn URL</label><input type="text" id="ap_linkedin_url" />
+      <label class="fld">GitHub URL</label><input type="text" id="ap_github_url" />
+      <label class="fld">Portfolio URL</label><input type="text" id="ap_portfolio_url" />
     </div>
 
     <div class="savebar">
@@ -134,6 +151,19 @@
       $('remoteOnly').checked = !!d.remote_only;
     }).catch(() => { $('msg').innerHTML = '<span class="err">Could not load.</span>'; });
 
+    // Application details (the answer-bank profile) , loaded and saved alongside preferences.
+    const AP_FIELDS = ["phone","location_city","work_authorization","notice_period_days","current_ctc",
+      "expected_ctc","total_experience_years","willing_to_relocate","linkedin_url","github_url","portfolio_url"];
+    fetch(apiq('/api/apply-profile')).then(r => r.ok ? r.json() : null).then(d => {
+      const p = (d && d.apply_profile) || {};
+      AP_FIELDS.forEach(f => { const el = $('ap_'+f); if (el && p[f]) el.value = p[f]; });
+    }).catch(() => {});
+    async function saveApplyProfile(){
+      const body = {};
+      AP_FIELDS.forEach(f => { const el = $('ap_'+f); if (el && el.value.trim()) body[f] = el.value.trim(); });
+      try { await fetch(apiq('/api/apply-profile'), { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(body) }); } catch(e){}
+    }
+
     $('save').onclick = async () => {
       $('save').disabled = true; $('msg').textContent = 'Saving...';
       const body = {
@@ -145,6 +175,7 @@
       };
       try {
         const r = await fetch(apiq('/api/preferences'), { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(body) });
+        await saveApplyProfile();
         $('msg').innerHTML = r.ok ? '<span class="ok">Saved , your next matches will use these.</span>' : '<span class="err">Save failed.</span>';
       } catch(e){ $('msg').innerHTML = '<span class="err">Save failed.</span>'; }
       $('save').disabled = false;
