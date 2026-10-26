@@ -1,0 +1,75 @@
+"""Auto-apply foundation (Stage 2): answer bank, static apply-profile, and the quality-gated queue.
+
+These cover the executor-independent core , deciding WHICH strong matches are worth applying to and
+WHAT the answers are , without submitting anything anywhere.
+"""
+from app import db, autoapply
+
+
+def test_apply_profile_merges_known_fields_only(make_user):
+    uid = make_user()["id"]
+    db.set_apply_profile(uid, phone="+91-99999", notice_period_days="30", junk_field="nope")
+    p = db.get_apply_profile(uid)
+    assert p["phone"] == "+91-99999"
+    assert p["notice_period_days"] == "30"
+    assert "junk_field" not in p  # unknown fields are ignored, not stored
+    # merge: a later write updates only the field passed, keeps the rest
+    db.set_apply_profile(uid, phone="+91-11111")
+    p = db.get_apply_profile(uid)
+    assert p["phone"] == "+91-11111" and p["notice_period_days"] == "30"
+
+
+def test_answer_bank_dedupes_phrasings_and_upserts(make_user):
+    uid = make_user()["id"]
+    db.set_apply_answer(uid, "What is your Notice Period?", "30 days")
+    db.set_apply_answer(uid, "what is your  notice   period", "15 days")  # same key -> overwrite
+    assert db.get_apply_answer(uid, "WHAT IS YOUR notice period??") == "15 days"
+    assert len(db.list_apply_answers(uid)) == 1  # collapsed to a single row
+
+
+def test_resolve_prefers_bank_then_profile_then_escalates(make_user):
+    uid = make_user()["id"]
+    db.set_apply_profile(uid, expected_ctc="40000 USD",
+                         work_authorization="Indian citizen, no US sponsorship")
+    db.set_apply_answer(uid, "What is your notice period?", "15 days")
+    res = autoapply.resolve_answers(uid, [
+        "What is your notice period?",      # from bank
+        "Expected CTC?",                     # from profile pattern
+        "Do you need visa sponsorship?",     # profile pattern (work auth)
+        "Why do you want this job?",         # novel -> escalate
+        "   ",                               # blank -> skipped
+    ])
+    assert res["answered"]["What is your notice period?"] == "15 days"
+    assert res["answered"]["Expected CTC?"] == "40000 USD"
+    assert res["answered"]["Do you need visa sponsorship?"].startswith("Indian")
+    assert res["unanswered"] == ["Why do you want this job?"]
+
+
+def test_learn_answers_persists_for_next_time(make_user):
+    uid = make_user()["id"]
+    autoapply.learn_answers(uid, {"Why do you want this job?": "Strong backend and web3 fit"})
+    assert db.get_apply_answer(uid, "why do you want this job") == "Strong backend and web3 fit"
+
+
+def test_eligible_candidates_apply_quality_gate(make_user):
+    uid = make_user()["id"]
+    db.log_job(uid, {"title": "Rust Backend Eng", "company": "Acme", "url": "http://x/1",
+                     "score": 88, "category": "backend", "region": "global"})
+    db.log_job(uid, {"title": "Junior PHP", "company": "Beta", "url": "http://x/2",
+                     "score": 60, "category": "backend", "region": "global"})
+    cands = autoapply.eligible_candidates(uid)
+    assert len(cands) == 1
+    assert cands[0]["title"] == "Rust Backend Eng" and cands[0]["score"] == 88
+
+
+def test_eligible_candidates_respects_cap_and_skips_applied(make_user):
+    uid = make_user()["id"]
+    for i in range(5):
+        db.log_job(uid, {"title": f"Role {i}", "company": "Acme", "url": f"http://x/{i}",
+                         "score": 90 + i, "category": "backend", "region": "global"})
+    # one already applied -> must be excluded (only 'saved' rows qualify)
+    db.set_status_by_url(uid, "http://x/0", "applied")
+    cands = autoapply.eligible_candidates(uid, limit=2)
+    assert len(cands) == 2  # cap honored
+    assert all(c["url"] != "http://x/0" for c in cands)  # applied one skipped
+    assert cands[0]["score"] >= cands[1]["score"]  # best first
