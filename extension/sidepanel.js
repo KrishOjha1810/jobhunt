@@ -28,10 +28,37 @@ async function loadProfile(token) {
   return p;
 }
 
+const AP_FIELDS = ["phone", "location_city", "work_authorization", "notice_period_days",
+  "current_ctc", "expected_ctc", "total_experience_years", "willing_to_relocate",
+  "linkedin_url", "github_url", "portfolio_url"];
+
+async function loadApplyProfile() {
+  if (!TOKEN) return;
+  try {
+    const d = await api(`/api/apply-profile?token=${encodeURIComponent(TOKEN)}`);
+    const p = (d && d.apply_profile) || {};
+    let any = false;
+    AP_FIELDS.forEach(f => { const el = $("ap_" + f); if (el && p[f]) { el.value = p[f]; any = true; } });
+    if (any) done("pAP");
+  } catch (e) {}
+}
+
+// Persist a confirmed Q&A so the same question is answered for free (and keyless) next time.
+async function learnAnswer(label, value) {
+  if (!label || !value) return;
+  try {
+    await api(`/api/apply-answers?token=${encodeURIComponent(TOKEN)}`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ answers: { [label]: value } }),
+    });
+  } catch (e) {}
+}
+
 function showFlow() {
   $("setup").style.display = "none";
   $("flow").style.display = "block";
   $("who").textContent = `Signed in as ${PROFILE.name || PROFILE.email || "you"}.`;
+  loadApplyProfile();
 }
 
 async function save(raw) {
@@ -68,7 +95,9 @@ function renderQuestions() {
   $("draftAll").style.display = "block";
   box.querySelectorAll("[data-fill]").forEach(b => b.onclick = async () => {
     const i = +b.dataset.fill;
-    const r = await send({ type: "FILL_QUESTION", sel: QUESTIONS[i].sel, text: $("ans" + i).value });
+    const val = $("ans" + i).value;
+    const r = await send({ type: "FILL_QUESTION", sel: QUESTIONS[i].sel, text: val });
+    if (r.ok) learnAnswer(QUESTIONS[i].label, val);  // remember it so the same question is free next time
     status(r.ok ? "Filled." : "Could not fill that field.", r.ok ? "ok" : "err");
   });
 }
@@ -121,6 +150,40 @@ async function scan() {
     const r = await send({ type: "FILL_IDENTITY", profile: PROFILE });
     if (r.error) return status("Open the application page first.", "err");
     done("p1"); status(`Filled ${r.filled || 0} field(s).`, "ok");
+  };
+
+  $("saveAP").onclick = async () => {
+    const body = {};
+    AP_FIELDS.forEach(f => { const el = $("ap_" + f); if (el && el.value.trim()) body[f] = el.value.trim(); });
+    status("Saving application details...");
+    try {
+      const d = await api(`/api/apply-profile?token=${encodeURIComponent(TOKEN)}`, {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      if (d.ok) { done("pAP"); status("Saved. These now fill screening questions automatically.", "ok"); }
+      else status("Could not save.", "err");
+    } catch (e) { status(e.message, "err"); }
+  };
+
+  $("dlResume").onclick = async () => {
+    const jid = $("jobPick").value;
+    if (!jid) return status("Pick the tracked job first, so we tailor the resume to it.", "err");
+    status("Tailoring + validating your resume...");
+    try {
+      const r = await fetch(`${API_BASE}/api/resume/tailored.docx?token=${encodeURIComponent(TOKEN)}&job_id=${jid}`);
+      if (!r.ok) {
+        let reason = "Could not generate the resume.";
+        try { const j = await r.json(); reason = (j.failures && j.failures.join("; ")) || j.reason || reason; } catch (e) {}
+        return status(reason, "err");
+      }
+      const blob = await r.blob();
+      const cd = r.headers.get("Content-Disposition") || "";
+      const m = cd.match(/filename="([^"]+)"/);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = url; a.download = m ? m[1] : "tailored_resume.docx"; a.click();
+      URL.revokeObjectURL(url);
+      const trimmed = r.headers.get("X-Resume-Trimmed") || "0";
+      status(`Downloaded${trimmed !== "0" ? ` (trimmed ${trimmed} line(s) to fit one page)` : ""}. Now attach it below.`, "ok");
+    } catch (e) { status(e.message, "err"); }
   };
 
   $("draftAll").onclick = async () => {

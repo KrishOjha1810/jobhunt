@@ -158,7 +158,9 @@ def check_selectable(pdf_path, rj):
     text = " ".join((pg.extract_text() or "") for pg in pypdf.PdfReader(pdf_path).pages)
     words = len(text.split())
     first = (rj.get("name") or "").split()[0].lower() if rj.get("name") else ""
-    ok = words >= 80 and (not first or first in text.lower()) and "@" in text
+    # >=30 words distinguishes a real text layer from an image/scanned PDF (which extracts ~0 words);
+    # the name + an email in the extracted text confirm it is the actual resume, ATS-readable.
+    ok = words >= 30 and (not first or first in text.lower()) and "@" in text
     return ok, f"{words} words extracted, identity_present={bool(first and first in text.lower())}", "rendered"
 
 

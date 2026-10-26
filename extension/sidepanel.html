@@ -41,6 +41,24 @@
     <h1>Auto-Apply</h1>
     <p class="sub" id="who"></p>
     <button class="full" id="saveJob" style="margin-bottom:8px">Save this page to my tracker</button>
+
+    <details class="step" id="applyProfile" style="margin-bottom:8px">
+      <summary style="cursor:pointer;font-size:13px;font-weight:700">Application details (fill once) <span class="pill" id="pAP">todo</span></summary>
+      <p class="sub" style="margin:6px 0">Saved once, these answer the common screening questions (notice period, CTC, work authorization) automatically, with no AI needed.</p>
+      <label>Phone</label><input id="ap_phone" />
+      <label>Current city</label><input id="ap_location_city" />
+      <label>Work authorization</label><input id="ap_work_authorization" placeholder="e.g. Indian citizen, no US sponsorship needed" />
+      <label>Notice period</label><input id="ap_notice_period_days" placeholder="e.g. 30 days / immediate" />
+      <label>Current CTC</label><input id="ap_current_ctc" />
+      <label>Expected CTC</label><input id="ap_expected_ctc" />
+      <label>Total experience (years)</label><input id="ap_total_experience_years" />
+      <label>Willing to relocate</label><input id="ap_willing_to_relocate" placeholder="e.g. No, remote only" />
+      <label>LinkedIn URL</label><input id="ap_linkedin_url" />
+      <label>GitHub URL</label><input id="ap_github_url" />
+      <label>Portfolio URL</label><input id="ap_portfolio_url" />
+      <button class="full sm" id="saveAP" style="margin-top:8px">Save application details</button>
+    </details>
+
     <div class="banner" id="atsBanner">For the guided auto-apply flow, open a Greenhouse / Lever / Ashby / Workday application page, then Scan.</div>
     <button class="full ghost" id="scan">Scan this page</button>
 
@@ -73,6 +91,7 @@
       <div class="step" id="s4">
         <h3>4 · Resume + review <span class="pill" id="p4">todo</span></h3>
         <p class="sub">Attach your resume file yourself (browsers block auto-attaching). Review every field before submitting.</p>
+        <button class="full sm" id="dlResume" style="margin-bottom:6px">Download tailored resume for this job</button>
         <button class="full sm ghost" id="showUpload">Show me the upload box</button>
       </div>
 
