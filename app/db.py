@@ -876,10 +876,13 @@ def get_profile_extra(user_id):
 
 def set_profile_extra(user_id, achievements=None, projects=None, remote_only=None, avoid=None,
                       prioritize=None, min_salary=None, fresher_mode=None,
-                      open_to_internships=None, only_convertible=None, dream_companies=None):
+                      open_to_internships=None, only_convertible=None, dream_companies=None,
+                      target_market=None):
     """Store the user's achievements + projects AND match preferences (deal-breakers remote_only/avoid,
-    prioritize-list, min_salary) AND fresher mode (open_to_internships, only_convertible). True MERGE:
-    only fields passed (non-None) are updated."""
+    prioritize-list, min_salary) AND fresher mode (open_to_internships, only_convertible) AND the
+    target_market. True MERGE: only fields passed (non-None) are updated. target_market 'usd_remote'
+    switches sourcing + the recruiter screen to USD-paying, India-eligible remote roles; anything else
+    (or unset) keeps the default India-market behaviour."""
     data = get_profile_extra(user_id)
     if fresher_mode is not None:
         data["fresher_mode"] = bool(fresher_mode)
@@ -887,6 +890,9 @@ def set_profile_extra(user_id, achievements=None, projects=None, remote_only=Non
         data["open_to_internships"] = bool(open_to_internships)
     if only_convertible is not None:
         data["only_convertible"] = bool(only_convertible)
+    if target_market is not None:
+        tm = str(target_market).strip().lower()
+        data["target_market"] = tm if tm in ("usd_remote", "india") else "india"
     if achievements is not None:
         data["achievements"] = str(achievements).strip()[:4000]
     if projects is not None:

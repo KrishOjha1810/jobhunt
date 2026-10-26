@@ -373,9 +373,22 @@ def recruiter_screen(resume_text: str, jobs: list, prefs: dict = None):
     if prefs.get("prioritize"):
         constraints.append("Candidate especially WANTS roles like: " + ", ".join(prefs["prioritize"])
                            + " , rate these higher when they fit.")
+    usd_remote = (prefs.get("target_market") == "usd_remote")
     if prefs.get("min_salary"):
-        constraints.append(f"Candidate's minimum expected pay is ~{prefs['min_salary']} , if the posting "
-                           "clearly pays well below this, lower the fit (don't reject on unknown pay).")
+        _cur = " USD/yr" if usd_remote else ""
+        constraints.append(f"Candidate's minimum expected pay is ~{prefs['min_salary']}{_cur} , if the "
+                           "posting clearly pays well below this, lower the fit (don't reject on unknown pay).")
+    if usd_remote:
+        constraints.append(
+            "HARD , GEO ELIGIBILITY: the candidate is in India and needs a role that can legally employ "
+            "someone based in India. REJECT (verdict 'no') any role that is US-only / EU-only / UK-only, "
+            "requires in-country work authorization or citizenship, says no visa sponsorship, or is "
+            "otherwise restricted to applicants in a country the candidate cannot work from. A "
+            "'Worldwide' or 'Remote' tag is NOT enough , judge from the description body. BOOST roles that "
+            "hire globally, via an Employer-of-Record (Deel / Remote.com / Oyster) or as a contractor, or "
+            "explicitly welcome India / APAC, and that pay in USD.")
+    _tz_field = (', "tz": "<=8 words: the timezone or hours-overlap requirement if the posting states one, '
+                 'else empty string"') if usd_remote else ""
     sys = (
         "You are a sharp technical recruiter screening jobs for ONE candidate. For EACH numbered job, "
         "judge how good a match it REALLY is for THIS candidate's resume, and how likely they are to "
@@ -393,7 +406,7 @@ def recruiter_screen(resume_text: str, jobs: list, prefs: dict = None):
         "Output ONLY a JSON array, one object per job IN ORDER, each: "
         '{"i": <1-based index>, "fit": <0-100 honest match+callback score>, '
         '"verdict": "strong"|"maybe"|"no", "why": "<=12 words, concrete & specific to this candidate", '
-        '"catch": "<=12 words, the main gap/risk, or empty string if none"}. '
+        '"catch": "<=12 words, the main gap/risk, or empty string if none"' + _tz_field + '}. '
         "No prose, no fabrication, no em dashes."
     )
     user_msg = (
@@ -402,12 +415,23 @@ def recruiter_screen(resume_text: str, jobs: list, prefs: dict = None):
     )
     # ONE call (the output is a JSON array, so we parse it directly rather than via _json_call which
     # expects an object , avoids a wasted second call/quota hit).
+    raw = None
+    for _attempt in (1, 2):  # one retry , a transient 5xx/timeout here otherwise silently drops the
+        try:                  # whole precision + geo gate for the run, which is the worst quiet failure
+            if LLM_PROVIDER == "anthropic":
+                raw = _chat_anthropic(sys, user_msg, max_tokens=2400)
+            else:
+                raw = _chat_openai_compat(
+                    [{"role": "system", "content": sys}, {"role": "user", "content": user_msg}], max_tokens=2400)
+            break
+        except Exception as e:
+            if _attempt == 1:
+                import time as _t
+                _t.sleep(1.5)
+                continue
+            print(f"[enrich] recruiter_screen failed: {e}")
+            return []
     try:
-        if LLM_PROVIDER == "anthropic":
-            raw = _chat_anthropic(sys, user_msg, max_tokens=2400)
-        else:
-            raw = _chat_openai_compat(
-                [{"role": "system", "content": sys}, {"role": "user", "content": user_msg}], max_tokens=2400)
         import json as _json
         import re as _re
         raw = _re.sub(r"^```(?:json)?|```$", "", raw.strip(), flags=_re.M).strip()
@@ -438,6 +462,7 @@ def recruiter_screen(resume_text: str, jobs: list, prefs: dict = None):
                     "verdict": v if v in ("strong", "maybe", "no") else "maybe",
                     "why": (item.get("why") or "").strip()[:140],
                     "catch": (item.get("catch") or "").strip()[:140],
+                    "tz": (item.get("tz") or "").strip()[:60],
                 }
         except Exception:
             continue
