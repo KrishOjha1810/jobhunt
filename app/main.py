@@ -1987,6 +1987,45 @@ async def api_resume_export(request: Request, token: str = ""):
     )
 
 
+@app.get("/api/resume/tailored.docx")
+def api_resume_tailored_docx(request: Request, job_id: int = 0, url: str = "", token: str = ""):
+    """The per-job apply artifact: tailor the user's resume to this job, render it in the gold format,
+    auto-fit it to the page budget, and VALIDATE it. Returns the .docx only when it passes validation
+    (so a broken or overflowing resume is never handed to the apply flow); otherwise 422 with reasons.
+    X-Resume-Trimmed reports how many low-value bullets were cut to make it fit."""
+    from . import enrich, resume_render
+    user = _resolve_user(request, token)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    job = _resolve_job_for_context(user, job_id, url)
+    if not job:
+        return JSONResponse({"ok": False, "reason": "job not found"}, status_code=404)
+    rj = db.get_resume_json(user["id"])
+    if not rj:
+        return JSONResponse({"ok": False, "needs_upload": True,
+                             "reason": "Upload your resume first , we tailor your real resume."},
+                            status_code=409)
+    jd = _job_jd(job) or (job.get("title") or "")
+    edits, _err = enrich.tailor_edits(rj, job.get("title") or "", jd,
+                                      extra=db.profile_extra_text(user["id"]),
+                                      github=db.github_repos(user["id"]))
+    tailored = resume_render.apply_edits_to_json(rj, edits)
+    out = resume_render.build_validated(tailored, _user_years(user))
+    if not out["validation"]["ok"]:
+        return JSONResponse({"ok": False, "reason": "tailored resume did not pass validation",
+                             "failures": out["validation"]["failures"],
+                             "checks": out["validation"]["checks"]}, status_code=422)
+    safe = "".join(c for c in (rj.get("name") or "resume") if c.isalnum() or c in "-_") or "resume"
+    comp = "".join(c for c in (job.get("company") or "job") if c.isalnum() or c in "-_") or "job"
+    return Response(
+        content=out["docx"],
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{safe}_{comp}.docx"',
+                 "X-Resume-Trimmed": str(out["trimmed"]),
+                 "X-Resume-Valid": "true"},
+    )
+
+
 @app.post("/api/resume/phrasings")
 async def api_resume_phrasings(request: Request, token: str = ""):
     """3 ways to phrase a missing keyword into the user's real experience (Jobscan-style). Body:

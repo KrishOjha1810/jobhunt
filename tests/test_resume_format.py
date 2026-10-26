@@ -63,6 +63,52 @@ def test_validator_passes_clean_resume():
     assert res["ok"] is True, res["failures"]
 
 
+def test_apply_edits_to_json_rewrites_bullets_and_summary():
+    from app import resume_render as RR
+    edits = {"summary": "New sharper summary.",
+             "bullets": [{"original": "Built a 3-tier streaming pipeline.",
+                          "improved": "Built a 3-tier streaming pipeline cutting latency 40%."}],
+             "add_skills": ["Kafka"]}
+    out = RR.apply_edits_to_json(SAMPLE, edits)
+    assert out["summary"] == "New sharper summary."
+    assert out["experience"][0]["bullets"][0].endswith("cutting latency 40%.")
+    # original unchanged (deep copy)
+    assert SAMPLE["summary"].startswith("Backend engineer")
+    assert "Additional" in out["skills"] and "Kafka" in out["skills"]["Additional"]
+
+
+def test_build_validated_passes_small_resume_no_trim():
+    from app import resume_render as RR
+    out = RR.build_validated(SAMPLE, years=2)
+    assert out["validation"]["ok"] is True
+    assert out["trimmed"] == 0
+
+
+def test_build_validated_autofits_on_overflow():
+    from app import resume_render as RR
+    bloated = dict(SAMPLE)
+    bloated["experience"] = [{"title": "Engineer", "company": "X", "dates": "2023-2025",
+                              "bullets": ["This is a reasonably long achievement bullet number %d that "
+                                          "takes a full line of text on the page." % i for i in range(40)]}]
+    out = RR.build_validated(bloated, years=2)
+    assert out["trimmed"] > 0  # the auto-fit engaged to reduce overflow
+
+
+def test_tailored_docx_endpoint_returns_valid_file(client, make_user, monkeypatch):
+    from app import db, enrich
+    monkeypatch.setattr(enrich, "tailor_edits",
+                        lambda *a, **k: ({"summary": "", "add_skills": [], "bullets": []}, ""))
+    u = make_user()
+    db.set_resume_json(u["id"], SAMPLE)
+    db.log_job(u["id"], {"title": "Backend Engineer", "company": "Acme", "url": "http://x/1",
+                         "score": 80, "region": "global"})
+    jid = db.list_jobs(u["id"])[0]["id"]
+    r = client.get(f"/api/resume/tailored.docx?token={u['dash_token']}&job_id={jid}")
+    assert r.status_code == 200, r.text
+    assert r.headers["X-Resume-Valid"] == "true"
+    assert r.headers["content-type"].startswith("application/vnd.openxml")
+
+
 def test_validator_rejects_broken_resume():
     # a plain python-docx document with none of the gold format / sections
     d = docx.Document()
