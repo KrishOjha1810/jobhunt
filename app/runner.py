@@ -163,6 +163,8 @@ def _user_prefs(user, uyears):
             prefs["prioritize"] = px["prioritize"]
         if px.get("min_salary"):
             prefs["min_salary"] = px["min_salary"]
+        if px.get("target_market"):
+            prefs["target_market"] = px["target_market"]
     except Exception:
         pass
     try:
@@ -354,6 +356,28 @@ def _loc_pref(j):
     if "remote" in loc:
         return 2      # remote wins ties
     return 1          # India or international both fine, below remote
+
+
+def _salary_usd(j):
+    """Best-effort annual USD pay from a job's salary string; 0 when unknown or clearly non-USD.
+    Only trusts $/USD-marked figures so an INR/EUR number can't be misread as dollars."""
+    import re
+    s = (j.get("salary") or "").replace(",", "")
+    low = s.lower()
+    if not (("$" in s) or ("usd" in low) or ("us$" in low)):
+        return 0.0
+    nums = []
+    for m in re.finditer(r"(\d+(?:\.\d+)?)\s*(k)?", low):
+        v = float(m.group(1))
+        if m.group(2) == "k":
+            v *= 1000
+        nums.append(v)
+    nums = [n for n in nums if n >= 1000]  # drop stray small numbers (e.g. "401k" plan, hours)
+    return max(nums) if nums else 0.0
+
+
+def _geotext(j):
+    return f"{j.get('title','')} {j.get('location','')} {j.get('description','')}"
 
 
 def _recency_days(j):
@@ -559,6 +583,13 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
                         ranked.sort(key=lambda j: j.get("score", 0), reverse=True)
                 except Exception as e:
                     print(f"[runner] personalization skipped for {user.get('id')}: {e}")
+            # USD-remote target: cheap pre-LLM geo gate , drop roles whose body clearly excludes an
+            # India-based applicant (US/EU-only, work-auth-required). A region tag can only DROP here;
+            # the LLM screen reading the full JD body is the only thing that ACCEPTS.
+            tgt = prefs.get("target_market")
+            if tgt == "usd_remote":
+                from . import geo as _geo
+                ranked = [j for j in ranked if not _geo.geo_hard_excluded(_geotext(j))]
             # Rerank pool = the confident top + borderline gems just outside it. The borderline band is
             # mid-scored jobs the keyword scorer ranked lower; the LLM (our strongest signal) gets to
             # rescue them, which is exactly where "I couldn't have found this myself" jobs hide.
@@ -582,6 +613,15 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
                     db.upsert_jobs(enriched)
             except Exception as e:
                 print(f"[runner] jd backfill skipped for {user.get('id')}: {e}")
+            # USD-remote: now that JD bodies are backfilled, annotate eligibility confidence + the
+            # timezone-overlap requirement (surfaced on the card, never filtered), and re-run the cheap
+            # hard-exclude on the fuller body so a "US-only" buried deep still drops before delivery.
+            if tgt == "usd_remote":
+                for jb in rerank_pool:
+                    t = _geotext(jb)
+                    jb["geo_rank"] = _geo.geo_rank(t)
+                    jb["tz"] = _geo.timezone_overlap(t)
+                ranked = [j for j in ranked if not _geo.geo_hard_excluded(_geotext(j))]
             # PRECISION SCREEN: the LLM reads each top candidate like a recruiter for THIS person and
             # returns fit + verdict (strong/maybe/no) + why + catch in ONE batched call. Jobs it marks
             # 'no' are rejected from delivery , this is what turns a "relevant-ish list" into "hand-picked".
@@ -603,6 +643,8 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
                                 v = "maybe"
                             jb["fit"] = s["fit"]; jb["verdict"] = v
                             jb["why_fit"] = s["why"]; jb["catch"] = s["catch"]
+                            if s.get("tz"):  # prefer the LLM's read of the overlap requirement
+                                jb["tz"] = s["tz"]
                             if s["why"]:
                                 jb["reason"] = s["why"] + (f" (catch: {s['catch']})" if s["catch"] else "")
                         # keep blended_score as the ONE headline scale (so "90" means the same thing
@@ -643,15 +685,28 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
             if screened and not used_fallback:
                 passers = [j for j in fresh if j.get("verdict") in ("strong", "maybe")]
                 # strong first; within a tier order by recruiter fit (falls back to blended score)
-                # Ranked order: (1) strong first, (2) recruiter fit desc, (3) freshest post,
-                # then TIE-BREAKS only when the above match: (4) higher salary, (5) remote/India.
-                passers.sort(key=lambda j: (
-                    0 if j.get("verdict") == "strong" else 1,
-                    -(j.get("fit") if j.get("fit") is not None else (j.get("score") or 0)),
-                    _recency_days(j),
-                    -_salary_lpa(j),
-                    -_loc_pref(j),
-                ))
+                if tgt == "usd_remote":
+                    # USD-remote order: (1) strong first, (2) India-eligibility confidence
+                    # (names India > EOR/contractor > worldwide > ambiguous), (3) recruiter fit,
+                    # (4) freshest, then TIE-BREAKS: (5) higher USD pay, (6) remote.
+                    passers.sort(key=lambda j: (
+                        0 if j.get("verdict") == "strong" else 1,
+                        -(j.get("geo_rank") or 0),
+                        -(j.get("fit") if j.get("fit") is not None else (j.get("score") or 0)),
+                        _recency_days(j),
+                        -_salary_usd(j),
+                        -_loc_pref(j),
+                    ))
+                else:
+                    # Ranked order: (1) strong first, (2) recruiter fit desc, (3) freshest post,
+                    # then TIE-BREAKS only when the above match: (4) higher salary, (5) remote/India.
+                    passers.sort(key=lambda j: (
+                        0 if j.get("verdict") == "strong" else 1,
+                        -(j.get("fit") if j.get("fit") is not None else (j.get("score") or 0)),
+                        _recency_days(j),
+                        -_salary_lpa(j),
+                        -_loc_pref(j),
+                    ))
                 to_send = _cap_aggregator(passers)[:PRECISION_MAX]
             else:
                 strong = [j for j in fresh if (j.get("score") or 0) >= 50]

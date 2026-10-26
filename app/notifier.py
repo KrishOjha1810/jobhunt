@@ -185,7 +185,7 @@ def format_digest(user: dict, jobs: list) -> str:
     footer = []
     if strong:
         footer.append("Referral ask template: \"Hi [name], saw [company] is hiring a [role]. "
-                      "I'm a software engineer (~1.5 yrs, backend / Rust / Python) and think I'd fit well. "
+                      "I'm a software engineer (~2 yrs, backend / Rust / Python) and think I'd fit well. "
                       "Would you be open to referring me? Happy to share my resume.\"")
     if tok:
         footer.append(f"Your tracker: {BASE_URL}/dashboard?token={tok}")
@@ -209,6 +209,8 @@ def format_digest(user: dict, jobs: list) -> str:
             b.append(f"   {j['reason']}")
         if j.get("catch"):
             b.append(f"   Heads up: {j['catch']}")
+        if j.get("tz"):  # surfaced, not filtered , the candidate decides if the overlap works
+            b.append(f"   \U0001F552 Overlap: {j['tz']}")
         url = j.get("url", "")
         if tok and url:
             u = urllib.parse.quote(url, safe="")

@@ -691,7 +691,8 @@ async def api_preferences(request: Request, token: str = ""):
                 "fresher_mode": bool(px.get("fresher_mode")),
                 "open_to_internships": px.get("open_to_internships"),
                 "only_convertible": bool(px.get("only_convertible")),
-                "dream_companies": px.get("dream_companies") or []}
+                "dream_companies": px.get("dream_companies") or [],
+                "target_market": px.get("target_market") or "india"}
     try:
         body = await request.json()
     except Exception:
@@ -706,7 +707,8 @@ async def api_preferences(request: Request, token: str = ""):
                          fresher_mode=body.get("fresher_mode"),
                          open_to_internships=body.get("open_to_internships"),
                          only_convertible=body.get("only_convertible"),
-                         dream_companies=_list(body.get("dream_companies")) if "dream_companies" in body else None)
+                         dream_companies=_list(body.get("dream_companies")) if "dream_companies" in body else None,
+                         target_market=body.get("target_market"))
     return {"ok": True}
 
 
