@@ -62,6 +62,31 @@ def test_eligible_candidates_apply_quality_gate(make_user):
     assert cands[0]["title"] == "Rust Backend Eng" and cands[0]["score"] == 88
 
 
+def test_api_answer_uses_bank_without_llm_key(client, make_user, monkeypatch):
+    """The extension's /api/answer must answer known fields from the bank/profile even with NO LLM key,
+    and leave genuinely novel questions as a placeholder. We force the keyless path explicitly so the
+    test is independent of whatever LLM key the local environment happens to have."""
+    from app import enrich
+    monkeypatch.setattr(enrich, "available", lambda: False)
+    u = make_user()
+    db.set_apply_profile(u["id"], notice_period_days="30 days",
+                         work_authorization="Indian citizen, no US sponsorship")
+    db.set_apply_answer(u["id"], "Expected salary?", "40000 USD / year")
+    r = client.post(
+        f"/api/answer?token={u['dash_token']}",
+        json={"questions": ["What is your notice period?",   # profile
+                            "Expected salary?",                # bank
+                            "Why do you want to work here?"]}) # novel, no LLM -> placeholder
+    assert r.status_code == 200
+    data = r.json()
+    assert data["ok"] is True
+    ans = data["answers"]
+    assert ans[0] == "30 days"
+    assert ans[1] == "40000 USD / year"
+    assert ans[2] == "[please answer]"  # novel question, no key available in tests
+    assert "What is your notice period?" in data["known"]
+
+
 def test_eligible_candidates_respects_cap_and_skips_applied(make_user):
     uid = make_user()["id"]
     for i in range(5):

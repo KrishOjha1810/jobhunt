@@ -1351,8 +1351,13 @@ async def api_save_job(request: Request, token: str = ""):
 
 @app.post("/api/answer")
 async def api_answer(request: Request, job_id: int = 0, token: str = ""):
-    """Draft answers to screening questions (browser extension). Body JSON: {questions:[...]}."""
-    from . import enrich, resume as _resume
+    """Draft answers to screening questions (browser extension). Body JSON: {questions:[...]}.
+
+    Two-pass, so the deterministic facts never cost an LLM call (or need a key): first the answer bank
+    + static apply-profile answer every known field (notice period, CTC, work authorization, phone,
+    years, ...); only the genuinely novel questions fall through to the LLM. Returns a list aligned to
+    `questions` so the extension fills each box by index."""
+    from . import enrich, resume as _resume, autoapply
     user = _resolve_user(request, token)
     if not user:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
@@ -1363,19 +1368,35 @@ async def api_answer(request: Request, job_id: int = 0, token: str = ""):
     questions = [str(q) for q in (body.get("questions") or [])][:8]
     if not questions:
         return {"ok": False, "reason": "no questions"}
-    if not enrich.available():
-        return {"ok": False, "reason": "Needs a free Groq key to draft answers."}
-    job = db.get_job_log(job_id, user["id"]) or {}
-    txt = user.get("resume_text") or ""
-    facts = {"name": user.get("name"), "years": _resume.years_experience(txt) or "",
-             "locations": user.get("locations") or []}
-    answers, err = enrich.answer_questions(
-        {"title": job.get("title"), "company": job.get("company"),
-         "description": _job_jd(job) if job else ""},
-        txt, questions, facts)
-    if not answers:
-        return {"ok": False, "reason": err or "Could not draft answers."}
-    return {"ok": True, "answers": answers}
+
+    # pass 1: deterministic , the answer bank, then the static apply-profile. No LLM, works keyless.
+    resolved = autoapply.resolve_answers(user["id"], questions)
+    answered = resolved["answered"]          # {question: answer}
+    unanswered = resolved["unanswered"]      # [question, ...] , the novel ones only
+
+    # pass 2: LLM drafts ONLY the novel questions (cheaper, fewer 429s). Not persisted to the bank:
+    # open-ended answers (e.g. "why this company") are company-specific and must not be reused.
+    drafted = {}
+    if unanswered and enrich.available():
+        job = db.get_job_log(job_id, user["id"]) or {}
+        txt = user.get("resume_text") or ""
+        facts = {"name": user.get("name"), "years": _resume.years_experience(txt) or "",
+                 "locations": user.get("locations") or []}
+        drafts, _err = enrich.answer_questions(
+            {"title": job.get("title"), "company": job.get("company"),
+             "description": _job_jd(job) if job else ""},
+            txt, unanswered, facts)
+        for q, a in zip(unanswered, drafts or []):
+            drafted[q] = a
+
+    # assemble a list aligned to the ORIGINAL question order
+    out = [answered.get(q) or drafted.get(q) or "[please answer]" for q in questions]
+    if all(str(a).startswith("[please answer]") for a in out):
+        return {"ok": False,
+                "reason": "Could not answer , add your application details in Profile, or set a Groq key."}
+    return {"ok": True, "answers": out,
+            "known": [q for q in questions if q in answered],
+            "drafted": [q for q in questions if q in drafted]}
 
 
 @app.get("/booster")
