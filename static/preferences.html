@@ -57,6 +57,13 @@
     </div>
 
     <div class="pcard">
+      <h2>Dream companies</h2>
+      <p class="sub">Companies you specifically want to work at (e.g. your target remote / web3 employers). Roles from these are pushed to the top and marked as a target, even with thin keyword overlap.</p>
+      <div class="tagwrap" id="dreamChips"></div>
+      <input type="text" id="dreamAdd" placeholder="Add a company, press Enter" />
+    </div>
+
+    <div class="pcard">
       <h2>Never show me</h2>
       <p class="sub">Hard filter , titles, keywords, or companies to exclude (e.g. "java developer", a company you dislike).</p>
       <div class="tagwrap" id="exChips"></div>
@@ -130,7 +137,7 @@
     applyT(localStorage.getItem('theme')||'dark');
     tg.onclick = () => { const n = document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark'; localStorage.setItem('theme',n); applyT(n); };
 
-    let ROLES = new Set(), PRI = [], EX = [];
+    let ROLES = new Set(), PRI = [], EX = [], DREAM = [];
     function renderRoles(all){
       $('roleChips').innerHTML = all.map(c =>
         `<button class="chip${ROLES.has(c)?' active':''}" data-c="${esc(c)}">${esc(c)}</button>`).join('');
@@ -150,6 +157,7 @@
     }
     wireAdd('priAdd', PRI, 'priChips', false);
     wireAdd('exAdd', EX, 'exChips', true);
+    wireAdd('dreamAdd', DREAM, 'dreamChips', false);
 
     fetch(apiq('/api/preferences')).then(r => r.ok ? r.json() : null).then(d => {
       if(!d || !d.ok) { $('msg').innerHTML = '<span class="err">Please log in first.</span>'; return; }
@@ -157,8 +165,10 @@
       PRI = (d.prioritize || []).slice();
       EX = (d.avoid || []).slice();
       renderRoles(d.roles_all || []);
+      DREAM = (d.dream_companies || []).slice();
       renderTags(PRI, 'priChips', false);
       renderTags(EX, 'exChips', true);
+      renderTags(DREAM, 'dreamChips', false);
       $('minSalary').value = d.min_salary || '';
       $('experience').value = d.experience || '';
       $('locations').value = (d.locations || []).join(', ');
@@ -184,7 +194,7 @@
     $('save').onclick = async () => {
       $('save').disabled = true; $('msg').textContent = 'Saving...';
       const body = {
-        categories: [...ROLES], prioritize: PRI, avoid: EX,
+        categories: [...ROLES], prioritize: PRI, avoid: EX, dream_companies: DREAM,
         min_salary: parseInt($('minSalary').value || '0', 10) || 0,
         experience: $('experience').value,
         locations: $('locations').value.split(',').map(s=>s.trim()).filter(Boolean),

@@ -876,7 +876,7 @@ def get_profile_extra(user_id):
 
 def set_profile_extra(user_id, achievements=None, projects=None, remote_only=None, avoid=None,
                       prioritize=None, min_salary=None, fresher_mode=None,
-                      open_to_internships=None, only_convertible=None):
+                      open_to_internships=None, only_convertible=None, dream_companies=None):
     """Store the user's achievements + projects AND match preferences (deal-breakers remote_only/avoid,
     prioritize-list, min_salary) AND fresher mode (open_to_internships, only_convertible). True MERGE:
     only fields passed (non-None) are updated."""
@@ -899,6 +899,9 @@ def set_profile_extra(user_id, achievements=None, projects=None, remote_only=Non
     if prioritize is not None:
         items = prioritize if isinstance(prioritize, list) else str(prioritize).split(",")
         data["prioritize"] = [s.strip().lower() for s in items if s.strip()][:30]
+    if dream_companies is not None:
+        items = dream_companies if isinstance(dream_companies, list) else str(dream_companies).split(",")
+        data["dream_companies"] = [s.strip().lower() for s in items if s.strip()][:40]
     if min_salary is not None:
         try:
             data["min_salary"] = max(0, int(float(min_salary)))

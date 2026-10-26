@@ -73,3 +73,20 @@ def test_rank_matches_tags_employment_type_always():
     jobs = [{"title": "Backend Intern", "description": "internship", "location": "remote", "category": "Backend"}]
     out = matcher.rank_matches(jobs, ["backend"], ["remote"], 0, user_years=0, user_cats=["Backend"])
     assert out and out[0]["employment_type"] == "internship" and out[0]["is_fresher_friendly"]
+
+
+def test_rank_matches_dream_company_boost_and_tag():
+    """A role at a dream company is surfaced (bypasses the keyword floor), boosted, and tagged."""
+    from app import matcher
+    jobs = [
+        {"title": "Rust Engineer", "company": "DreamChain Labs", "description": "systems work",
+         "location": "remote", "category": "Backend"},
+        {"title": "Rust Engineer", "company": "Random Corp", "description": "systems work",
+         "location": "remote", "category": "Backend"},
+    ]
+    out = matcher.rank_matches(jobs, ["rust"], ["remote"], 0, user_years=2, user_cats=[],
+                               dream_companies=["dreamchain"])
+    tgt = [j for j in out if j.get("is_target")]
+    assert tgt and tgt[0]["company"] == "DreamChain Labs"
+    # the dream-company role ranks at or above the identical non-dream one
+    assert out[0]["company"] == "DreamChain Labs"

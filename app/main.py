@@ -690,7 +690,8 @@ async def api_preferences(request: Request, token: str = ""):
                 "prioritize": px.get("prioritize") or [], "min_salary": px.get("min_salary") or 0,
                 "fresher_mode": bool(px.get("fresher_mode")),
                 "open_to_internships": px.get("open_to_internships"),
-                "only_convertible": bool(px.get("only_convertible"))}
+                "only_convertible": bool(px.get("only_convertible")),
+                "dream_companies": px.get("dream_companies") or []}
     try:
         body = await request.json()
     except Exception:
@@ -704,7 +705,8 @@ async def api_preferences(request: Request, token: str = ""):
                          prioritize=body.get("prioritize"), min_salary=body.get("min_salary"),
                          fresher_mode=body.get("fresher_mode"),
                          open_to_internships=body.get("open_to_internships"),
-                         only_convertible=body.get("only_convertible"))
+                         only_convertible=body.get("only_convertible"),
+                         dream_companies=_list(body.get("dream_companies")) if "dream_companies" in body else None)
     return {"ok": True}
 
 
@@ -2063,7 +2065,12 @@ def api_apply_queue(request: Request, token: str = ""):
     if not user:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     has_resume = bool(db.get_resume_json(user["id"]) or user.get("resume_text"))
-    queue = [{**c, "resume_ready": has_resume} for c in autoapply.review_queue(user["id"])]
+    dream = [d.lower() for d in ((db.get_profile_extra(user["id"]) or {}).get("dream_companies") or [])]
+    queue = []
+    for c in autoapply.review_queue(user["id"]):
+        comp = (c.get("company") or "").lower()
+        queue.append({**c, "resume_ready": has_resume,
+                      "is_target": bool(dream) and any(d in comp for d in dream)})
     return {"ok": True, "queue": queue, "count": len(queue)}
 
 
