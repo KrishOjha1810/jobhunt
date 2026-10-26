@@ -117,18 +117,21 @@ def resolve_answers(user_id, questions):
     Returns {"answered": {question: answer}, "unanswered": [question, ...]}.
     """
     profile = db.get_apply_profile(user_id)
-    answered, unanswered = {}, []
+    answered, unanswered, sources = {}, [], {}
     for q in questions or []:
         if not (q or "").strip():
             continue
         a = db.get_apply_answer(user_id, q)
+        src = "bank"           # a confirmed answer we remembered from a past form
         if a in (None, ""):
             a = _profile_answer(profile, q)
+            src = "profile"    # a known fact from the static application profile
         if a in (None, ""):
             unanswered.append(q)
         else:
             answered[q] = a
-    return {"answered": answered, "unanswered": unanswered}
+            sources[q] = src
+    return {"answered": answered, "unanswered": unanswered, "sources": sources}
 
 
 def learn_answers(user_id, qa_pairs, source="user"):

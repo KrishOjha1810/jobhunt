@@ -2131,6 +2131,9 @@ def api_apply_package(request: Request, job_id: int = 0, url: str = "", token: s
         "resume": {"ready": has_resume, "ats_score": ats_score,
                    "download_path": f"/api/resume/tailored.docx?job_id={job.get('id')}"},
         "answers": resolved["answered"], "unanswered": resolved["unanswered"],
+        # provenance tag per answer (trust feature: the candidate sees where each came from)
+        "answer_sources": {q: ("Remembered" if s == "bank" else "From profile")
+                           for q, s in resolved.get("sources", {}).items()},
         "cover_letter": cover,
     }
 

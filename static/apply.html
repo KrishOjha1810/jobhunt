@@ -317,10 +317,12 @@
       const answers = d.answers || {};
       const unanswered = d.unanswered || [];
       const ansKeys = Object.keys(answers);
+      const srcs = d.answer_sources || {};
       if(ansKeys.length || unanswered.length){
         html += '<div class="pkg-section"><div class="sec-label">Screening answers</div>';
         ansKeys.forEach((q, i) => {
-          html += '<div class="ans"><label for="ans_' + i + '">' + esc(q) + '</label>' +
+          const tag = srcs[q] ? ' <span class="flagtag" style="background:var(--accent-soft);color:var(--accent)">' + esc(srcs[q]) + '</span>' : '';
+          html += '<div class="ans"><label for="ans_' + i + '">' + esc(q) + tag + '</label>' +
             '<textarea id="ans_' + i + '">' + esc(answers[q]) + '</textarea></div>';
         });
         unanswered.forEach((q, i) => {
