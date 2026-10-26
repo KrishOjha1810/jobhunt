@@ -54,7 +54,8 @@ def eligible_candidates(user_id, limit=DAILY_CAP, threshold=QUALITY_THRESHOLD):
     with db.engine.connect() as c:
         rows = c.execute(
             select(jl.c.id, jl.c.title, jl.c.company, jl.c.url, jl.c.score,
-                   jl.c.category, jl.c.region, jl.c.verdict, jl.c.fit, jl.c.why_fit)
+                   jl.c.category, jl.c.region, jl.c.verdict, jl.c.fit, jl.c.why_fit,
+                   jl.c.employment_type)
             .where(
                 jl.c.user_id == user_id,
                 jl.c.status == "saved",
@@ -66,10 +67,12 @@ def eligible_candidates(user_id, limit=DAILY_CAP, threshold=QUALITY_THRESHOLD):
             .order_by(strong_first.desc(), func.coalesce(jl.c.fit, 0).desc(), jl.c.score.desc())
             .limit(limit)
         ).all()
+    from . import classify
     return [
         {"job_id": r[0], "title": r[1], "company": r[2], "url": r[3],
          "score": r[4], "category": r[5], "region": r[6],
-         "verdict": r[7], "fit": r[8], "why_fit": r[9]}
+         "verdict": r[7], "fit": r[8], "why_fit": r[9],
+         "employment_type": r[10], "converts_fulltime": classify.converts_from_type(r[10])}
         for r in rows
     ]
 
