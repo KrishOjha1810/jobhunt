@@ -77,9 +77,12 @@ Index("ix_joblog_user_url", job_log.c.user_id, job_log.c.url)
 
 # Simple, realistic states people will actually set. 'saved' = matched/sent (default);
 # 'not_interested' = user dismissed it (a negative signal we learn from).
-STATUSES = ["saved", "applied", "not_interested", "rejected", "closed"]
-APPLIED_STATES = {"applied", "rejected"}      # rejected implies they had applied
-RESPONDED_STATES = {"rejected"}               # the only "heard back" state we keep
+STATUSES = ["saved", "applied", "interview", "offer", "not_interested", "rejected", "closed"]
+# interview/offer/rejected all imply the user had applied (so they count toward applied_total)
+APPLIED_STATES = {"applied", "interview", "offer", "rejected"}
+# any employer reply, positive or negative , the denominator-aware "heard back" set
+RESPONDED_STATES = {"interview", "offer", "rejected"}
+POSITIVE_STATES = {"interview", "offer"}      # the quality metric: these are the outcomes that matter
 
 # Shared catalog of every job we have found (so new users can browse immediately).
 jobs_catalog = Table(
@@ -223,7 +226,8 @@ def _init_db_impl():
     with engine.begin() as conn:
         conn.execute(text("UPDATE job_log SET status='applied' WHERE (status IS NULL OR status='') AND applied=1"))
         conn.execute(text("UPDATE job_log SET status='saved' WHERE status IS NULL OR status=''"))
-        conn.execute(text("UPDATE job_log SET status='applied' WHERE status IN ('screening','interview','offer','ghosted')"))
+        # collapse only the retired granular stages; interview/offer are now first-class states
+        conn.execute(text("UPDATE job_log SET status='applied' WHERE status IN ('screening','ghosted')"))
         # seed applied_at for legacy applied rows so streaks/calendar have history (approx from sent_at)
         conn.execute(text("UPDATE job_log SET applied_at=sent_at WHERE applied_at IS NULL AND applied=1"))
     # backfill dashboard tokens + referral codes for any user missing them
@@ -753,13 +757,23 @@ def stats(user_id):
             ).scalar() or 0
         by_status = {s: count(job_log.c.status == s) for s in STATUSES}
         applied_total = sum(by_status[s] for s in APPLIED_STATES)
+        interviews = sum(by_status[s] for s in POSITIVE_STATES)
+        responses = count(job_log.c.responded == 1)
+        # quality-first headline metrics: what share of applications got a reply / an interview.
+        # Guard against divide-by-zero when nothing has been applied to yet.
+        response_rate = round(100 * responses / applied_total) if applied_total else 0
+        interview_rate = round(100 * interviews / applied_total) if applied_total else 0
         return {
             "total": count(),
             "applied_week": count(job_log.c.applied == 1, job_log.c.sent_at >= wk),
             "applied_month": count(job_log.c.applied == 1, job_log.c.sent_at >= mo),
-            "responses": count(job_log.c.responded == 1),
+            "responses": responses,
             "by_status": by_status,
             "applied_total": applied_total,
+            "interviews": interviews,
+            "offers": by_status["offer"],
+            "response_rate": response_rate,      # percent of applications that got any reply
+            "interview_rate": interview_rate,    # percent of applications that reached an interview/offer
             "not_interested": by_status["not_interested"],
             "rejected": by_status["rejected"],
         }

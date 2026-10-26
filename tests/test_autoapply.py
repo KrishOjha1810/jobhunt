@@ -62,6 +62,23 @@ def test_eligible_candidates_apply_quality_gate(make_user):
     assert cands[0]["title"] == "Rust Backend Eng" and cands[0]["score"] == 88
 
 
+def test_interview_offer_states_and_rates(make_user):
+    """interview/offer are first-class states; stats reports response_rate and interview_rate."""
+    uid = make_user()["id"]
+    for i in range(4):
+        db.log_job(uid, {"title": f"Role {i}", "company": "Acme", "url": f"http://x/{i}",
+                         "score": 80, "region": "global"})
+    db.set_status_by_url(uid, "http://x/0", "applied")
+    db.set_status_by_url(uid, "http://x/1", "applied")
+    db.set_status_by_url(uid, "http://x/2", "interview")
+    db.set_status_by_url(uid, "http://x/3", "offer")
+    s = db.stats(uid)
+    assert s["applied_total"] == 4          # applied + interview + offer all imply applied
+    assert s["interviews"] == 2 and s["offers"] == 1
+    assert s["response_rate"] == 50         # interview + offer = 2 of 4 applications replied
+    assert s["interview_rate"] == 50
+
+
 def test_api_apply_profile_roundtrip(client, make_user):
     """The writer endpoint must persist recognized fields and ignore unknown ones."""
     u = make_user()
