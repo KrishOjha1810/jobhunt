@@ -14,7 +14,7 @@ keeps this part safe to build and test now.
 import re
 
 from . import db
-from sqlalchemy import select
+from sqlalchemy import select, or_, and_, case, func
 
 # Quality gate: only matches at/above this blended score are even eligible for auto-apply. The whole
 # point vs. spray-and-pray bots is that we apply to few, well-fit roles, so this stays high.
@@ -47,21 +47,29 @@ def eligible_candidates(user_id, limit=DAILY_CAP, threshold=QUALITY_THRESHOLD):
     it does not re-rank. Only 'saved' rows qualify, so anything the user already applied to, dismissed,
     or that was closed is excluded. Returns a list of candidate dicts (nothing is submitted here)."""
     jl = db.job_log
+    # Quality gate: trust the recruiter screen's "strong" verdict when it ran; fall back to the blended
+    # score only for rows with NO verdict (legacy/manual adds). A "maybe" is deliberately NOT eligible
+    # for auto-apply , that is the whole point of quality-first (it stays for the user to review by hand).
+    strong_first = case((jl.c.verdict == "strong", 1), else_=0)
     with db.engine.connect() as c:
         rows = c.execute(
             select(jl.c.id, jl.c.title, jl.c.company, jl.c.url, jl.c.score,
-                   jl.c.category, jl.c.region)
+                   jl.c.category, jl.c.region, jl.c.verdict, jl.c.fit, jl.c.why_fit)
             .where(
                 jl.c.user_id == user_id,
                 jl.c.status == "saved",
-                jl.c.score >= threshold,
+                or_(
+                    jl.c.verdict == "strong",
+                    and_(jl.c.verdict.is_(None), jl.c.score >= threshold),
+                ),
             )
-            .order_by(jl.c.score.desc())
+            .order_by(strong_first.desc(), func.coalesce(jl.c.fit, 0).desc(), jl.c.score.desc())
             .limit(limit)
         ).all()
     return [
         {"job_id": r[0], "title": r[1], "company": r[2], "url": r[3],
-         "score": r[4], "category": r[5], "region": r[6]}
+         "score": r[4], "category": r[5], "region": r[6],
+         "verdict": r[7], "fit": r[8], "why_fit": r[9]}
         for r in rows
     ]
 

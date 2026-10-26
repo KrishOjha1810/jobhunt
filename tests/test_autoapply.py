@@ -117,6 +117,24 @@ def test_api_answer_uses_bank_without_llm_key(client, make_user, monkeypatch):
     assert "What is your notice period?" in data["known"]
 
 
+def test_eligible_candidates_gate_on_verdict(make_user):
+    """Quality-first: a 'strong' verdict qualifies even at a modest score; a 'maybe' does not qualify
+    even at a high score; a verdict-less legacy row still falls back to the score threshold."""
+    uid = make_user()["id"]
+    db.log_job(uid, {"title": "Strong low score", "company": "A", "url": "http://x/s",
+                     "score": 62, "verdict": "strong", "fit": 90, "region": "global"})
+    db.log_job(uid, {"title": "Maybe high score", "company": "B", "url": "http://x/m",
+                     "score": 95, "verdict": "maybe", "fit": 70, "region": "global"})
+    db.log_job(uid, {"title": "Legacy high score", "company": "C", "url": "http://x/l",
+                     "score": 88, "region": "global"})  # no verdict -> score fallback
+    cands = autoapply.eligible_candidates(uid)
+    urls = [c["url"] for c in cands]
+    assert "http://x/s" in urls      # strong qualifies despite low score
+    assert "http://x/m" not in urls  # maybe excluded despite high score
+    assert "http://x/l" in urls      # legacy falls back to score >= threshold
+    assert urls[0] == "http://x/s"   # strong ranks first (by fit)
+
+
 def test_eligible_candidates_respects_cap_and_skips_applied(make_user):
     uid = make_user()["id"]
     for i in range(5):

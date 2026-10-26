@@ -64,6 +64,10 @@ job_log = Table(
     Column("posted_at", Text),
     Column("status", Text, default="saved"),
     Column("region", Text),  # india | global | ... , lets the tracker filter matches by location
+    Column("verdict", Text),   # recruiter-screen judgment: strong | maybe | (null) , the hand-picked signal
+    Column("fit", Integer),    # recruiter fit score (0-100), distinct from the blended keyword score
+    Column("why_fit", Text),   # one-line reason the screen judged it a fit (shown in digest + tracker)
+    Column("catch", Text),     # one-line caveat the screen flagged (e.g. seniority/location mismatch)
     Column("sent_at", DateTime, default=datetime.utcnow),
     Column("applied_at", DateTime),  # set when the row first enters an applied state (streaks/leaderboard)
 )
@@ -198,6 +202,15 @@ def _init_db_impl():
             conn.execute(text("ALTER TABLE job_log ADD COLUMN applied_at TIMESTAMP"))
         if "region" not in jl_cols:
             conn.execute(text("ALTER TABLE job_log ADD COLUMN region TEXT"))
+        # recruiter-screen judgment persisted onto the tracker row (quality gate reads verdict)
+        if "verdict" not in jl_cols:
+            conn.execute(text("ALTER TABLE job_log ADD COLUMN verdict TEXT"))
+        if "fit" not in jl_cols:
+            conn.execute(text("ALTER TABLE job_log ADD COLUMN fit INTEGER"))
+        if "why_fit" not in jl_cols:
+            conn.execute(text("ALTER TABLE job_log ADD COLUMN why_fit TEXT"))
+        if "catch" not in jl_cols:
+            conn.execute(text("ALTER TABLE job_log ADD COLUMN catch TEXT"))
         # jobs_catalog.salary for older DBs
         if insp.has_table("jobs_catalog"):
             cat_cols = {c["name"] for c in insp.get_columns("jobs_catalog")}
@@ -311,11 +324,18 @@ def log_job(user_id, job):
     if is_seen(user_id, job.get("url")):
         return
     with engine.begin() as conn:
+        fit = job.get("fit")
+        try:
+            fit = int(fit) if fit is not None else None
+        except (TypeError, ValueError):
+            fit = None
         conn.execute(insert(job_log).values(
             user_id=user_id, title=job.get("title"), company=job.get("company"),
             category=job.get("category"), url=job.get("url"), score=job.get("score"),
             posted_at=job.get("posted_at"), status="saved",
             region=job.get("region"),  # set by the matcher; null for external/manual adds
+            verdict=job.get("verdict"), fit=fit,  # recruiter-screen judgment (null for manual/external adds)
+            why_fit=job.get("why_fit"), catch=job.get("catch"),
         ))
 
 
