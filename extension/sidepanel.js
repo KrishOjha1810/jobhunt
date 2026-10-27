@@ -254,79 +254,113 @@ function makeBlock(job) {
   return { log, setStatus, setProgress, ask };
 }
 
+// Fill identity + resolve/answer screening questions on the CURRENT page (pause-and-ask for unknowns).
+async function fillFormFields(tabId, b, job) {
+  await sendTo(tabId, { type: "FILL_IDENTITY", profile: PROFILE });
+  const scan = await sendTo(tabId, { type: "SCAN" });
+  const qs = (scan && scan.questions) || [];
+  if (!qs.length) return 0;
+  let answers = [];
+  try {
+    const d = await api(`/api/answer?token=${encodeURIComponent(TOKEN)}&job_id=${job.job_id || 0}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ questions: qs.map(q => q.label) }) });
+    if (d.ok && d.answers) answers = d.answers;
+  } catch (e) {}
+  let n = 0;
+  for (let k = 0; k < qs.length; k++) {
+    const q = qs[k], a = answers[k];
+    if (a) {
+      await sendTo(tabId, { type: "FILL_QUESTION", sel: q.sel, text: a });
+      learnAnswer(q.label, a); n++;
+      b.log(`answered <b>${esc(q.label.slice(0, 48))}</b> from your profile`);
+    } else {
+      b.setStatus("needs you", "warn");
+      b.log("one question i couldn't fill on my own:");
+      const ans = await b.ask(q.label);
+      await sendTo(tabId, { type: "FILL_QUESTION", sel: q.sel, text: ans });
+      learnAnswer(q.label, ans); n++;
+      b.log(`got it, filled <b>${esc(q.label.slice(0, 40))}</b>`, true);
+      b.setStatus("in progress", "live");
+    }
+    b.setProgress(n, qs.length);
+  }
+  return n;
+}
+// Try to attach the tailored resume to a file input on the current page (DataTransfer). No-op if none.
+async function tryUploadResume(tabId, b, job) {
+  const rurl = `${API_BASE}/api/resume/tailored.docx?token=${encodeURIComponent(TOKEN)}&job_id=${job.job_id || 0}`;
+  const up = await sendTo(tabId, { type: "UPLOAD_RESUME", url: rurl, filename: "resume.docx" });
+  if (up && up.ok) { b.log("attached your tailored resume"); return true; }
+  return false;
+}
+
+// India boards: resume pre-stored, apply is a single click.
+async function applyIndiaOneClick(tab, b, job, live) {
+  const cleared = await clearGates(tab.id, b, job.board);
+  if (cleared === "stuck") return;
+  b.log("reading the page and your profile");
+  await fillFormFields(tab.id, b, job);
+  const sub = await sendTo(tab.id, { type: "SUBMIT", dryRun: !live, board: job.board });
+  if (sub.error) { b.setStatus("couldn't act", "err"); b.log("couldn't find the apply action on this page."); }
+  else if (sub.alreadyApplied) { b.setStatus("already applied", "ok"); b.log("you've already applied , marking it done so it won't show again."); await markApplied(job); }
+  else if (sub.dryRun && sub.wouldSubmit) { b.setStatus("ready", "ok"); b.log(`ready , found the <b>${esc(sub.label || "apply")}</b> button. Safe dry-run, nothing sent. Flip <b>Live submit</b> to apply.`); }
+  else if (sub.dryRun) { b.setStatus("needs connect", "warn"); b.log(sub.reason || "couldn't find an apply button , are you logged in to this board?"); }
+  else if (sub.confirmed) { b.setStatus("submitted", "ok"); b.log("submitted , confirmed."); await markApplied(job); }
+  else if (sub.ok === false) { b.setStatus("couldn't act", "err"); b.log(sub.reason || "couldn't find the apply action."); }
+  else if (live) { b.setStatus("applied", "ok"); b.log("applied , one-click apply done."); await markApplied(job); }
+  else { b.setStatus("check it", "warn"); b.log("clicked, but couldn't confirm , check the tab."); }
+}
+
+// ATS / company pages: the real form + file upload + submit live behind "Apply", often across several
+// steps. Walk the wizard: open it, then loop (clear any account wall, fill fields, attach resume, click
+// the primary button) until Submit. Driven by the button's text, not a fixed step count.
+async function applyAtsWizard(tab, b, job, live) {
+  // If there's no account wall yet, we're on the job description, click "Apply" to open the real form.
+  const g0 = await sendTo(tab.id, { type: "DETECT_GATE" });
+  if (!g0 || g0.gate === "none") {
+    const entry = await sendTo(tab.id, { type: "CLICK_APPLY_ENTRY", board: job.board });
+    if (entry.ok) { b.log(`clicked <b>${esc(entry.label)}</b> to open the application`); await waitTab(tab.id); await sleep(1800); await waitContent(tab.id); }
+  }
+  let uploaded = false;
+  for (let step = 0; step < 10; step++) {
+    const cleared = await clearGates(tab.id, b, job.board);
+    if (cleared === "stuck") return;
+    await fillFormFields(tab.id, b, job);
+    if (!uploaded) uploaded = await tryUploadResume(tab.id, b, job);
+    const pb = await sendTo(tab.id, { type: "PRIMARY_BUTTON", board: job.board });
+    if (!pb.kind) {
+      // Maybe an intermediate choice (Workday's "Apply Manually" / "Autofill with Resume"); click it.
+      const again = await sendTo(tab.id, { type: "CLICK_APPLY_ENTRY", board: job.board });
+      if (again.ok) { b.log(`clicked <b>${esc(again.label)}</b>`); await waitTab(tab.id); await sleep(1600); await waitContent(tab.id); continue; }
+      b.setStatus("needs you", "warn");
+      b.log("I filled this page but couldn't find a Next/Submit button , I opened the tab, finish the last bit.");
+      try { await chrome.tabs.update(tab.id, { active: true }); } catch (e) {}
+      return;
+    }
+    if (pb.kind === "submit") {
+      if (!live) { await sendTo(tab.id, { type: "CLICK_PRIMARY", dryRun: true }); b.setStatus("ready", "ok"); b.log(`ready at <b>${esc(pb.label)}</b> , everything filled and resume attached. Safe dry-run, nothing sent. Flip <b>Live submit</b> to send.`); return; }
+      await sendTo(tab.id, { type: "CLICK_PRIMARY" }); await sleep(2800);
+      const conf = await sendTo(tab.id, { type: "CONFIRMED" });
+      b.setStatus("submitted", "ok"); b.log(conf && conf.confirmed ? "submitted , the page confirmed it." : "submitted , clicked Submit (verify in the tab if unsure)."); await markApplied(job);
+      return;
+    }
+    b.log(`step ${step + 1}: ${esc(pb.label)}`);
+    await sendTo(tab.id, { type: "CLICK_PRIMARY" }); await waitTab(tab.id); await sleep(1600); await waitContent(tab.id);
+  }
+  b.setStatus("needs you", "warn"); b.log("this application has a lot of steps , I got partway and opened the tab, finish the rest.");
+  try { await chrome.tabs.update(tab.id, { active: true }); } catch (e) {}
+}
+
 async function applyOne(job, live) {
   const b = makeBlock(job);
   b.setStatus("in progress", "live");
   b.log(`applying you to <b>${esc(job.title || "this role")}</b> at ${esc(job.company || "")} via ${esc(job.label || "the board")}`);
-  let tab;
   try {
-    tab = await chrome.tabs.create({ url: job.url, active: false });
+    const tab = await chrome.tabs.create({ url: job.url, active: false });
     await waitTab(tab.id);
-    let scan = await waitContent(tab.id);
+    const scan = await waitContent(tab.id);
     if (scan.error) { b.setStatus("page not ready", "err"); b.log("couldn't read this page , the board may need you logged in. Connect it, then retry."); return; }
-    // Clear any account wall (Workday & co.) with the shared application identity before the form.
-    const cleared = await clearGates(tab.id, b, job.board);
-    if (cleared === "stuck") return;
-    if (cleared && !cleared.error) scan = cleared;
-    b.log("reading the page and your profile");
-    await sendTo(tab.id, { type: "FILL_IDENTITY", profile: PROFILE });
-    const qs = scan.questions || [];
-    let answered = 0;
-    if (qs.length) {
-      let answers = [];
-      try {
-        const d = await api(`/api/answer?token=${encodeURIComponent(TOKEN)}&job_id=${job.job_id || 0}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ questions: qs.map(q => q.label) }) });
-        if (d.ok && d.answers) answers = d.answers;
-      } catch (e) {}
-      for (let k = 0; k < qs.length; k++) {
-        const q = qs[k], a = answers[k];
-        if (a) {
-          await sendTo(tab.id, { type: "FILL_QUESTION", sel: q.sel, text: a });
-          learnAnswer(q.label, a); answered++;
-          b.log(`answered <b>${esc(q.label.slice(0, 48))}</b> from your profile`);
-        } else {
-          b.setStatus("needs you", "warn");
-          b.log("one question i couldn't fill on my own:");
-          const ans = await b.ask(q.label);
-          await sendTo(tab.id, { type: "FILL_QUESTION", sel: q.sel, text: ans });
-          learnAnswer(q.label, ans); answered++;
-          b.log(`got it, filled <b>${esc(q.label.slice(0, 40))}</b>`, true);
-          b.setStatus("in progress", "live");
-        }
-        b.setProgress(answered, qs.length);
-      }
-    }
-    // ATS / company pages need a resume FILE. Try to attach it ourselves (DataTransfer); only if that
-    // fails do we hand the attach back to the user. Everything else (sign-up, fields) is already done.
-    if (!INDIA_BOARDS.includes(job.board) && job.url) {
-      const rurl = `${API_BASE}/api/resume/tailored.docx?token=${encodeURIComponent(TOKEN)}&job_id=${job.job_id || 0}`;
-      b.log("attaching your tailored resume");
-      const up = await sendTo(tab.id, { type: "UPLOAD_RESUME", url: rurl, filename: "resume.docx" });
-      if (up && up.ok) b.log("resume attached");
-      else {
-        try { await chrome.tabs.update(tab.id, { active: true }); } catch (e) {}
-        await sendTo(tab.id, { type: "HIGHLIGHT_UPLOAD" });
-        b.setStatus("needs you", "warn");
-        b.log(`filled + signed you up, but couldn't attach the file here (${esc((up && up.reason) || "")}). I opened the tab and highlighted the upload , attach your resume and submit.`);
-        return;
-      }
-    }
-    // Apply / submit. India boards: one-click action. ATS: the real Submit (resume now attached).
-    const sub = await sendTo(tab.id, { type: "SUBMIT", dryRun: !live, board: job.board });
-    if (sub.error) { b.setStatus("couldn't act", "err"); b.log("couldn't find the apply action on this page."); }
-    else if (sub.alreadyApplied) { b.setStatus("already applied", "ok"); b.log("you've already applied to this one , marking it done so it won't show again."); await markApplied(job); }
-    else if (sub.dryRun && sub.wouldSubmit) { b.setStatus("ready", "ok"); b.log(`ready , everything's filled and I found the <b>${esc(sub.label || "apply")}</b> button. This was a safe dry-run (nothing sent). Flip <b>Live submit</b> on and run again to actually apply.`); }
-    else if (sub.dryRun) { b.setStatus("needs connect", "warn"); b.log(sub.reason || "nothing to apply with on this page yet."); }
-    else if (sub.confirmed) {
-      b.setStatus("submitted", "ok"); b.log("submitted , the page confirmed your application."); await markApplied(job);
-    }
-    else if (sub.ok === false) { b.setStatus("couldn't act", "err"); b.log(sub.reason || "couldn't find the apply action."); }
-    else if (live && INDIA_BOARDS.includes(job.board)) {
-      // India boards are instant one-click applies: a successful click = applied, even if the page's
-      // wording didn't match our confirmation check. Mark it so it leaves the feed.
-      b.setStatus("applied", "ok"); b.log("applied , one-click apply done."); await markApplied(job);
-    }
-    else { b.setStatus("check it", "warn"); b.log("clicked apply, but couldn't confirm it went through , check the tab."); }
+    if (INDIA_BOARDS.includes(job.board)) await applyIndiaOneClick(tab, b, job, live);
+    else await applyAtsWizard(tab, b, job, live);
   } catch (e) { b.setStatus("error", "err"); b.log(esc(e.message || "something went wrong.")); }
 }
 

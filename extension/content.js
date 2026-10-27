@@ -181,6 +181,37 @@
     if (s) return { el: s, label: (s.innerText || s.value || "Submit").trim().slice(0, 40) };
     return null;
   }
+  // Click the "Apply" entry on a job page to OPEN the application (Workday/Greenhouse/etc. hide the real
+  // form + file input behind it). Handles Workday's "Apply Manually" / "Autofill with Resume" too.
+  function clickApplyEntry() {
+    for (const el of document.querySelectorAll('button, a[role="button"], a[href*="apply" i], [data-automation-id*="apply" i]')) {
+      if (el.offsetParent === null || el.disabled) continue;
+      const t = (el.innerText || el.getAttribute("aria-label") || el.value || "").trim().toLowerCase();
+      if (/^(apply|apply now|apply for this( job)?|apply manually|autofill with resume|start( your)? application|get started|i'?m interested)$/.test(t)) {
+        el.click(); return { ok: true, label: (el.innerText || "Apply").trim().slice(0, 40) };
+      }
+    }
+    return { ok: false };
+  }
+  // The step's forward button, classified so the orchestrator can walk a multi-step wizard off the
+  // button's text (submit ends the loop; next/continue advances). Workday uses data-automation-id too.
+  function primaryButton() {
+    const all = [];
+    for (const b of document.querySelectorAll('button, input[type=submit], a[role="button"]')) {
+      if (b.offsetParent === null || b.disabled) continue;
+      const t = (b.innerText || b.value || b.getAttribute("aria-label") || "").trim().toLowerCase();
+      const aid = ((b.getAttribute && b.getAttribute("data-automation-id")) || "").toLowerCase();
+      if (t || aid) all.push({ el: b, t, aid });
+    }
+    const find = (re) => all.find((x) => re.test(x.t) || re.test(x.aid));
+    let c = find(/^(submit|submit application)$/) || find(/submit/);
+    if (c) return { el: c.el, label: (c.el.innerText || c.el.value || "Submit").trim().slice(0, 40), kind: "submit" };
+    c = find(/^review$/) || find(/review/);
+    if (c) return { el: c.el, label: (c.el.innerText || "Review").trim().slice(0, 40), kind: "next" };
+    c = find(/^(next|continue|save and continue)$/) || find(/next|continue|save and continue/);
+    if (c) return { el: c.el, label: (c.el.innerText || "Next").trim().slice(0, 40), kind: "next" };
+    return { kind: null };
+  }
   function submitConfirmed() {
     const t = (document.body.innerText || "").toLowerCase();
     return /application (submitted|received)|thank you for applying|successfully (applied|submitted)|we('| ha)ve received your application|your application has been|you have (already )?applied|applied successfully|already applied|applied on/.test(t);
@@ -227,6 +258,16 @@
       else if (msg.type === "DETECT_GATE") reply(detectGate());
       else if (msg.type === "FILL_SIGNUP") reply(fillSignup(msg.email, msg.password));
       else if (msg.type === "FILL_CODE") reply(fillCode(msg.code));
+      else if (msg.type === "CLICK_APPLY_ENTRY") reply(clickApplyEntry());
+      else if (msg.type === "PRIMARY_BUTTON") { const p = primaryButton(); reply({ label: p.label || "", kind: p.kind }); }
+      else if (msg.type === "CLICK_PRIMARY") {
+        const p = primaryButton();
+        if (!p.el) { reply({ ok: false }); return true; }
+        if (msg.dryRun) { try { p.el.style.outline = "3px solid #22c55e"; p.el.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (e) {} }
+        else p.el.click();
+        reply({ ok: true, label: p.label, kind: p.kind });
+      }
+      else if (msg.type === "CONFIRMED") reply({ confirmed: submitConfirmed() });
       else if (msg.type === "SUBMIT") {
         // Apply in the user's own session, board-aware, then check for a confirmation. Never reports a
         // success it cannot see on the page. Dry-run finds + highlights the action but never clicks.
