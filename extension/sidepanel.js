@@ -156,7 +156,7 @@ function matchCard(j, i, selectable) {
     </div>
     <div class="row" style="justify-content:space-between;margin-top:6px">
       <div class="row" style="gap:6px">${chip}${j.region ? `<span class="sub" style="margin:0">${esc(j.region)}</span>` : ""}</div>
-      ${selectable ? `<button class="tiny" data-apply="${i}">Apply</button>` : `<a href="${esc(j.url || "#")}" target="_blank" class="muted-link" style="font-size:11px">Open &rsaquo;</a>`}
+      ${selectable ? `<button class="tiny" data-apply="${i}">Apply</button>` : `<div class="row" style="gap:7px"><button class="tiny ghost" data-assist="${i}">Assist</button><a href="${esc(j.url || "#")}" target="_blank" class="muted-link" style="font-size:11px">Open &rsaquo;</a></div>`}
     </div>
   </div>`;
 }
@@ -175,6 +175,53 @@ function renderMatches() {
   const g = $("goConn2"); if (g) g.onclick = () => { showView("connections"); loadConnections(); };
   const all = $("apAll"); if (all) all.onclick = (e) => document.querySelectorAll(".apChk").forEach(c => c.checked = e.target.checked);
   $("apList").querySelectorAll("[data-apply]").forEach(b => b.onclick = () => runApply([AP_ITEMS[+b.dataset.apply]]));
+  $("apList").querySelectorAll("[data-assist]").forEach(b => b.onclick = () => runApply([AP_ITEMS[+b.dataset.assist]]));
+}
+
+// Fetch the shared application identity (email + the decrypted one-password) for account walls.
+async function getAtsIdentity() {
+  try { const d = await api(`/api/ats-identity?token=${encodeURIComponent(TOKEN)}&reveal=1`); return { email: d.email || "", password: d.password || "" }; }
+  catch (e) { return { email: "", password: "" }; }
+}
+
+// Clear any sign-up / sign-in / email-verification wall (Workday & co.) using the shared identity,
+// so the user never creates a per-company account by hand. Returns the latest SCAN, or "stuck" when
+// it needs the user to set up their identity first. The verification code is pause-and-ask (the
+// browser can't read the user's inbox; auto-read via Gmail is a later enhancement).
+const INDIA_BOARDS = ["naukri", "instahyre", "internshala", "foundit"];
+async function clearGates(tabId, b, board) {
+  let gate = await sendTo(tabId, { type: "DETECT_GATE" });
+  let guard = 0, lastScan = null;
+  while (gate && ["signup", "signin", "verify"].includes(gate.gate) && guard++ < 4) {
+    // India boards use the user's OWN account (via the logged-in session), never the shared identity.
+    // A wall there means the session expired, so ask the user to reconnect rather than signing up.
+    if (INDIA_BOARDS.includes(board) && gate.gate !== "verify") {
+      b.setStatus("needs connect", "warn");
+      b.log(`you're not logged in to ${esc(board)} in this browser. Open Connections, Connect ${esc(board)}, then retry.`);
+      return "stuck";
+    }
+    const ident = await getAtsIdentity();
+    if (gate.gate === "verify") {
+      b.setStatus("needs you", "warn");
+      b.log(`a verification code was emailed to <b>${esc(ident.email || "your application address")}</b>. Paste it:`);
+      const code = await b.ask("Verification code from your email");
+      await sendTo(tabId, { type: "FILL_CODE", code });
+      b.log("entered the code", true); b.setStatus("in progress", "live");
+    } else {
+      if (!ident.email || !ident.password) {
+        b.setStatus("needs setup", "warn");
+        b.log("this company needs an account. Set your application email and password in Connections, then retry.");
+        return "stuck";
+      }
+      b.log(gate.gate === "signup" ? `creating your account with <b>${esc(ident.email)}</b>` : `signing you in as <b>${esc(ident.email)}</b>`);
+      await sendTo(tabId, { type: "FILL_SIGNUP", email: ident.email, password: ident.password });
+    }
+    await waitTab(tabId); await sleep(1600);
+    lastScan = await waitContent(tabId);
+    if (lastScan.error) return lastScan;
+    gate = await sendTo(tabId, { type: "DETECT_GATE" });
+  }
+  return lastScan;
 }
 
 // ===================== RUN (live narration) =====================
@@ -210,8 +257,12 @@ async function applyOne(job, live) {
   try {
     tab = await chrome.tabs.create({ url: job.url, active: false });
     await waitTab(tab.id);
-    const scan = await waitContent(tab.id);
+    let scan = await waitContent(tab.id);
     if (scan.error) { b.setStatus("page not ready", "err"); b.log("couldn't read this page , the board may need you logged in. Connect it, then retry."); return; }
+    // Clear any account wall (Workday & co.) with the shared application identity before the form.
+    const cleared = await clearGates(tab.id, b, job.board);
+    if (cleared === "stuck") return;
+    if (cleared && !cleared.error) scan = cleared;
     b.log("reading the page and your profile");
     await sendTo(tab.id, { type: "FILL_IDENTITY", profile: PROFILE });
     const qs = scan.questions || [];
@@ -240,7 +291,16 @@ async function applyOne(job, live) {
         b.setProgress(answered, qs.length);
       }
     }
-    // Apply / submit. Dry-run by default: find + highlight the action, never click.
+    // ATS / company pages: we signed up and filled every field, but a content script cannot attach the
+    // resume file (the browser blocks programmatic file upload). Hand that one step back honestly.
+    if (!INDIA_BOARDS.includes(job.board)) {
+      try { await chrome.tabs.update(tab.id, { active: true }); } catch (e) {}
+      await sendTo(tab.id, { type: "HIGHLIGHT_UPLOAD" });
+      b.setStatus("needs you", "warn");
+      b.log("signed you up and filled every field. The browser won't let me attach the file, so I opened the tab and highlighted the upload box , attach your resume and submit there.");
+      return;
+    }
+    // India boards: the apply action is a single click. Dry-run finds + highlights it, Live clicks it.
     const sub = await sendTo(tab.id, { type: "SUBMIT", dryRun: !live, board: job.board });
     if (sub.error) { b.setStatus("couldn't act", "err"); b.log("couldn't find the apply action on this page."); }
     else if (sub.dryRun && sub.wouldSubmit) { b.setStatus("ready", "ok"); b.log(`ready , everything's filled and I found the <b>${esc(sub.label || "apply")}</b> button. Flip Live submit on and run again to actually send.`); }

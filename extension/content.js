@@ -91,6 +91,50 @@
     for (const a of (answers || [])) { const el = document.querySelector(a.sel); if (el && setVal(el, a.text)) n++; }
     return n;
   }
+  // ---- account walls (Workday & co. make you create an account per company) ----
+  // Detect whether the page is a sign-up / sign-in wall or an email-verification step, so the agent
+  // can clear it with the user's shared application identity instead of the user doing it by hand.
+  function _authButton() {
+    for (const b of document.querySelectorAll('button, input[type=submit], a[role="button"]')) {
+      if (b.offsetParent === null || b.disabled) continue;
+      const t = (b.innerText || b.value || b.getAttribute("aria-label") || "").trim().toLowerCase();
+      if (/^(create account|sign up|sign in|log in|login|continue|next|register|submit|verify)$/.test(t)) return b;
+    }
+    return null;
+  }
+  function _codeField() {
+    return document.querySelector('input[autocomplete="one-time-code"], input[name*="code" i], input[id*="code" i], input[name*="otp" i], input[name*="verif" i]');
+  }
+  function detectGate() {
+    const code = _codeField();
+    const emailEl = document.querySelector('input[type=email], input[name*="email" i], input[id*="email" i], input[autocomplete="email" i]');
+    const pwEl = document.querySelector('input[type=password]');
+    const body = (document.body.innerText || "").toLowerCase();
+    if (code && /(verification|verify|one-?time|code we|enter the code|security code)/.test(body)) return { gate: "verify" };
+    if (emailEl && pwEl) {
+      const signup = /create (an )?account|sign up|register|create your account/.test(body);
+      return { gate: signup ? "signup" : "signin" };
+    }
+    return { gate: "none" };
+  }
+  function fillSignup(email, password) {
+    let n = 0;
+    const e = document.querySelector('input[type=email], input[name*="email" i], input[id*="email" i], input[autocomplete="email" i]');
+    if (e && email && !e.value && setVal(e, email)) n++;
+    for (const p of document.querySelectorAll('input[type=password]')) { if (password && !p.value && setVal(p, password)) n++; }  // password + confirm
+    const btn = _authButton();
+    if (btn) { btn.click(); return { ok: true, filled: n, clicked: true }; }
+    return { ok: n > 0, filled: n, clicked: false };
+  }
+  function fillCode(code) {
+    const c = _codeField();
+    if (!c || !code) return { ok: false };
+    setVal(c, code);
+    const btn = _authButton();
+    if (btn) btn.click();
+    return { ok: true, clicked: !!btn };
+  }
+
   function findSubmit() {
     const sels = ["#submit_app", "input[type=submit]", "button[type=submit]", ".template-btn-submit",
       'button[data-qa="btn-submit"]', 'button[aria-label*="submit" i]'];
@@ -150,6 +194,9 @@
       else if (msg.type === "PASTE_COVER") reply({ ok: pasteCover(msg.text) });
       else if (msg.type === "HIGHLIGHT_UPLOAD") reply({ ok: highlightUpload() });
       else if (msg.type === "FILL_ANSWERS") reply({ filled: fillAnswers(msg.answers) });
+      else if (msg.type === "DETECT_GATE") reply(detectGate());
+      else if (msg.type === "FILL_SIGNUP") reply(fillSignup(msg.email, msg.password));
+      else if (msg.type === "FILL_CODE") reply(fillCode(msg.code));
       else if (msg.type === "SUBMIT") {
         // Apply in the user's own session, board-aware, then check for a confirmation. Never reports a
         // success it cannot see on the page. Dry-run finds + highlights the action but never clicks.
