@@ -293,21 +293,29 @@ async function tryUploadResume(tabId, b, job) {
   return false;
 }
 
-// India boards: resume pre-stored, apply is a single click.
+// Boards with a confirmed native apply API we can call from their own origin (reliable, no DOM).
+const API_BOARDS = ["instahyre", "naukri"];
+// India boards: resume pre-stored. Instahyre/Naukri apply via their own API (rock-solid); others click.
 async function applyIndiaOneClick(tab, b, job, live) {
   const cleared = await clearGates(tab.id, b, job.board);
   if (cleared === "stuck") return;
-  b.log("reading the page and your profile");
-  await fillFormFields(tab.id, b, job);
-  const sub = await sendTo(tab.id, { type: "SUBMIT", dryRun: !live, board: job.board });
-  if (sub.error) { b.setStatus("couldn't act", "err"); b.log("couldn't find the apply action on this page."); }
+  let sub;
+  if (API_BOARDS.includes(job.board)) {
+    b.log(`applying via ${esc(job.label || "the board")}'s own apply API, in your logged-in session`);
+    sub = await sendTo(tab.id, { type: "API_APPLY", board: job.board, url: job.url, dryRun: !live });
+  } else {
+    b.log("reading the page and your profile");
+    await fillFormFields(tab.id, b, job);
+    sub = await sendTo(tab.id, { type: "SUBMIT", dryRun: !live, board: job.board });
+  }
+  if (sub.error) { b.setStatus("couldn't act", "err"); b.log("couldn't reach this board , is the tab open and are you logged in?"); }
   else if (sub.alreadyApplied) { b.setStatus("already applied", "ok"); b.log("you've already applied , marking it done so it won't show again."); await markApplied(job); }
-  else if (sub.dryRun && sub.wouldSubmit) { b.setStatus("ready", "ok"); b.log(`ready , found the <b>${esc(sub.label || "apply")}</b> button. Safe dry-run, nothing sent. Flip <b>Live submit</b> to apply.`); }
-  else if (sub.dryRun) { b.setStatus("needs connect", "warn"); b.log(sub.reason || "couldn't find an apply button , are you logged in to this board?"); }
-  else if (sub.confirmed) { b.setStatus("submitted", "ok"); b.log("submitted , confirmed."); await markApplied(job); }
-  else if (sub.ok === false) { b.setStatus("couldn't act", "err"); b.log(sub.reason || "couldn't find the apply action."); }
-  else if (live) { b.setStatus("applied", "ok"); b.log("applied , one-click apply done."); await markApplied(job); }
-  else { b.setStatus("check it", "warn"); b.log("clicked, but couldn't confirm , check the tab."); }
+  else if (sub.dryRun && sub.wouldSubmit) { b.setStatus("ready", "ok"); b.log(`ready , I'll apply via <b>${esc(sub.label || "the board")}</b>. Safe dry-run, nothing sent. Flip <b>Live submit</b> and run again to actually apply.`); }
+  else if (sub.dryRun) { b.setStatus("needs connect", "warn"); b.log(sub.reason || "couldn't prepare the apply , are you logged in to this board?"); }
+  else if (sub.confirmed) { b.setStatus("submitted", "ok"); b.log("submitted , applied in your session."); await markApplied(job); }
+  else if (sub.ok === false) { b.setStatus("couldn't act", "err"); b.log(sub.reason || "couldn't apply on this page."); }
+  else if (live) { b.setStatus("applied", "ok"); b.log("applied."); await markApplied(job); }
+  else { b.setStatus("check it", "warn"); b.log("done, but couldn't confirm , check the tab."); }
 }
 
 // ATS / company pages: the real form + file upload + submit live behind "Apply", often across several
