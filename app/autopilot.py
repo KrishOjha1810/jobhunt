@@ -33,7 +33,10 @@ _BOARD_RULES = [
     ("naukri.com", ("naukri", "auto")),
     ("instahyre.com", ("instahyre", "auto")),
     ("internshala.com", ("internshala", "auto")),
-    ("linkedin.com", ("linkedin", "auto")),
+    # LinkedIn is NOT auto: Easy Apply needs a click-through we don't drive, auto-fill carries real
+    # ban risk (the competitor avoids it too), and aggregator-sourced LinkedIn links are often
+    # external-apply or already expired. Open it yourself.
+    ("linkedin.com", ("linkedin", "open_only")),
     # Single-page ATS: we fill everything, the user attaches the resume file and clicks submit.
     ("boards.greenhouse.io", ("greenhouse", "assisted")),
     ("job-boards.greenhouse.io", ("greenhouse", "assisted")),
