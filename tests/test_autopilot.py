@@ -10,6 +10,7 @@ def test_prestored_boards_are_auto():
         ("https://www.naukri.com/job-listings-x", "naukri"),
         ("https://www.instahyre.com/job/123", "instahyre"),
         ("https://internshala.com/internship/detail/x", "internshala"),
+        ("https://www.foundit.in/job/xyz-123", "foundit"),
     ]:
         d = autopilot.detect_board(url)
         assert d["board"] == board, url

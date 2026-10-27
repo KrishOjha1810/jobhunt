@@ -119,6 +119,24 @@
     }
     return null;
   }
+  // The actual apply action for THIS board. On the India boards (Naukri / Instahyre / Internshala /
+  // foundit) the apply IS the "Apply" / "Apply now" / "I'm interested" button (the resume/profile is
+  // already stored in the account, so that single click submits). On ATS the action is a real submit.
+  // We deliberately never match "Apply on company website" (that only redirects off-site).
+  const _INDIA = ["naukri", "instahyre", "internshala", "foundit"];
+  function findApplyAction(board) {
+    if (_INDIA.includes(board)) {
+      for (const el of document.querySelectorAll('button, a[role="button"], input[type=submit], a[href*="apply" i]')) {
+        if (el.offsetParent === null || el.disabled) continue;
+        const t = (el.innerText || el.value || el.getAttribute("aria-label") || "").trim().toLowerCase();
+        if (/^(apply|apply now|apply for this( job)?|i'?m interested|easy apply)$/.test(t))
+          return { el, label: (el.innerText || el.value || "Apply").trim().slice(0, 40) };
+      }
+    }
+    const s = findSubmit();
+    if (s) return { el: s, label: (s.innerText || s.value || "Submit").trim().slice(0, 40) };
+    return null;
+  }
   function submitConfirmed() {
     const t = (document.body.innerText || "").toLowerCase();
     return /application (submitted|received)|thank you for applying|successfully (applied|submitted)|we('| ha)ve received your application|your application has been/.test(t);
@@ -133,37 +151,30 @@
       else if (msg.type === "HIGHLIGHT_UPLOAD") reply({ ok: highlightUpload() });
       else if (msg.type === "FILL_ANSWERS") reply({ filled: fillAnswers(msg.answers) });
       else if (msg.type === "SUBMIT") {
-        // Click the ATS submit button in the user's own session, then check for a confirmation.
-        // Mirrors myjobb's run states: Submitting -> Submitted+confirmed, or Flagged-for-review when
-        // we clicked but cannot confirm the page acknowledged it. Never reports success it cannot see.
-        const btn = findSubmit();
+        // Apply in the user's own session, board-aware, then check for a confirmation. Never reports a
+        // success it cannot see on the page. Dry-run finds + highlights the action but never clicks.
+        const action = findApplyAction(msg.board || "");
         if (msg.dryRun) {
-          // Dry run: never click. Report the TRUE state of the page so the user knows exactly where
-          // each board stands before any real application is ever sent.
-          if (btn) {
-            try { btn.style.outline = "3px solid #22c55e"; btn.style.outlineOffset = "3px";
-              btn.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (e) {}
-            reply({ ok: true, dryRun: true, wouldSubmit: true, state: "ready",
-              label: (btn.innerText || btn.value || "").trim().slice(0, 48) });
+          if (action) {
+            try { action.el.style.outline = "3px solid #22c55e"; action.el.style.outlineOffset = "3px";
+              action.el.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (e) {}
+            reply({ ok: true, dryRun: true, wouldSubmit: true, state: "ready", label: action.label });
             return true;
           }
           const entry = findApplyEntry();
-          if (entry && entry.kind === "easy_apply") {
+          if (entry && entry.kind === "easy_apply")
             reply({ ok: true, dryRun: true, wouldSubmit: false, state: "easy_apply",
-              reason: "Easy Apply found, resume is pre-stored here, so this one is automatable once I add the click-through" });
-            return true;
-          }
-          if (entry) {
+              reason: "Easy Apply found, but the click-through isn't wired yet." });
+          else if (entry)
             reply({ ok: true, dryRun: true, wouldSubmit: false, state: "apply_wall",
-              reason: "job page only, the form and submit are behind the Apply button and usually need a resume upload" });
-            return true;
-          }
-          reply({ ok: true, dryRun: true, wouldSubmit: false, state: "no_form",
-            reason: "no application form on this page (looks like a description or listing)" });
+              reason: "the form and submit are behind the Apply button (usually a resume upload)." });
+          else
+            reply({ ok: true, dryRun: true, wouldSubmit: false, state: "no_form",
+              reason: "couldn't find an apply button, are you logged into this board in this browser?" });
           return true;
         }
-        if (!btn) { reply({ ok: false, reason: "no submit button found on this page" }); return true; }
-        btn.click();
+        if (!action) { reply({ ok: false, reason: "no apply button found on this page" }); return true; }
+        action.el.click();
         setTimeout(() => { reply({ ok: true, confirmed: submitConfirmed() }); }, 2800);
         return true;  // async reply
       }

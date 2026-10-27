@@ -33,6 +33,9 @@ _BOARD_RULES = [
     ("naukri.com", ("naukri", "auto")),
     ("instahyre.com", ("instahyre", "auto")),
     ("internshala.com", ("internshala", "auto")),
+    ("foundit.in", ("foundit", "auto")),
+    ("foundit.com", ("foundit", "auto")),
+    ("monsterindia.com", ("foundit", "auto")),
     # LinkedIn is NOT auto: Easy Apply needs a click-through we don't drive, auto-fill carries real
     # ban risk (the competitor avoids it too), and aggregator-sourced LinkedIn links are often
     # external-apply or already expired. Open it yourself.
@@ -53,7 +56,7 @@ _BOARD_RULES = [
 BOARD_LABELS = {
     "greenhouse": "Greenhouse", "lever": "Lever", "ashby": "Ashby", "workday": "Workday",
     "naukri": "Naukri", "instahyre": "Instahyre", "internshala": "Internshala",
-    "linkedin": "LinkedIn", "other": "Company site",
+    "foundit": "foundit", "linkedin": "LinkedIn", "other": "Company site",
 }
 
 # mode -> which feed group it belongs to in the UI
