@@ -2079,8 +2079,9 @@ def api_apply_queue(request: Request, token: str = ""):
 @app.get("/api/autopilot/queue")
 def api_autopilot_queue(request: Request, token: str = ""):
     """The Auto-Pilot run list: the same quality-gated review queue, but each item tagged with its
-    board and how far it can be automated (auto ATS / dry_run_first login-walled board / open_only
-    company site), plus a summary the UI uses to set expectations before a one-click run."""
+    board and how far it can be automated (auto = resume pre-stored + single-action apply, the only
+    one-click group / assisted = single-page ATS we fill but you attach + submit / open_only =
+    multi-step or company page), plus a summary the UI uses to set expectations before a run."""
     from . import autoapply, autopilot
     user = _resolve_user(request, token)
     if not user:

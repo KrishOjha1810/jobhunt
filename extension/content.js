@@ -97,7 +97,25 @@
     for (const s of sels) { const el = document.querySelector(s); if (el && el.offsetParent !== null && !el.disabled) return el; }
     for (const b of document.querySelectorAll('button, input[type=submit], a[role="button"]')) {
       const t = (b.innerText || b.value || "").trim().toLowerCase();
-      if (/^(submit application|submit your application|submit|apply now|apply)$/.test(t) && b.offsetParent !== null && !b.disabled) return b;
+      if (/^(submit application|submit your application|submit)$/.test(t) && b.offsetParent !== null && !b.disabled) return b;
+    }
+    return null;
+  }
+  // The "Apply" / "Easy Apply" entry that OPENS the real form. On most ATS the page we open is the
+  // job DESCRIPTION, so there is no submit button yet, there is an Apply button that leads to a
+  // multi-step form (and usually a resume file upload a browser will not let us auto-attach).
+  // Reporting this honestly is the whole point of the dry-run.
+  function findApplyEntry() {
+    for (const b of document.querySelectorAll('button, a[role="button"]')) {
+      if (b.offsetParent === null || b.disabled) continue;
+      const t = (b.innerText || b.getAttribute("aria-label") || "").trim().toLowerCase();
+      if (/easy apply/.test(t)) return { kind: "easy_apply", label: "Easy Apply" };
+    }
+    for (const b of document.querySelectorAll('button, a[role="button"], a[href*="apply" i]')) {
+      if (b.offsetParent === null || b.disabled) continue;
+      const t = (b.innerText || b.getAttribute("aria-label") || b.value || "").trim().toLowerCase();
+      if (/^(apply|apply now|apply for this job|apply manually|i'?m interested)$/.test(t))
+        return { kind: "apply", label: (b.innerText || "Apply").trim().slice(0, 40) };
     }
     return null;
   }
@@ -119,16 +137,32 @@
         // Mirrors myjobb's run states: Submitting -> Submitted+confirmed, or Flagged-for-review when
         // we clicked but cannot confirm the page acknowledged it. Never reports success it cannot see.
         const btn = findSubmit();
-        if (!btn) { reply({ ok: false, reason: "no submit button found on this page" }); return true; }
         if (msg.dryRun) {
-          // Dry run: find and highlight the submit button but DO NOT click. This is how the user
-          // verifies a board once before ever sending a real application.
-          try { btn.style.outline = "3px solid #22c55e"; btn.style.outlineOffset = "3px";
-            btn.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (e) {}
-          reply({ ok: true, dryRun: true, wouldSubmit: true,
-            label: (btn.innerText || btn.value || "").trim().slice(0, 48) });
+          // Dry run: never click. Report the TRUE state of the page so the user knows exactly where
+          // each board stands before any real application is ever sent.
+          if (btn) {
+            try { btn.style.outline = "3px solid #22c55e"; btn.style.outlineOffset = "3px";
+              btn.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (e) {}
+            reply({ ok: true, dryRun: true, wouldSubmit: true, state: "ready",
+              label: (btn.innerText || btn.value || "").trim().slice(0, 48) });
+            return true;
+          }
+          const entry = findApplyEntry();
+          if (entry && entry.kind === "easy_apply") {
+            reply({ ok: true, dryRun: true, wouldSubmit: false, state: "easy_apply",
+              reason: "Easy Apply found, resume is pre-stored here, so this one is automatable once I add the click-through" });
+            return true;
+          }
+          if (entry) {
+            reply({ ok: true, dryRun: true, wouldSubmit: false, state: "apply_wall",
+              reason: "job page only, the form and submit are behind the Apply button and usually need a resume upload" });
+            return true;
+          }
+          reply({ ok: true, dryRun: true, wouldSubmit: false, state: "no_form",
+            reason: "no application form on this page (looks like a description or listing)" });
           return true;
         }
+        if (!btn) { reply({ ok: false, reason: "no submit button found on this page" }); return true; }
         btn.click();
         setTimeout(() => { reply({ ok: true, confirmed: submitConfirmed() }); }, 2800);
         return true;  // async reply
