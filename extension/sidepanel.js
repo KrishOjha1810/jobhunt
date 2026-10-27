@@ -1,6 +1,7 @@
 const API_BASE = "https://jobhunt-8i1m.onrender.com";
 const $ = (id) => document.getElementById(id);
-let TOKEN = "", PROFILE = null, JOBS = [], QUESTIONS = [];
+const esc = (s) => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+let TOKEN = "", PROFILE = null, JOBS = [], QUESTIONS = [], AP_ITEMS = [];
 
 function status(msg, cls = "") { document.querySelectorAll("#status").forEach(e => e.innerHTML = `<span class="${cls}">${msg}</span>`); }
 function parseToken(raw) { raw = (raw || "").trim(); const m = raw.match(/[?&]token=([^&\s]+)/); return m ? decodeURIComponent(m[1]) : raw; }
@@ -249,4 +250,105 @@ async function scan() {
       done("p5"); status("Marked as applied in your tracker.", "ok");
     } catch (e) { status(e.message, "err"); }
   };
+
+  // ---------- Auto-Pilot: load today's matches, then run over the selected ones ----------
+  // Message one specific tab (not just the active one) and resolve with lastError swallowed.
+  function sendTo(tabId, msg) {
+    return new Promise((res) => chrome.tabs.sendMessage(tabId, msg,
+      (r) => res(chrome.runtime.lastError ? { error: chrome.runtime.lastError.message } : (r || {}))));
+  }
+  // Wait until a freshly-opened tab finishes loading (or a timeout, so one slow page can't hang the run).
+  function waitTab(tabId) {
+    return new Promise((res) => {
+      const h = (id, info) => { if (id === tabId && info.status === "complete") { chrome.tabs.onUpdated.removeListener(h); res(); } };
+      chrome.tabs.onUpdated.addListener(h);
+      setTimeout(() => { try { chrome.tabs.onUpdated.removeListener(h); } catch (e) {} res(); }, 20000);
+    });
+  }
+  // Content scripts inject at document_idle; poll SCAN until the script answers (or give up).
+  async function waitContent(tabId) {
+    for (let i = 0; i < 15; i++) {
+      const r = await sendTo(tabId, { type: "SCAN" });
+      if (!r.error) return r;
+      await new Promise((z) => setTimeout(z, 700));
+    }
+    return { error: "content script not ready" };
+  }
+
+  async function apLoad() {
+    if (!TOKEN) return status("Save your token first.", "err");
+    $("apProgress").innerHTML = "";
+    status("Loading today's matches...");
+    try {
+      const d = await api(`/api/autopilot/queue?token=${encodeURIComponent(TOKEN)}`);
+      AP_ITEMS = d.items || [];
+      const s = d.summary || {};
+      $("apSummary").innerHTML = `${s.total || 0} strong matches , ${s.auto || 0} standard ATS, ${s.dry_run_first || 0} login boards, ${s.open_only || 0} company sites (open-only).`;
+      renderAP();
+      status("");
+    } catch (e) { status(e.message || "Could not load.", "err"); }
+  }
+  function renderAP() {
+    const box = $("apList");
+    if (!AP_ITEMS.length) { box.innerHTML = '<small class="sub">No strong matches queued right now.</small>'; $("apControls").style.display = "none"; return; }
+    box.innerHTML =
+      '<label style="display:flex;gap:7px;align-items:center;margin-bottom:6px;font-size:12px"><input type="checkbox" id="apAll" style="width:auto"> <b>Select all</b></label>' +
+      AP_ITEMS.map((j, i) => {
+        const ok = j.supported;
+        return `<label style="display:flex;gap:7px;align-items:flex-start;margin:4px 0;${ok ? "" : "opacity:.5"}">
+          <input type="checkbox" class="apChk" data-i="${i}" ${ok ? "" : "disabled"} style="width:auto;margin-top:3px">
+          <span style="font-size:12px"><b>${esc(j.company || "")}</b> , ${esc((j.title || "").slice(0, 44))}<br>
+          <small class="sub">${esc(j.label || "")}${ok ? (j.mode === "dry_run_first" ? " (dry-run to verify)" : "") : " , open-only, cannot auto-apply"}</small></span>
+        </label>`;
+      }).join("");
+    $("apControls").style.display = "block";
+    $("apAll").onclick = (e) => box.querySelectorAll(".apChk:not([disabled])").forEach((c) => { c.checked = e.target.checked; });
+  }
+  function apSelected() { return Array.from(document.querySelectorAll(".apChk:checked")).map((c) => AP_ITEMS[+c.dataset.i]); }
+
+  async function apRun() {
+    const sel = apSelected();
+    if (!sel.length) return status("Tick at least one job.", "err");
+    const live = $("apLive").checked;
+    if (live && !confirm(`LIVE submit ${sel.length} application(s) in your browser now? Real applications will be sent and cannot be undone. Cancel to dry-run instead.`)) return;
+    const prog = $("apProgress"); prog.innerHTML = "";
+    for (let i = 0; i < sel.length; i++) {
+      const j = sel[i];
+      const row = document.createElement("div");
+      row.style.cssText = "font-size:12px;margin:4px 0;line-height:1.4";
+      row.innerHTML = `<b>${esc(j.company || "")}</b> , <span>opening...</span>`;
+      prog.appendChild(row);
+      const setState = (t, cls = "") => { const sp = row.querySelector("span"); if (sp) sp.outerHTML = `<span class="${cls}">${t}</span>`; };
+      try {
+        const tab = await chrome.tabs.create({ url: j.url, active: false });
+        await waitTab(tab.id);
+        const scan = await waitContent(tab.id);
+        if (scan.error) { setState("page not ready or not a fillable form , open it yourself", "err"); continue; }
+        await sendTo(tab.id, { type: "FILL_IDENTITY", profile: PROFILE });
+        if (scan.questions && scan.questions.length) {
+          try {
+            const d = await api(`/api/answer?token=${encodeURIComponent(TOKEN)}&job_id=${j.job_id || 0}`,
+              { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ questions: scan.questions.map((q) => q.label) }) });
+            if (d.ok && d.answers) {
+              const answers = scan.questions.map((q, k) => ({ sel: q.sel, text: d.answers[k] || "" })).filter((a) => a.text);
+              if (answers.length) await sendTo(tab.id, { type: "FILL_ANSWERS", answers });
+            }
+          } catch (e) {}
+        }
+        const sub = await sendTo(tab.id, { type: "SUBMIT", dryRun: !live });
+        if (sub.error) setState("could not act on this page", "err");
+        else if (sub.dryRun) setState(`dry-run OK , filled, would click "${esc(sub.label || "submit")}". Review this tab.`, "ok");
+        else if (sub.ok === false) setState(sub.reason || "no submit button found", "err");
+        else if (sub.confirmed) {
+          setState("submitted , page confirmed", "ok");
+          if (j.job_id) { try { await fetch(`${API_BASE}/api/jobs/${j.job_id}?token=${encodeURIComponent(TOKEN)}&status=applied&resume_used=via%20autopilot`, { method: "POST" }); } catch (e) {} }
+        } else setState("clicked, but could not confirm , check this tab", "err");
+      } catch (e) { setState(e.message || "error", "err"); }
+      await new Promise((z) => setTimeout(z, 1500 + Math.random() * 1500));  // human-ish pacing between jobs
+    }
+    status(live ? "Live run done. Review each tab." : "Dry-run done. Review the tabs, then tick Live submit and run again.", "ok");
+  }
+
+  $("apLoad").onclick = apLoad;
+  $("apRun").onclick = apRun;
 })();

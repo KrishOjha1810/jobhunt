@@ -42,6 +42,21 @@
     <p class="sub" id="who"></p>
     <button class="full" id="saveJob" style="margin-bottom:8px">Save this page to my tracker</button>
 
+    <details class="step" id="autopilot" open style="margin-bottom:8px">
+      <summary style="cursor:pointer;font-size:13px;font-weight:700">&#9889; Auto-Pilot , apply to today's matches <span class="pill" id="pAPILOT">new</span></summary>
+      <p class="sub" style="margin:6px 0">Load today's strong matches, tick the ones to apply to, Run. <b>Dry-run first</b> (fills everything, stops before the final Submit) so you can verify a board safely. Each opens in its own tab and uses your logged-in session.</p>
+      <button class="full sm ghost" id="apLoad">Load today's matches</button>
+      <div id="apSummary" class="sub" style="margin:8px 0 0"></div>
+      <div id="apList" style="margin-top:8px"></div>
+      <div id="apControls" style="display:none;margin-top:8px">
+        <label style="display:flex;align-items:center;gap:7px;color:var(--ink);font-size:12px">
+          <input type="checkbox" id="apLive" style="width:auto"> Live submit (off = dry-run, do this first)
+        </label>
+        <button class="full" id="apRun" style="margin-top:8px">Run on selected</button>
+      </div>
+      <div id="apProgress" style="margin-top:8px"></div>
+    </details>
+
     <details class="step" id="applyProfile" style="margin-bottom:8px">
       <summary style="cursor:pointer;font-size:13px;font-weight:700">Application details (fill once) <span class="pill" id="pAP">todo</span></summary>
       <p class="sub" style="margin:6px 0">Saved once, these answer the common screening questions (notice period, CTC, work authorization) automatically, with no AI needed.</p>
