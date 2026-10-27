@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "JobHunt Auto-Apply",
-  "version": "2.0.0",
-  "description": "Guided auto-apply: detect the ATS, autofill your details, draft screening answers with AI, paste a tailored note, and mark applied in your JobHunt tracker.",
+  "name": "JobHunt Auto-Pilot",
+  "version": "2.1.0",
+  "description": "Auto-Pilot: log in to your boards once, then load your strong matches and apply across them in your own session (dry-run first). Plus manual autofill for one-off ATS pages.",
   "permissions": ["storage", "activeTab", "scripting", "sidePanel", "tabs"],
   "host_permissions": [
     "https://jobhunt-8i1m.onrender.com/*",
