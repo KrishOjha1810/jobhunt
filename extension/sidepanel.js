@@ -1,7 +1,7 @@
 const API_BASE = "https://jobhunt-8i1m.onrender.com";
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-let TOKEN = "", PROFILE = null, JOBS = [], QUESTIONS = [], AP_ITEMS = [];
+let TOKEN = "", PROFILE = null, JOBS = [], QUESTIONS = [], AP_ITEMS = [], AP_SUMMARY = {};
 
 function status(msg, cls = "") { ["status", "statusConnect", "statusHome"].forEach(id => { const e = document.getElementById(id); if (e) e.innerHTML = `<span class="${cls}">${msg}</span>`; }); }
 function parseToken(raw) { raw = (raw || "").trim(); const m = raw.match(/[?&]token=([^&\s]+)/); return m ? decodeURIComponent(m[1]) : raw; }
@@ -294,38 +294,55 @@ async function scan() {
     try {
       const d = await api(`/api/autopilot/queue?token=${encodeURIComponent(TOKEN)}`);
       AP_ITEMS = d.items || [];
-      const s = d.summary || {};
-      $("apSummary").innerHTML = `${s.total || 0} strong matches , ${s.auto || 0} standard ATS, ${s.dry_run_first || 0} login boards, ${s.open_only || 0} company sites (open-only).`;
+      AP_SUMMARY = d.summary || {};
       renderAP();
       status("");
     } catch (e) { status(e.message || "Could not load.", "err"); }
   }
+  function apCard(j, i, selectable) {
+    const fit = (j.fit != null) ? j.fit + "%" : (j.score != null ? String(j.score) : "");
+    const chip = selectable
+      ? `<span class="chipb">${esc(j.label || "")}</span>`
+      : `<span class="chipb open">${esc(j.label || "company site")} &middot; ${j.mode === "assisted" ? "you attach + submit" : "open yourself"}</span>`;
+    const lead = selectable
+      ? `<input type="checkbox" class="apChk" data-i="${i}" style="margin-top:3px">`
+      : `<a href="${esc(j.url || "#")}" target="_blank" class="muted-link" style="font-size:11px;white-space:nowrap">Open &rsaquo;</a>`;
+    return `<div class="jc">
+      <div class="top">
+        <div style="display:flex;gap:8px;align-items:flex-start">
+          ${lead}
+          <div><div class="co">${esc(j.company || "")}</div><div class="ti">${esc((j.title || "").slice(0, 54))}</div></div>
+        </div>
+        ${fit !== "" ? `<span class="fit">${esc(fit)}</span>` : ""}
+      </div>
+      <div class="meta">${chip}${j.region ? `<span class="sub" style="margin:0">${esc(j.region)}</span>` : ""}</div>
+      ${selectable ? `<div class="state" id="apstate_${i}"></div>` : ""}
+    </div>`;
+  }
   function renderAP() {
     const box = $("apList");
-    if (!AP_ITEMS.length) { box.innerHTML = '<small class="sub">No strong matches queued right now. Check back after the next run.</small>'; $("apControls").style.display = "none"; return; }
-    box.innerHTML =
-      '<label class="selrow"><input type="checkbox" id="apAll"> <b>Select all I can auto-apply to</b></label>' +
-      AP_ITEMS.map((j, i) => {
-        const ok = j.supported;
-        const fit = (j.fit != null) ? j.fit + "%" : (j.score != null ? String(j.score) : "");
-        const chip = ok
-          ? `<span class="chipb">${esc(j.label || "")}${j.mode === "dry_run_first" ? " &middot; dry-run" : ""}</span>`
-          : `<span class="chipb open">${esc(j.label || "company site")} &middot; open-only</span>`;
-        return `<div class="jc">
-          <div class="top">
-            <div style="display:flex;gap:8px;align-items:flex-start">
-              <input type="checkbox" class="apChk" data-i="${i}" ${ok ? "" : "disabled"} style="margin-top:3px">
-              <div><div class="co">${esc(j.company || "")}</div><div class="ti">${esc((j.title || "").slice(0, 54))}</div></div>
-            </div>
-            ${fit !== "" ? `<span class="fit">${esc(fit)}</span>` : ""}
-          </div>
-          <div class="meta">${chip}${j.region ? `<span class="sub" style="margin:0">${esc(j.region)}</span>` : ""}</div>
-          <div class="state" id="apstate_${i}"></div>
-        </div>`;
-      }).join("");
-    $("apControls").style.display = "block";
+    const auto = [], rest = [];
+    AP_ITEMS.forEach((j, i) => (j.can_autoapply ? auto : rest).push([j, i]));
+    const s = AP_SUMMARY;
+    $("apSummary").innerHTML = AP_ITEMS.length
+      ? `${s.total || 0} matches , <b>${auto.length} I can apply to</b>, ${rest.length} you open yourself.`
+      : "";
+    let html = "";
+    if (auto.length) {
+      html += '<label class="selrow"><input type="checkbox" id="apAll"> <b>Select all (I apply to these for you)</b></label>';
+      html += auto.map(([j, i]) => apCard(j, i, true)).join("");
+    } else {
+      html += `<div class="banner">No one-click jobs in today's matches. I can fully auto-apply only where your resume is already stored and apply is one action, that is <b>Naukri, Instahyre, Internshala, and LinkedIn Easy Apply</b>. Today's matches were Workday / Ashby / company pages, which always need you to open them. Connect those boards or widen your India sources to get auto-appliable jobs here.</div>`;
+    }
+    if (rest.length) {
+      html += `<details class="step" style="margin-top:10px"><summary style="cursor:pointer;font-weight:700;font-size:13px">Open these yourself (${rest.length})</summary>`
+        + `<p class="sub" style="margin:6px 0">I can't auto-submit these: multi-step forms, or a resume upload the browser blocks. I prep the tailored package; you open and send.</p>`
+        + rest.map(([j, i]) => apCard(j, i, false)).join("") + `</details>`;
+    }
+    box.innerHTML = html;
+    $("apControls").style.display = auto.length ? "block" : "none";
     const all = $("apAll");
-    if (all) all.onclick = (e) => box.querySelectorAll(".apChk:not([disabled])").forEach((c) => { c.checked = e.target.checked; });
+    if (all) all.onclick = (e) => box.querySelectorAll(".apChk").forEach((c) => { c.checked = e.target.checked; });
   }
 
   async function apRun() {
@@ -356,7 +373,11 @@ async function scan() {
         }
         const sub = await sendTo(tab.id, { type: "SUBMIT", dryRun: !live });
         if (sub.error) setState("couldn't act on this page", "err");
-        else if (sub.dryRun) setState(`dry-run OK , filled, ready at "${esc(sub.label || "submit")}". Check the tab.`, "ok");
+        else if (sub.dryRun && sub.wouldSubmit) setState(`ready , filled, submit is "${esc(sub.label || "submit")}". Flip Live to send.`, "ok");
+        else if (sub.state === "easy_apply") setState("Easy Apply board , automatable, I need to add the click-through", "warn");
+        else if (sub.state === "apply_wall") setState("job page only , real form + resume upload is behind Apply, can't be zero-touch", "warn");
+        else if (sub.state === "no_form") setState("no form here (description/listing page)", "warn");
+        else if (sub.dryRun) setState(sub.reason || "nothing to submit on this page", "warn");
         else if (sub.ok === false) setState(sub.reason || "no submit button found", "err");
         else if (sub.confirmed) {
           setState("submitted , page confirmed", "ok");

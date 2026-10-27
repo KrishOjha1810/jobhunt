@@ -2,35 +2,48 @@
 
 This module is the board-aware layer. It does NOT submit anything itself (the browser extension,
 riding the user's own logged-in session, does the actual filling and clicking). Its job is to look at
-each queued job's application URL, decide which board it lives on, and say how far we can take it:
+each queued job's application URL, decide which board it lives on, and say how far we can take it.
 
-  - "auto"          : a standard ATS (Greenhouse / Lever / Ashby / Workday). The extension already
-                      fills and submits these, so the whole queue can run hands-off (behind a dry-run
-                      the first time, then live on the user's go).
-  - "dry_run_first" : a login-walled job board (Naukri / Instahyre / Internshala / LinkedIn). We can
-                      drive the apply flow in the user's session, but the selectors must be confirmed
-                      once with a dry-run in the user's browser before anything is submitted live.
-  - "open_only"     : an arbitrary company career page. No reliable zero-touch (file-upload dialogs,
-                      every form different), so these stay "prepare the package and open the page".
+The classification is deliberately honest about what a browser can actually automate, learned the
+hard way from dry-runs: the only boards where a true one-click "apply to all" works are the ones
+where (a) the apply is a single in-page action and (b) the resume is ALREADY stored in the user's
+account, so no file-upload dialog is needed. This is exactly the set myjobb restricts itself to; it
+never offers to auto-apply to a Workday or a company career page, because it structurally cannot.
 
-Nothing here defeats a CAPTCHA or a bot check; a board that throws one pauses and asks the user.
+Modes:
+  - "auto"      : resume pre-stored, single-action apply (Naukri / Instahyre / Internshala, and
+                  LinkedIn Easy Apply). The extension can run the whole thing hands-off, behind a
+                  dry-run the first time then live on the user's go. These are the ONLY boards the
+                  one-click "apply to selected" button touches.
+  - "assisted"  : a single-page ATS form (Greenhouse / Lever) where we fill every text field and
+                  answer, but the browser blocks auto-attaching the resume file, so the user attaches
+                  it and clicks submit. One screen, mostly done for them, not zero-touch.
+  - "open_only" : multi-step / account-walled ATS (Workday / Ashby / iCIMS) and arbitrary company
+                  career pages. The submit lives behind an Apply click, several steps and a file
+                  upload, so there is no reliable zero-touch; we prepare the package and open the page.
+
+`group` collapses modes for the UI: "auto" jobs are the auto-apply feed; everything else is the
+"open these yourself" list and is never part of the one-click run. Nothing here defeats a CAPTCHA.
 """
 from urllib.parse import urlparse
 
 # host-substring -> (board key, mode). First match wins; order is longest/most-specific first.
 _BOARD_RULES = [
-    ("boards.greenhouse.io", ("greenhouse", "auto")),
-    ("job-boards.greenhouse.io", ("greenhouse", "auto")),
-    ("greenhouse.io", ("greenhouse", "auto")),
-    ("jobs.lever.co", ("lever", "auto")),
-    ("lever.co", ("lever", "auto")),
-    ("jobs.ashbyhq.com", ("ashby", "auto")),
-    ("ashbyhq.com", ("ashby", "auto")),
-    ("myworkdayjobs.com", ("workday", "auto")),
-    ("naukri.com", ("naukri", "dry_run_first")),
-    ("instahyre.com", ("instahyre", "dry_run_first")),
-    ("internshala.com", ("internshala", "dry_run_first")),
-    ("linkedin.com", ("linkedin", "dry_run_first")),
+    # Truly auto-appliable: resume pre-stored in the account, single-action apply.
+    ("naukri.com", ("naukri", "auto")),
+    ("instahyre.com", ("instahyre", "auto")),
+    ("internshala.com", ("internshala", "auto")),
+    ("linkedin.com", ("linkedin", "auto")),
+    # Single-page ATS: we fill everything, the user attaches the resume file and clicks submit.
+    ("boards.greenhouse.io", ("greenhouse", "assisted")),
+    ("job-boards.greenhouse.io", ("greenhouse", "assisted")),
+    ("greenhouse.io", ("greenhouse", "assisted")),
+    ("jobs.lever.co", ("lever", "assisted")),
+    ("lever.co", ("lever", "assisted")),
+    # Multi-step / account-walled: no reliable zero-touch, open and do it yourself.
+    ("jobs.ashbyhq.com", ("ashby", "open_only")),
+    ("ashbyhq.com", ("ashby", "open_only")),
+    ("myworkdayjobs.com", ("workday", "open_only")),
 ]
 
 # human labels for the UI
@@ -40,12 +53,16 @@ BOARD_LABELS = {
     "linkedin": "LinkedIn", "other": "Company site",
 }
 
+# mode -> which feed group it belongs to in the UI
+_MODE_GROUP = {"auto": "auto_apply", "assisted": "assisted", "open_only": "open_only"}
+
 
 def detect_board(url):
-    """Classify a job's application URL. Returns {board, mode, supported, label}.
+    """Classify a job's application URL. Returns {board, mode, group, can_autoapply, supported, label}.
 
-    `supported` is True when the extension can drive the apply flow at all (auto or dry_run_first);
-    an unknown/company page is open_only and not auto-applyable.
+    `can_autoapply` is True only for boards the one-click run can actually complete end to end
+    (resume pre-stored, single-action apply). `supported` stays True for assisted boards too, since
+    the extension can still fill those, just not submit them hands-off.
     """
     host = ""
     try:
@@ -61,13 +78,15 @@ def detect_board(url):
     return {
         "board": board,
         "mode": mode,
-        "supported": mode in ("auto", "dry_run_first"),
+        "group": _MODE_GROUP.get(mode, "open_only"),
+        "can_autoapply": mode == "auto",
+        "supported": mode in ("auto", "assisted"),
         "label": BOARD_LABELS.get(board, "Company site"),
     }
 
 
 def annotate(candidates):
-    """Tag each queue candidate dict with its board classification (board/mode/supported/label)."""
+    """Tag each queue candidate dict with its board classification."""
     out = []
     for c in candidates or []:
         info = detect_board(c.get("url"))
@@ -79,11 +98,15 @@ def queue(user_id, review_queue_fn):
     """Build the Auto-Pilot run list from the existing quality-gated review queue.
 
     `review_queue_fn` is injected (autoapply.review_queue) so this module stays import-light and easy
-    to test. Returns the annotated candidates plus a small summary of how many are auto / dry-run /
-    open-only, which the UI uses to set expectations before a run.
+    to test. Returns the annotated candidates plus a summary that counts BOTH the raw modes and the
+    UI groups, so the panel can say "3 I can apply to, 7 you open yourself" before a run.
     """
     items = annotate(review_queue_fn(user_id))
-    summary = {"auto": 0, "dry_run_first": 0, "open_only": 0, "total": len(items)}
+    summary = {
+        "auto": 0, "assisted": 0, "open_only": 0, "total": len(items),
+        "auto_apply": 0,  # jobs the one-click run can actually complete
+    }
     for it in items:
         summary[it["mode"]] = summary.get(it["mode"], 0) + 1
+    summary["auto_apply"] = summary["auto"]
     return {"items": items, "summary": summary}
