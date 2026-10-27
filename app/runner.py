@@ -425,6 +425,20 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
             pool = [j for j in pool if j.get("url") not in blocked]
     except Exception as e:
         print(f"[runner] closed-filter skipped: {e}")
+    # Top up with the India auto-apply boards the SERVER cannot fetch itself (Instahyre / Internshala /
+    # Foundit block its datacenter IP, returning 0). A local bridge running on an India IP pushes these
+    # into the catalog via /api/ingest; pull the fresh ones into the pool so they get matched, screened
+    # and delivered like any other source , this is what makes the one-click auto-apply lane non-empty.
+    try:
+        have = {j.get("url") for j in pool}
+        bridged = [j for j in db.recent_by_sources(["instahyre", "internshala", "foundit"], days=14)
+                   if j.get("url") and j["url"] not in have and not (blocked and j["url"] in blocked)]
+        if bridged:
+            pool.extend(bridged)
+            if verbose:
+                print(f"[runner] +{len(bridged)} bridged India jobs from catalog")
+    except Exception as e:
+        print(f"[runner] india bridge merge skipped: {e}")
     _phase(f"fetched:{len(pool)}")
     # Categorize, then batch-insert new jobs in one transaction (fast even at POOL_CAP).
     for j in pool:
