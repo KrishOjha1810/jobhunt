@@ -3,7 +3,7 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 let TOKEN = "", PROFILE = null, JOBS = [], QUESTIONS = [], AP_ITEMS = [];
 
-function status(msg, cls = "") { document.querySelectorAll("#status").forEach(e => e.innerHTML = `<span class="${cls}">${msg}</span>`); }
+function status(msg, cls = "") { ["status", "statusConnect", "statusHome"].forEach(id => { const e = document.getElementById(id); if (e) e.innerHTML = `<span class="${cls}">${msg}</span>`; }); }
 function parseToken(raw) { raw = (raw || "").trim(); const m = raw.match(/[?&]token=([^&\s]+)/); return m ? decodeURIComponent(m[1]) : raw; }
 function done(pillId) { const p = $(pillId); p.textContent = "done"; p.classList.add("done"); }
 
@@ -55,10 +55,11 @@ async function learnAnswer(label, value) {
   } catch (e) {}
 }
 
+function showView(id) { ["setup", "connect", "flow"].forEach(v => { const e = $(v); if (e) e.style.display = v === id ? "block" : "none"; }); }
+function showConnect() { showView("connect"); loadApplyProfile(); }
 function showFlow() {
-  $("setup").style.display = "none";
-  $("flow").style.display = "block";
-  $("who").textContent = `Signed in as ${PROFILE.name || PROFILE.email || "you"}.`;
+  showView("flow");
+  $("who").textContent = `Signed in as ${PROFILE.name || PROFILE.email || "you"}. Load your matches and I'll apply , you just watch.`;
   loadApplyProfile();
 }
 
@@ -69,7 +70,9 @@ async function save(raw) {
   try {
     PROFILE = await loadProfile(token); TOKEN = token;
     await chrome.storage.local.set({ token, profile: PROFILE });
-    showFlow(); status("");
+    const { connected } = await chrome.storage.local.get(["connected"]);
+    if (connected) showFlow(); else showConnect();
+    status("");
   } catch (e) { status(e.message || "Failed", "err"); }
 }
 
@@ -117,11 +120,20 @@ async function scan() {
 }
 
 (async () => {
-  const { token, profile } = await chrome.storage.local.get(["token", "profile"]);
-  if (token && profile) { TOKEN = token; PROFILE = profile; showFlow(); }
+  const { token, profile, connected } = await chrome.storage.local.get(["token", "profile", "connected"]);
+  if (token && profile) { TOKEN = token; PROFILE = profile; if (connected) showFlow(); else showConnect(); }
   $("save").onclick = () => save($("token").value);
-  $("reset").onclick = (e) => { e.preventDefault(); chrome.storage.local.remove(["token", "profile"]); $("flow").style.display = "none"; $("setup").style.display = "block"; };
+  $("reset").onclick = (e) => { e.preventDefault(); chrome.storage.local.remove(["token", "profile"]); showView("setup"); };
   $("scan").onclick = scan;
+
+  // one-time board login: open each board's login page in a tab (we reuse the logged-in session)
+  document.querySelectorAll(".board").forEach(b => b.onclick = async () => {
+    try { await chrome.tabs.create({ url: b.dataset.url, active: true }); } catch (e) {}
+    b.classList.add("done"); const t = b.querySelector(".tick"); if (t) t.textContent = "opened";
+    try { const s = (await chrome.storage.local.get(["boards"])).boards || {}; s[b.dataset.board] = true; await chrome.storage.local.set({ boards: s }); } catch (e) {}
+  });
+  $("connectDone").onclick = async () => { await chrome.storage.local.set({ connected: true }); showFlow(); };
+  $("relogin").onclick = (e) => { e.preventDefault(); showConnect(); };
 
   $("saveJob").onclick = async () => {
     status("Saving this page...");
@@ -290,40 +302,47 @@ async function scan() {
   }
   function renderAP() {
     const box = $("apList");
-    if (!AP_ITEMS.length) { box.innerHTML = '<small class="sub">No strong matches queued right now.</small>'; $("apControls").style.display = "none"; return; }
+    if (!AP_ITEMS.length) { box.innerHTML = '<small class="sub">No strong matches queued right now. Check back after the next run.</small>'; $("apControls").style.display = "none"; return; }
     box.innerHTML =
-      '<label style="display:flex;gap:7px;align-items:center;margin-bottom:6px;font-size:12px"><input type="checkbox" id="apAll" style="width:auto"> <b>Select all</b></label>' +
+      '<label class="selrow"><input type="checkbox" id="apAll"> <b>Select all I can auto-apply to</b></label>' +
       AP_ITEMS.map((j, i) => {
         const ok = j.supported;
-        return `<label style="display:flex;gap:7px;align-items:flex-start;margin:4px 0;${ok ? "" : "opacity:.5"}">
-          <input type="checkbox" class="apChk" data-i="${i}" ${ok ? "" : "disabled"} style="width:auto;margin-top:3px">
-          <span style="font-size:12px"><b>${esc(j.company || "")}</b> , ${esc((j.title || "").slice(0, 44))}<br>
-          <small class="sub">${esc(j.label || "")}${ok ? (j.mode === "dry_run_first" ? " (dry-run to verify)" : "") : " , open-only, cannot auto-apply"}</small></span>
-        </label>`;
+        const fit = (j.fit != null) ? j.fit + "%" : (j.score != null ? String(j.score) : "");
+        const chip = ok
+          ? `<span class="chipb">${esc(j.label || "")}${j.mode === "dry_run_first" ? " &middot; dry-run" : ""}</span>`
+          : `<span class="chipb open">${esc(j.label || "company site")} &middot; open-only</span>`;
+        return `<div class="jc">
+          <div class="top">
+            <div style="display:flex;gap:8px;align-items:flex-start">
+              <input type="checkbox" class="apChk" data-i="${i}" ${ok ? "" : "disabled"} style="margin-top:3px">
+              <div><div class="co">${esc(j.company || "")}</div><div class="ti">${esc((j.title || "").slice(0, 54))}</div></div>
+            </div>
+            ${fit !== "" ? `<span class="fit">${esc(fit)}</span>` : ""}
+          </div>
+          <div class="meta">${chip}${j.region ? `<span class="sub" style="margin:0">${esc(j.region)}</span>` : ""}</div>
+          <div class="state" id="apstate_${i}"></div>
+        </div>`;
       }).join("");
     $("apControls").style.display = "block";
-    $("apAll").onclick = (e) => box.querySelectorAll(".apChk:not([disabled])").forEach((c) => { c.checked = e.target.checked; });
+    const all = $("apAll");
+    if (all) all.onclick = (e) => box.querySelectorAll(".apChk:not([disabled])").forEach((c) => { c.checked = e.target.checked; });
   }
-  function apSelected() { return Array.from(document.querySelectorAll(".apChk:checked")).map((c) => AP_ITEMS[+c.dataset.i]); }
 
   async function apRun() {
-    const sel = apSelected();
-    if (!sel.length) return status("Tick at least one job.", "err");
+    const chosen = Array.from(document.querySelectorAll(".apChk:checked"));
+    if (!chosen.length) return status("Tick at least one job (or Select all).", "err");
     const live = $("apLive").checked;
-    if (live && !confirm(`LIVE submit ${sel.length} application(s) in your browser now? Real applications will be sent and cannot be undone. Cancel to dry-run instead.`)) return;
-    const prog = $("apProgress"); prog.innerHTML = "";
-    for (let i = 0; i < sel.length; i++) {
-      const j = sel[i];
-      const row = document.createElement("div");
-      row.style.cssText = "font-size:12px;margin:4px 0;line-height:1.4";
-      row.innerHTML = `<b>${esc(j.company || "")}</b> , <span>opening...</span>`;
-      prog.appendChild(row);
-      const setState = (t, cls = "") => { const sp = row.querySelector("span"); if (sp) sp.outerHTML = `<span class="${cls}">${t}</span>`; };
+    if (live && !confirm(`LIVE submit ${chosen.length} application(s) now? Real applications will be sent and cannot be undone. Cancel to run a safe dry-run instead.`)) return;
+    status(live ? "Applying…" : "Dry-run in progress…");
+    for (const chk of chosen) {
+      const i = +chk.dataset.i, j = AP_ITEMS[i], st = $("apstate_" + i);
+      const setState = (t, cls = "") => { if (st) st.innerHTML = `<span class="${cls}">${t}</span>`; };
+      setState("opening…");
       try {
         const tab = await chrome.tabs.create({ url: j.url, active: false });
         await waitTab(tab.id);
         const scan = await waitContent(tab.id);
-        if (scan.error) { setState("page not ready or not a fillable form , open it yourself", "err"); continue; }
+        if (scan.error) { setState("page not ready or not a fillable form", "err"); continue; }
         await sendTo(tab.id, { type: "FILL_IDENTITY", profile: PROFILE });
         if (scan.questions && scan.questions.length) {
           try {
@@ -336,17 +355,17 @@ async function scan() {
           } catch (e) {}
         }
         const sub = await sendTo(tab.id, { type: "SUBMIT", dryRun: !live });
-        if (sub.error) setState("could not act on this page", "err");
-        else if (sub.dryRun) setState(`dry-run OK , filled, would click "${esc(sub.label || "submit")}". Review this tab.`, "ok");
+        if (sub.error) setState("couldn't act on this page", "err");
+        else if (sub.dryRun) setState(`dry-run OK , filled, ready at "${esc(sub.label || "submit")}". Check the tab.`, "ok");
         else if (sub.ok === false) setState(sub.reason || "no submit button found", "err");
         else if (sub.confirmed) {
           setState("submitted , page confirmed", "ok");
           if (j.job_id) { try { await fetch(`${API_BASE}/api/jobs/${j.job_id}?token=${encodeURIComponent(TOKEN)}&status=applied&resume_used=via%20autopilot`, { method: "POST" }); } catch (e) {} }
-        } else setState("clicked, but could not confirm , check this tab", "err");
+        } else setState("clicked, but not confirmed , check the tab", "err");
       } catch (e) { setState(e.message || "error", "err"); }
       await new Promise((z) => setTimeout(z, 1500 + Math.random() * 1500));  // human-ish pacing between jobs
     }
-    status(live ? "Live run done. Review each tab." : "Dry-run done. Review the tabs, then tick Live submit and run again.", "ok");
+    status(live ? "Done. Review each opened tab." : "Dry-run done. Review the tabs, then tick Live submit and run again.", "ok");
   }
 
   $("apLoad").onclick = apLoad;
