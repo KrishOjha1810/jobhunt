@@ -14,12 +14,28 @@ RESUME_DIR.mkdir(exist_ok=True)
 # DB connection. Local default is SQLite; the cloud sets DATABASE_URL to the Neon Postgres URL.
 # Sanitize: strip stray quotes/whitespace, fall back to SQLite if empty so a missing/blank env
 # var can't crash startup, and normalize the postgres:// scheme SQLAlchemy 2.x rejects.
-_db = os.environ.get("DATABASE_URL", "").strip().strip('"').strip("'").strip()
-if not _db:
-    _db = f"sqlite:///{DB_PATH}"
-elif _db.startswith("postgres://"):
-    _db = _db.replace("postgres://", "postgresql://", 1)
-DATABASE_URL = _db
+def normalize_db_url(raw: str, db_path) -> str:
+    """Turn the raw DATABASE_URL env value into a SQLAlchemy URL that boots reliably.
+
+    - strip stray quotes/whitespace; fall back to SQLite when empty so a missing/blank env
+      var can't crash startup;
+    - rewrite the "postgres://" scheme SQLAlchemy 2.x rejects to "postgresql://";
+    - pin the DBAPI driver to psycopg2. SQLAlchemy 2.1 changed the default driver for a bare
+      "postgresql://" URL from psycopg2 to psycopg (v3); we ship psycopg2-binary, so a bare URL
+      boots with "No module named 'psycopg'". Forcing "+psycopg2" works on any SQLAlchemy
+      version. An explicit "+driver" the user already set is kept as-is.
+    """
+    db = (raw or "").strip().strip('"').strip("'").strip()
+    if not db:
+        return f"sqlite:///{db_path}"
+    if db.startswith("postgres://"):
+        db = db.replace("postgres://", "postgresql://", 1)
+    if db.startswith("postgresql://"):
+        db = db.replace("postgresql://", "postgresql+psycopg2://", 1)
+    return db
+
+
+DATABASE_URL = normalize_db_url(os.environ.get("DATABASE_URL", ""), DB_PATH)
 
 
 def _load_dotenv():
