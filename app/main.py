@@ -1256,6 +1256,19 @@ def trigger_run(token: str = "", force: str = "", sync: str = "1"):
             "users": s.get("last_run_users"), "phase": s.get("run_phase")}
 
 
+@app.api_route("/run/me", methods=["GET", "POST"])
+def trigger_my_run(request: Request, token: str = ""):
+    """Trigger a matching run for JUST the calling user (their dash token), delivered only to them.
+    Lets a personal cron (e.g. a 3 PM refresh) update one user's matches, including the India jobs a
+    local bridge pushed into the catalog, WITHOUT resending digests to every other subscriber. Runs
+    inline so a Render instance stays awake until it finishes."""
+    user = _resolve_user(request, token)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    runner.run_once(verbose=False, only_user_id=user["id"], force=True)
+    return {"ok": True, "started": True, "user_id": user["id"]}
+
+
 @app.post("/api/ingest")
 async def api_ingest(request: Request, token: str = ""):
     """Catalog ingest for sources the server cannot fetch itself (India boards block its datacenter IP).
