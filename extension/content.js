@@ -120,6 +120,15 @@
         // we clicked but cannot confirm the page acknowledged it. Never reports success it cannot see.
         const btn = findSubmit();
         if (!btn) { reply({ ok: false, reason: "no submit button found on this page" }); return true; }
+        if (msg.dryRun) {
+          // Dry run: find and highlight the submit button but DO NOT click. This is how the user
+          // verifies a board once before ever sending a real application.
+          try { btn.style.outline = "3px solid #22c55e"; btn.style.outlineOffset = "3px";
+            btn.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (e) {}
+          reply({ ok: true, dryRun: true, wouldSubmit: true,
+            label: (btn.innerText || btn.value || "").trim().slice(0, 48) });
+          return true;
+        }
         btn.click();
         setTimeout(() => { reply({ ok: true, confirmed: submitConfirmed() }); }, 2800);
         return true;  // async reply

@@ -2076,6 +2076,25 @@ def api_apply_queue(request: Request, token: str = ""):
     return {"ok": True, "queue": queue, "count": len(queue)}
 
 
+@app.get("/api/autopilot/queue")
+def api_autopilot_queue(request: Request, token: str = ""):
+    """The Auto-Pilot run list: the same quality-gated review queue, but each item tagged with its
+    board and how far it can be automated (auto ATS / dry_run_first login-walled board / open_only
+    company site), plus a summary the UI uses to set expectations before a one-click run."""
+    from . import autoapply, autopilot
+    user = _resolve_user(request, token)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    has_resume = bool(db.get_resume_json(user["id"]) or user.get("resume_text"))
+    dream = [d.lower() for d in ((db.get_profile_extra(user["id"]) or {}).get("dream_companies") or [])]
+    res = autopilot.queue(user["id"], autoapply.review_queue)
+    for it in res["items"]:
+        comp = (it.get("company") or "").lower()
+        it["resume_ready"] = has_resume
+        it["is_target"] = bool(dream) and any(d in comp for d in dream)
+    return {"ok": True, **res}
+
+
 @app.get("/api/cover_letter")
 def api_cover_letter(request: Request, job_id: int = 0, url: str = "", token: str = ""):
     """A tight, resume-grounded cover letter for a job (a differentiator , myjobb has none)."""
