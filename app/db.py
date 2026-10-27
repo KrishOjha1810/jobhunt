@@ -943,6 +943,51 @@ def set_profile_extra(user_id, achievements=None, projects=None, remote_only=Non
     return data
 
 
+def _merge_profile_extra(user_id, patch):
+    """Merge arbitrary top-level keys into the user's profile_extra JSON (read-modify-write)."""
+    data = get_profile_extra(user_id)
+    data.update(patch or {})
+    with engine.begin() as c:
+        c.execute(update(users).where(users.c.id == user_id).values(profile_extra=json.dumps(data)))
+    return data
+
+
+def get_connections(user_id):
+    """Per-board connection state for the Auto-Pilot: {board: {status, refreshed}}."""
+    return get_profile_extra(user_id).get("connections") or {}
+
+
+def set_connection(user_id, board, status, refreshed=None):
+    """Mark a job board connected / disconnected and stamp when it was last refreshed."""
+    conns = get_connections(user_id)
+    board = str(board or "").strip().lower()
+    if not board:
+        return conns
+    if status == "disconnected":
+        conns.pop(board, None)
+    else:
+        conns[board] = {"status": status or "connected",
+                        "refreshed": refreshed or datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")}
+    _merge_profile_extra(user_id, {"connections": conns})
+    return conns
+
+
+def get_ats_identity(user_id):
+    """The shared application address + the encrypted one-password for board sign-ins."""
+    d = get_profile_extra(user_id).get("ats_identity") or {}
+    return {"email": d.get("email", ""), "password_enc": d.get("password_enc", "")}
+
+
+def set_ats_identity(user_id, email=None, password_enc=None):
+    d = get_profile_extra(user_id).get("ats_identity") or {}
+    if email is not None:
+        d["email"] = str(email).strip()[:200]
+    if password_enc is not None:
+        d["password_enc"] = password_enc
+    _merge_profile_extra(user_id, {"ats_identity": d})
+    return d
+
+
 def set_user_prefs(user_id, categories=None, locations=None, experience=None):
     """Update the role/location/experience preferences on the user row WITHOUT touching the resume
     (so the Preferences page can edit them outside the subscribe flow)."""

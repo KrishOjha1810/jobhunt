@@ -1299,6 +1299,60 @@ async def api_ingest(request: Request, token: str = ""):
     return {"ok": True, "received": len(jobs), "valid": len(clean), "added": added}
 
 
+@app.get("/api/connections")
+def api_connections_get(request: Request, token: str = ""):
+    """Board connection state + the shared application identity, for the Auto-Pilot Connections screen."""
+    user = _resolve_user(request, token)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    ident = db.get_ats_identity(user["id"])
+    return {"ok": True, "connections": db.get_connections(user["id"]),
+            "ats": {"email": ident.get("email", ""), "has_password": bool(ident.get("password_enc"))}}
+
+
+@app.post("/api/connections")
+async def api_connections_set(request: Request, token: str = ""):
+    """Mark a board connected/refreshed/disconnected. Body: {board, status}. We store only that a board
+    is connected and when, never its password (the extension reuses the user's own logged-in session)."""
+    user = _resolve_user(request, token)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    board = (body.get("board") or "").strip().lower()
+    status = (body.get("status") or "connected").strip().lower()
+    if not board:
+        return JSONResponse({"error": "board required"}, status_code=400)
+    return {"ok": True, "connections": db.set_connection(user["id"], board, status)}
+
+
+@app.api_route("/api/ats-identity", methods=["GET", "POST"])
+async def api_ats_identity(request: Request, token: str = "", reveal: str = ""):
+    """The "one password, every board" identity: a shared application email + an encrypted password the
+    agent types into board sign-ups. GET returns the email and whether a password is set (and the
+    plaintext password only when reveal=1, over HTTPS, to the authenticated owner). POST sets them."""
+    from . import secretbox
+    user = _resolve_user(request, token)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    if request.method == "POST":
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        email = body.get("email")
+        pw = body.get("password")
+        db.set_ats_identity(user["id"], email=email if email is not None else None,
+                            password_enc=secretbox.encrypt(pw) if pw else None)
+    ident = db.get_ats_identity(user["id"])
+    out = {"ok": True, "email": ident.get("email", ""), "has_password": bool(ident.get("password_enc"))}
+    if str(reveal) in ("1", "true", "yes"):
+        out["password"] = secretbox.decrypt(ident.get("password_enc", ""))
+    return out
+
+
 @app.get("/tailor")
 def tailor_endpoint(request: Request, job_id: int = 0, token: str = ""):
     """LLM-tailor the user's resume to a specific matched job. Off until an LLM key is set."""

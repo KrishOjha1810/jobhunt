@@ -91,6 +91,50 @@
     for (const a of (answers || [])) { const el = document.querySelector(a.sel); if (el && setVal(el, a.text)) n++; }
     return n;
   }
+  // ---- account walls (Workday & co. make you create an account per company) ----
+  // Detect whether the page is a sign-up / sign-in wall or an email-verification step, so the agent
+  // can clear it with the user's shared application identity instead of the user doing it by hand.
+  function _authButton() {
+    for (const b of document.querySelectorAll('button, input[type=submit], a[role="button"]')) {
+      if (b.offsetParent === null || b.disabled) continue;
+      const t = (b.innerText || b.value || b.getAttribute("aria-label") || "").trim().toLowerCase();
+      if (/^(create account|sign up|sign in|log in|login|continue|next|register|submit|verify)$/.test(t)) return b;
+    }
+    return null;
+  }
+  function _codeField() {
+    return document.querySelector('input[autocomplete="one-time-code"], input[name*="code" i], input[id*="code" i], input[name*="otp" i], input[name*="verif" i]');
+  }
+  function detectGate() {
+    const code = _codeField();
+    const emailEl = document.querySelector('input[type=email], input[name*="email" i], input[id*="email" i], input[autocomplete="email" i]');
+    const pwEl = document.querySelector('input[type=password]');
+    const body = (document.body.innerText || "").toLowerCase();
+    if (code && /(verification|verify|one-?time|code we|enter the code|security code)/.test(body)) return { gate: "verify" };
+    if (emailEl && pwEl) {
+      const signup = /create (an )?account|sign up|register|create your account/.test(body);
+      return { gate: signup ? "signup" : "signin" };
+    }
+    return { gate: "none" };
+  }
+  function fillSignup(email, password) {
+    let n = 0;
+    const e = document.querySelector('input[type=email], input[name*="email" i], input[id*="email" i], input[autocomplete="email" i]');
+    if (e && email && !e.value && setVal(e, email)) n++;
+    for (const p of document.querySelectorAll('input[type=password]')) { if (password && !p.value && setVal(p, password)) n++; }  // password + confirm
+    const btn = _authButton();
+    if (btn) { btn.click(); return { ok: true, filled: n, clicked: true }; }
+    return { ok: n > 0, filled: n, clicked: false };
+  }
+  function fillCode(code) {
+    const c = _codeField();
+    if (!c || !code) return { ok: false };
+    setVal(c, code);
+    const btn = _authButton();
+    if (btn) btn.click();
+    return { ok: true, clicked: !!btn };
+  }
+
   function findSubmit() {
     const sels = ["#submit_app", "input[type=submit]", "button[type=submit]", ".template-btn-submit",
       'button[data-qa="btn-submit"]', 'button[aria-label*="submit" i]'];
@@ -119,6 +163,24 @@
     }
     return null;
   }
+  // The actual apply action for THIS board. On the India boards (Naukri / Instahyre / Internshala /
+  // foundit) the apply IS the "Apply" / "Apply now" / "I'm interested" button (the resume/profile is
+  // already stored in the account, so that single click submits). On ATS the action is a real submit.
+  // We deliberately never match "Apply on company website" (that only redirects off-site).
+  const _INDIA = ["naukri", "instahyre", "internshala", "foundit"];
+  function findApplyAction(board) {
+    if (_INDIA.includes(board)) {
+      for (const el of document.querySelectorAll('button, a[role="button"], input[type=submit], a[href*="apply" i]')) {
+        if (el.offsetParent === null || el.disabled) continue;
+        const t = (el.innerText || el.value || el.getAttribute("aria-label") || "").trim().toLowerCase();
+        if (/^(apply|apply now|apply for this( job)?|i'?m interested|easy apply)$/.test(t))
+          return { el, label: (el.innerText || el.value || "Apply").trim().slice(0, 40) };
+      }
+    }
+    const s = findSubmit();
+    if (s) return { el: s, label: (s.innerText || s.value || "Submit").trim().slice(0, 40) };
+    return null;
+  }
   function submitConfirmed() {
     const t = (document.body.innerText || "").toLowerCase();
     return /application (submitted|received)|thank you for applying|successfully (applied|submitted)|we('| ha)ve received your application|your application has been/.test(t);
@@ -132,38 +194,34 @@
       else if (msg.type === "PASTE_COVER") reply({ ok: pasteCover(msg.text) });
       else if (msg.type === "HIGHLIGHT_UPLOAD") reply({ ok: highlightUpload() });
       else if (msg.type === "FILL_ANSWERS") reply({ filled: fillAnswers(msg.answers) });
+      else if (msg.type === "DETECT_GATE") reply(detectGate());
+      else if (msg.type === "FILL_SIGNUP") reply(fillSignup(msg.email, msg.password));
+      else if (msg.type === "FILL_CODE") reply(fillCode(msg.code));
       else if (msg.type === "SUBMIT") {
-        // Click the ATS submit button in the user's own session, then check for a confirmation.
-        // Mirrors myjobb's run states: Submitting -> Submitted+confirmed, or Flagged-for-review when
-        // we clicked but cannot confirm the page acknowledged it. Never reports success it cannot see.
-        const btn = findSubmit();
+        // Apply in the user's own session, board-aware, then check for a confirmation. Never reports a
+        // success it cannot see on the page. Dry-run finds + highlights the action but never clicks.
+        const action = findApplyAction(msg.board || "");
         if (msg.dryRun) {
-          // Dry run: never click. Report the TRUE state of the page so the user knows exactly where
-          // each board stands before any real application is ever sent.
-          if (btn) {
-            try { btn.style.outline = "3px solid #22c55e"; btn.style.outlineOffset = "3px";
-              btn.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (e) {}
-            reply({ ok: true, dryRun: true, wouldSubmit: true, state: "ready",
-              label: (btn.innerText || btn.value || "").trim().slice(0, 48) });
+          if (action) {
+            try { action.el.style.outline = "3px solid #22c55e"; action.el.style.outlineOffset = "3px";
+              action.el.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (e) {}
+            reply({ ok: true, dryRun: true, wouldSubmit: true, state: "ready", label: action.label });
             return true;
           }
           const entry = findApplyEntry();
-          if (entry && entry.kind === "easy_apply") {
+          if (entry && entry.kind === "easy_apply")
             reply({ ok: true, dryRun: true, wouldSubmit: false, state: "easy_apply",
-              reason: "Easy Apply found, resume is pre-stored here, so this one is automatable once I add the click-through" });
-            return true;
-          }
-          if (entry) {
+              reason: "Easy Apply found, but the click-through isn't wired yet." });
+          else if (entry)
             reply({ ok: true, dryRun: true, wouldSubmit: false, state: "apply_wall",
-              reason: "job page only, the form and submit are behind the Apply button and usually need a resume upload" });
-            return true;
-          }
-          reply({ ok: true, dryRun: true, wouldSubmit: false, state: "no_form",
-            reason: "no application form on this page (looks like a description or listing)" });
+              reason: "the form and submit are behind the Apply button (usually a resume upload)." });
+          else
+            reply({ ok: true, dryRun: true, wouldSubmit: false, state: "no_form",
+              reason: "couldn't find an apply button, are you logged into this board in this browser?" });
           return true;
         }
-        if (!btn) { reply({ ok: false, reason: "no submit button found on this page" }); return true; }
-        btn.click();
+        if (!action) { reply({ ok: false, reason: "no apply button found on this page" }); return true; }
+        action.el.click();
         setTimeout(() => { reply({ ok: true, confirmed: submitConfirmed() }); }, 2800);
         return true;  // async reply
       }
