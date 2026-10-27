@@ -196,7 +196,7 @@ def _cap_source(jobs: list, prefix: str, cap: int) -> list:
     return out
 
 
-def _fetch(terms: list, india_wanted: bool, max_adzuna_terms: int = 3) -> list:
+def _fetch(terms: list, india_wanted: bool, max_adzuna_terms: int = 3, india_autoapply: bool = False) -> list:
     # Build independent fetch tasks and run them concurrently, so total time ~= slowest source,
     # not the sum. Each thunk returns a list; failures are swallowed by the adapters.
     import concurrent.futures
@@ -217,6 +217,14 @@ def _fetch(terms: list, india_wanted: bool, max_adzuna_terms: int = 3) -> list:
         tasks.append(lambda: amazon.fetch())     # amazon.jobs India SDE/backend
         tasks.append(lambda: apple.fetch())      # jobs.apple.com India SWE (hydration JSON)
         tasks.append(lambda: google.fetch())     # google.com/careers India early-career SWE (HTML)
+    elif india_autoapply:
+        # Auto-apply lane for an India-based user who is otherwise on a remote/USD feed: pull the two
+        # no-login boards where the resume is pre-stored and apply is one action (Internshala,
+        # Instahyre), so the one-click Auto-Pilot always has candidates even though the main feed
+        # stays remote-first. The recruiter screen still gates these to 'strong', so it is not
+        # spray-and-pray, it is "the strong matches you can actually apply to in one click".
+        tasks.append(lambda: internshala.fetch(pages=2))
+        tasks.append(lambda: instahyre.fetch(limit=60))
     tasks.append(_ats_capped)  # Greenhouse/Lever/Ashby niche roles (already concurrent internally)
     if telegram_channels.channels():  # public Telegram job channels (set TELEGRAM_JOB_CHANNELS)
         tasks.append(lambda: telegram_channels.fetch(""))
@@ -292,7 +300,7 @@ def fetch_all(keywords: list, locations: list) -> list:
 def fetch_pool(users: list) -> list:
     """Fetch ONE shared pool this run: union of subscribers' query terms PLUS the common roles, so
     the browse catalog stays broad and useful even to people who haven't subscribed yet."""
-    terms, india = [], False
+    terms, india, india_auto = [], False, False
     try:
         from ..db import get_profile_extra as _gpx
     except Exception:
@@ -313,11 +321,13 @@ def fetch_pool(users: list) -> list:
             is_usd = (_gpx(u["id"]) or {}).get("target_market") == "usd_remote"
         except Exception:
             is_usd = False
-        if (not is_usd) and any("india" in (l or "").lower() for l in u.get("locations", [])):
-            india = True
+        if any("india" in (l or "").lower() for l in u.get("locations", [])):
+            india_auto = True      # India-based: run the no-login auto-apply boards even on a USD feed
+            if not is_usd:
+                india = True       # full India-market sourcing only for a non-USD India user
     # keep subscriber terms prioritized, but guarantee broad role coverage for browse by always
     # appending the common roles; widen the cap so many roles get polled each run
     for t in COMMON_ROLE_TERMS:
         if t not in terms:
             terms.append(t)
-    return _fetch(terms[:24], india)
+    return _fetch(terms[:24], india, india_autoapply=india_auto)
