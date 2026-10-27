@@ -199,14 +199,16 @@
     // ---- the queue (left column) ----
     async function loadQueue(){
       const box = document.getElementById('queueBox');
-      if(!token){
-        box.innerHTML = '<div class="errbox"><b>Invalid or missing link.</b>Open the apply cockpit from your private dashboard link.</div>';
-        return;
-      }
       box.innerHTML = '<div class="loading-center"><span class="spinner"></span> Loading your queue...</div>';
       let res;
-      try{ res = await api('/api/apply-queue?token=' + encodeURIComponent(token)); }
+      // No token in the URL is fine: the API also accepts the logged-in session cookie. Only when
+      // neither works (401) do we ask the user to sign in.
+      try{ res = await api('/api/apply-queue' + tq); }
       catch(e){ res = null; }
+      if(res && res.status === 401){
+        box.innerHTML = '<div class="errbox"><b>Please sign in.</b>Open the cockpit while logged in, or use your private dashboard link. <a class="btn btn-primary" style="margin-top:10px;display:inline-block" href="/login">Sign in</a></div>';
+        return;
+      }
       if(!res || (!res.ok && res.status >= 500)){
         box.innerHTML = '<div class="errbox"><b>Server is waking up.</b>Free hosting sleeps when idle, this takes about 30 seconds. <button class="btn btn-primary" style="margin-top:10px" onclick="loadQueue()">Reload</button></div>';
         return;
