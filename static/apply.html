@@ -121,6 +121,8 @@
     <div class="head">
       <h1>Apply cockpit</h1>
       <p class="sub">The strong matches worth applying to, prepared for you.</p>
+      <button class="btn btn-primary" id="startBatch" style="display:none;margin-top:10px">&#9654; Start batch apply</button>
+      <span class="sub" id="batchHint" style="display:none;margin-left:10px">Go through your queue one by one: open, apply, advance. Keys: O open &middot; A applied+next &middot; S skip &middot; Esc exit.</span>
     </div>
 
     <div id="profileBanner" class="banner" style="display:none">
@@ -183,6 +185,8 @@
     document.getElementById('bannerLink').href = '/preferences' + tq;
 
     let QUEUE = [], selectedId = null;
+    // batch review-and-send: walk a snapshot of the queue one job at a time, auto-advancing.
+    let batchMode = false, BATCH = [], bIdx = 0, bApplied = 0, bSkipped = 0;
 
     // ---- apply profile banner (answers auto-resolve only when it's filled) ----
     async function loadProfile(){
@@ -225,6 +229,7 @@
 
     function renderQueue(){
       const box = document.getElementById('queueBox');
+      document.getElementById('startBatch').style.display = (QUEUE.length && !batchMode) ? 'inline-flex' : 'none';
       if(!QUEUE.length){
         box.innerHTML = '<div class="empty"><b>No strong matches queued right now</b>We only queue roles you\'d actually get. Check back after the next run.</div>';
         return;
@@ -347,10 +352,21 @@
         '<div class="statusline" id="clStatus"></div></div>';
 
       // actions
-      html += '<div class="pane-actions">' +
-        (url ? '<a class="btn btn-ghost" href="' + esc(url) + '" target="_blank" rel="noopener">Open the application</a>' : '') +
-        '<button class="btn btn-ok" id="markApplied">✓ Mark as applied</button>' +
-        '</div><div class="statusline" id="applyStatus"></div>';
+      if(batchMode){
+        html += '<div class="sec-label" style="margin-top:var(--sp-5)">Batch &middot; job ' + (bIdx+1) + ' of ' + BATCH.length +
+          '  &middot;  applied ' + bApplied + '  &middot;  skipped ' + bSkipped + '</div>';
+        html += '<div class="pane-actions" style="margin-top:var(--sp-2)">' +
+          (url ? '<a class="btn btn-primary" id="bOpen" href="' + esc(url) + '" target="_blank" rel="noopener">Open &amp; apply</a>' : '') +
+          '<button class="btn btn-ok" id="bApply">✓ Applied, next</button>' +
+          '<button class="btn btn-ghost" id="bSkip">Skip &rarr;</button>' +
+          '<button class="btn btn-ghost" id="bExit">Exit batch</button>' +
+          '</div><div class="statusline" id="applyStatus"></div>';
+      } else {
+        html += '<div class="pane-actions">' +
+          (url ? '<a class="btn btn-ghost" href="' + esc(url) + '" target="_blank" rel="noopener">Open the application</a>' : '') +
+          '<button class="btn btn-ok" id="markApplied">✓ Mark as applied</button>' +
+          '</div><div class="statusline" id="applyStatus"></div>';
+      }
 
       html += '</div>';
       body.innerHTML = html;
@@ -359,7 +375,14 @@
       document.getElementById('dlResume').onclick = () => downloadResume(job.id, document.getElementById('dlResume'));
       document.getElementById('clCopy').onclick = copyCover;
       document.getElementById('clRegen').onclick = () => regenCover(job.id, document.getElementById('clRegen'));
-      document.getElementById('markApplied').onclick = () => markApplied(job.id, document.getElementById('markApplied'));
+      if(batchMode){
+        const bApplyBtn = document.getElementById('bApply');
+        if(bApplyBtn) bApplyBtn.onclick = () => batchApply(job.id, bApplyBtn);
+        const bSkipBtn = document.getElementById('bSkip'); if(bSkipBtn) bSkipBtn.onclick = batchSkip;
+        const bExitBtn = document.getElementById('bExit'); if(bExitBtn) bExitBtn.onclick = batchExit;
+      } else {
+        document.getElementById('markApplied').onclick = () => markApplied(job.id, document.getElementById('markApplied'));
+      }
     }
 
     // ---- download tailored resume (200 = file, 422 = failures, 409 = no resume) ----
@@ -463,6 +486,63 @@
         document.getElementById('paneEmpty').style.display = 'block';
       }, 900);
     }
+
+    // ---- batch review-and-send ----
+    async function postApplied(id){
+      try{
+        const qs = 'token=' + encodeURIComponent(token) + '&status=applied&resume_used=' + encodeURIComponent('via cockpit (batch)');
+        const res = await api('/api/jobs/' + encodeURIComponent(id) + '?' + qs, { method: 'POST' });
+        return !!(res && res.ok);
+      }catch(e){ return false; }
+    }
+    function startBatch(){
+      if(!QUEUE.length) return;
+      batchMode = true; BATCH = QUEUE.slice(); bIdx = 0; bApplied = 0; bSkipped = 0;
+      document.getElementById('startBatch').style.display = 'none';
+      document.getElementById('batchHint').style.display = 'inline';
+      batchShow();
+    }
+    function batchShow(){
+      if(bIdx >= BATCH.length){ batchDone(); return; }
+      selectJob(BATCH[bIdx].job_id);
+    }
+    async function batchApply(id, btn){
+      const st = document.getElementById('applyStatus');
+      if(btn) btn.disabled = true;
+      if(st) st.innerHTML = '<span class="spinner"></span> Marking as applied...';
+      const ok = await postApplied(id);
+      if(!ok){ if(btn) btn.disabled = false; if(st) st.innerHTML = '<span class="err">Could not mark it, try again.</span>'; return; }
+      bApplied++; bIdx++; batchShow();
+    }
+    function batchSkip(){ bSkipped++; bIdx++; batchShow(); }
+    function batchExit(){
+      batchMode = false;
+      document.getElementById('batchHint').style.display = 'none';
+      document.getElementById('paneBody').style.display = 'none';
+      document.getElementById('paneEmpty').style.display = 'block';
+      selectedId = null;
+      loadQueue();
+    }
+    function batchDone(){
+      batchMode = false;
+      document.getElementById('batchHint').style.display = 'none';
+      document.getElementById('paneEmpty').style.display = 'none';
+      const body = document.getElementById('paneBody');
+      body.style.display = 'block';
+      body.innerHTML = '<div class="empty"><b>Batch complete</b>Applied ' + bApplied + ', skipped ' + bSkipped + ' of ' + BATCH.length + '. Reloading your queue...</div>';
+      setTimeout(loadQueue, 1200);
+    }
+    document.getElementById('startBatch').addEventListener('click', startBatch);
+    document.addEventListener('keydown', (e) => {
+      if(!batchMode) return;
+      const t = e.target;
+      if(t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT')) return; // let the user type in fields
+      const k = (e.key || '').toLowerCase();
+      if(k === 'o'){ const b = document.getElementById('bOpen'); if(b) b.click(); }
+      else if(k === 'a'){ const b = document.getElementById('bApply'); if(b){ e.preventDefault(); b.click(); } }
+      else if(k === 's'){ const b = document.getElementById('bSkip'); if(b){ e.preventDefault(); b.click(); } }
+      else if(e.key === 'Escape'){ batchExit(); }
+    });
 
     // ---- boot ----
     loadProfile();
