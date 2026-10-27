@@ -63,6 +63,11 @@ async function learnAnswer(label, value) {
   } catch (e) {}
 }
 
+async function markApplied(job) {
+  if (!job || !job.job_id) return;
+  try { await fetch(`${API_BASE}/api/jobs/${job.job_id}?token=${encodeURIComponent(TOKEN)}&status=applied&resume_used=via%20autopilot`, { method: "POST" }); } catch (e) {}
+}
+
 // ===================== CONNECTIONS =====================
 async function loadConnections() {
   let conns = {}, ats = {};
@@ -291,26 +296,37 @@ async function applyOne(job, live) {
         b.setProgress(answered, qs.length);
       }
     }
-    // ATS / company pages: we signed up and filled every field, but a content script cannot attach the
-    // resume file (the browser blocks programmatic file upload). Hand that one step back honestly.
-    if (!INDIA_BOARDS.includes(job.board)) {
-      try { await chrome.tabs.update(tab.id, { active: true }); } catch (e) {}
-      await sendTo(tab.id, { type: "HIGHLIGHT_UPLOAD" });
-      b.setStatus("needs you", "warn");
-      b.log("signed you up and filled every field. The browser won't let me attach the file, so I opened the tab and highlighted the upload box , attach your resume and submit there.");
-      return;
+    // ATS / company pages need a resume FILE. Try to attach it ourselves (DataTransfer); only if that
+    // fails do we hand the attach back to the user. Everything else (sign-up, fields) is already done.
+    if (!INDIA_BOARDS.includes(job.board) && job.url) {
+      const rurl = `${API_BASE}/api/resume/tailored.docx?token=${encodeURIComponent(TOKEN)}&job_id=${job.job_id || 0}`;
+      b.log("attaching your tailored resume");
+      const up = await sendTo(tab.id, { type: "UPLOAD_RESUME", url: rurl, filename: "resume.docx" });
+      if (up && up.ok) b.log("resume attached");
+      else {
+        try { await chrome.tabs.update(tab.id, { active: true }); } catch (e) {}
+        await sendTo(tab.id, { type: "HIGHLIGHT_UPLOAD" });
+        b.setStatus("needs you", "warn");
+        b.log(`filled + signed you up, but couldn't attach the file here (${esc((up && up.reason) || "")}). I opened the tab and highlighted the upload , attach your resume and submit.`);
+        return;
+      }
     }
-    // India boards: the apply action is a single click. Dry-run finds + highlights it, Live clicks it.
+    // Apply / submit. India boards: one-click action. ATS: the real Submit (resume now attached).
     const sub = await sendTo(tab.id, { type: "SUBMIT", dryRun: !live, board: job.board });
     if (sub.error) { b.setStatus("couldn't act", "err"); b.log("couldn't find the apply action on this page."); }
-    else if (sub.dryRun && sub.wouldSubmit) { b.setStatus("ready", "ok"); b.log(`ready , everything's filled and I found the <b>${esc(sub.label || "apply")}</b> button. Flip Live submit on and run again to actually send.`); }
+    else if (sub.alreadyApplied) { b.setStatus("already applied", "ok"); b.log("you've already applied to this one , marking it done so it won't show again."); await markApplied(job); }
+    else if (sub.dryRun && sub.wouldSubmit) { b.setStatus("ready", "ok"); b.log(`ready , everything's filled and I found the <b>${esc(sub.label || "apply")}</b> button. This was a safe dry-run (nothing sent). Flip <b>Live submit</b> on and run again to actually apply.`); }
     else if (sub.dryRun) { b.setStatus("needs connect", "warn"); b.log(sub.reason || "nothing to apply with on this page yet."); }
     else if (sub.confirmed) {
-      b.setStatus("submitted", "ok"); b.log("submitted , the page confirmed your application.");
-      if (job.job_id) { try { await fetch(`${API_BASE}/api/jobs/${job.job_id}?token=${encodeURIComponent(TOKEN)}&status=applied&resume_used=via%20autopilot`, { method: "POST" }); } catch (e) {} }
+      b.setStatus("submitted", "ok"); b.log("submitted , the page confirmed your application."); await markApplied(job);
     }
     else if (sub.ok === false) { b.setStatus("couldn't act", "err"); b.log(sub.reason || "couldn't find the apply action."); }
-    else { b.setStatus("check it", "warn"); b.log("clicked apply, but couldn't confirm it went through."); }
+    else if (live && INDIA_BOARDS.includes(job.board)) {
+      // India boards are instant one-click applies: a successful click = applied, even if the page's
+      // wording didn't match our confirmation check. Mark it so it leaves the feed.
+      b.setStatus("applied", "ok"); b.log("applied , one-click apply done."); await markApplied(job);
+    }
+    else { b.setStatus("check it", "warn"); b.log("clicked apply, but couldn't confirm it went through , check the tab."); }
   } catch (e) { b.setStatus("error", "err"); b.log(esc(e.message || "something went wrong.")); }
 }
 
@@ -364,5 +380,5 @@ function enterAgent() {
   $("atsSave").onclick = saveAts;
   $("atsReveal").onclick = revealAts;
   $("runBack").onclick = () => showView("agent");
-  $("runDone").onclick = () => { showView("agent"); navTo("matches"); };
+  $("runDone").onclick = () => { showView("agent"); navTo("matches"); apLoad(); };
 })();

@@ -183,7 +183,16 @@
   }
   function submitConfirmed() {
     const t = (document.body.innerText || "").toLowerCase();
-    return /application (submitted|received)|thank you for applying|successfully (applied|submitted)|we('| ha)ve received your application|your application has been/.test(t);
+    return /application (submitted|received)|thank you for applying|successfully (applied|submitted)|we('| ha)ve received your application|your application has been|you have (already )?applied|applied successfully|already applied|applied on/.test(t);
+  }
+  // Instahyre/Naukri flip the button to "Applied" once you've applied. Detect that so we never re-show
+  // a job you already did, and so a dry-run honestly reports "already applied" instead of "no button".
+  function alreadyApplied() {
+    for (const b of document.querySelectorAll('button, a[role="button"], span')) {
+      const t = (b.innerText || b.value || "").trim().toLowerCase();
+      if (/^(applied|already applied|application sent)$/.test(t)) return true;
+    }
+    return false;
   }
 
   chrome.runtime.onMessage.addListener((msg, _s, reply) => {
@@ -194,12 +203,34 @@
       else if (msg.type === "PASTE_COVER") reply({ ok: pasteCover(msg.text) });
       else if (msg.type === "HIGHLIGHT_UPLOAD") reply({ ok: highlightUpload() });
       else if (msg.type === "FILL_ANSWERS") reply({ filled: fillAnswers(msg.answers) });
+      else if (msg.type === "UPLOAD_RESUME") {
+        // Attach a resume FILE to this page's file input. A content script can't set input.value, but
+        // it CAN set input.files via a DataTransfer object built from a fetched blob, which most ATS
+        // accept as a real upload. The extension's host permission lets us fetch our own API here.
+        (async () => {
+          try {
+            const inp = document.querySelector('input[type=file]');
+            if (!inp) { reply({ ok: false, reason: "no file input on this page" }); return; }
+            const r = await fetch(msg.url);
+            if (!r.ok) { reply({ ok: false, reason: "resume not ready (" + r.status + ")" }); return; }
+            const blob = await r.blob();
+            const file = new File([blob], msg.filename || "resume.docx", { type: blob.type || "application/octet-stream" });
+            const dt = new DataTransfer(); dt.items.add(file);
+            inp.files = dt.files;
+            inp.dispatchEvent(new Event("input", { bubbles: true }));
+            inp.dispatchEvent(new Event("change", { bubbles: true }));
+            reply({ ok: inp.files && inp.files.length > 0, name: file.name });
+          } catch (e) { reply({ ok: false, reason: String(e) }); }
+        })();
+        return true;  // async reply
+      }
       else if (msg.type === "DETECT_GATE") reply(detectGate());
       else if (msg.type === "FILL_SIGNUP") reply(fillSignup(msg.email, msg.password));
       else if (msg.type === "FILL_CODE") reply(fillCode(msg.code));
       else if (msg.type === "SUBMIT") {
         // Apply in the user's own session, board-aware, then check for a confirmation. Never reports a
         // success it cannot see on the page. Dry-run finds + highlights the action but never clicks.
+        if (alreadyApplied()) { reply({ ok: true, alreadyApplied: true }); return true; }
         const action = findApplyAction(msg.board || "");
         if (msg.dryRun) {
           if (action) {
