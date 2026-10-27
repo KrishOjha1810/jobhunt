@@ -1256,6 +1256,36 @@ def trigger_run(token: str = "", force: str = "", sync: str = "1"):
             "users": s.get("last_run_users"), "phase": s.get("run_phase")}
 
 
+@app.post("/api/ingest")
+async def api_ingest(request: Request, token: str = ""):
+    """Catalog ingest for sources the server cannot fetch itself (India boards block its datacenter IP).
+    A local bridge running on an India IP POSTs {"jobs": [...]}; we categorize and upsert them into the
+    catalog, and the next matching run pulls the fresh ones into its pool (runner's recent_by_sources
+    merge) so they get screened and delivered like any other source. RUN_TOKEN-guarded."""
+    if not RUN_TOKEN or token != RUN_TOKEN:
+        return JSONResponse({"error": "valid token required"}, status_code=403)
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid JSON body"}, status_code=400)
+    jobs = body.get("jobs") if isinstance(body, dict) else body
+    if not isinstance(jobs, list) or not jobs:
+        return JSONResponse({"error": "body must be {\"jobs\": [...]} with at least one job"}, status_code=400)
+    from . import matcher
+    clean = []
+    for j in jobs:
+        if not isinstance(j, dict) or not (j.get("url") or "").strip():
+            continue
+        if not j.get("category"):
+            try:
+                j["category"] = matcher.categorize(j)
+            except Exception:
+                pass
+        clean.append(j)
+    added = db.upsert_jobs(clean)
+    return {"ok": True, "received": len(jobs), "valid": len(clean), "added": added}
+
+
 @app.get("/tailor")
 def tailor_endpoint(request: Request, job_id: int = 0, token: str = ""):
     """LLM-tailor the user's resume to a specific matched job. Off until an LLM key is set."""

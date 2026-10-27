@@ -485,6 +485,31 @@ def posted_age_days(s):
 MAX_POSTED_AGE_DAYS = 30  # browse only shows jobs posted within ~the last month (reqs go stale after)
 
 
+def recent_by_sources(sources, days=14, limit=400):
+    """Fresh catalog jobs from the named sources, newest first. Used to top the matching pool up with
+    jobs from sources the SERVER cannot fetch itself (India boards block its datacenter IP), but that
+    a local bridge, running on an India IP, has pushed into the catalog via /api/ingest."""
+    srcs = [s.lower() for s in (sources or []) if s]
+    if not srcs:
+        return []
+    cond = jobs_catalog.c.source.in_(srcs)
+    sel = (select(jobs_catalog).where(cond)
+           .order_by(jobs_catalog.c.first_seen_at.desc()).limit(limit * 3))
+    with engine.connect() as conn:
+        rows = [dict(r) for r in conn.execute(sel).mappings().all()]
+    out = []
+    for r in rows:
+        age = posted_age_days(r.get("posted_at"))
+        if age is not None and age > days:
+            continue
+        if r.get("first_seen_at"):
+            r["first_seen_at"] = str(r["first_seen_at"])[:16]
+        out.append(r)
+        if len(out) >= limit:
+            break
+    return out
+
+
 def list_catalog(category=None, q=None, limit=200):
     sel = select(jobs_catalog)
     if category:
