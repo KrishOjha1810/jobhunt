@@ -598,10 +598,69 @@
     return out;
   }
 
+  // Pull a balanced JSON object out of inline script text starting at (or after) a marker. Reads only
+  // the page the user already loaded , no network, no header spoofing. Returns the parsed object or null.
+  function _extractBalancedJSON(text, marker) {
+    const at = marker ? text.indexOf(marker) : 0;
+    if (at === -1) return null;
+    const start = text.indexOf("{", at);
+    if (start === -1) return null;
+    let depth = 0, inStr = false, esc = false;
+    for (let k = start; k < text.length; k++) {
+      const ch = text[k];
+      if (inStr) { if (esc) esc = false; else if (ch === "\\") esc = true; else if (ch === '"') inStr = false; }
+      else if (ch === '"') inStr = true;
+      else if (ch === "{") depth++;
+      else if (ch === "}") { if (--depth === 0) { try { return JSON.parse(text.slice(start, k + 1)); } catch (e) { return null; } } }
+    }
+    return null;
+  }
+  function _deepFindJobArrays(obj, out, depth) {
+    // Collect arrays of objects that look like Naukri job records (have jdURL + title).
+    if (!obj || typeof obj !== "object" || depth > 9) return;
+    if (Array.isArray(obj)) {
+      if (obj.length && obj[0] && typeof obj[0] === "object" && obj[0].jdURL && obj[0].title) out.push(obj);
+      else for (const v of obj) _deepFindJobArrays(v, out, depth + 1);
+      return;
+    }
+    for (const k in obj) { try { _deepFindJobArrays(obj[k], out, depth + 1); } catch (e) {} }
+  }
+  function _harvestNaukriData() {
+    // Naukri renders from a jobDetails[] payload embedded in the page (keys confirmed from its public
+    // shape: jdURL, title, companyName, placeholders, tagsAndSkills, experienceText, salaryDetail). When
+    // it's in the initial HTML we read it straight from the <script> text , no CSS selectors, exact shape.
+    const found = [];
+    for (const s of document.querySelectorAll("script")) {
+      const t = s.textContent || "";
+      if (!t || t.indexOf("jdURL") === -1) continue;
+      let data = _extractBalancedJSON(t, "__INITIAL_STATE__") || _extractBalancedJSON(t, "");
+      if (data) _deepFindJobArrays(data, found, 0);
+    }
+    const base = "https://www.naukri.com", seen = new Set(), out = [];
+    for (const arr of found) for (const j of arr) {
+      const raw = j.jdURL || "";
+      const url = raw ? (raw.indexOf("http") === 0 ? raw : base + raw) : "";
+      if (!url || !j.title || seen.has(url)) continue;
+      seen.add(url);
+      let loc = "";
+      for (const p of (j.placeholders || [])) if (p && p.type === "location") loc = p.label || "";
+      const sd = j.salaryDetail || {};
+      const sal = (sd && !sd.hideSalary && (sd.minimumSalary || sd.maximumSalary))
+        ? [sd.minimumSalary, sd.maximumSalary].filter(Boolean).join(" - ") + " " + (sd.currency || "") : "";
+      out.push({
+        title: String(j.title || "").trim(),
+        company: String(j.companyName || "").trim(),
+        url, location: loc, salary: sal.trim(),
+        description: [j.tagsAndSkills || "", j.experienceText || ""].filter(Boolean).join(" | "),
+      });
+    }
+    return out;
+  }
+
   function harvestJobs() {
     const host = location.hostname;
     let board = "", jobs = [];
-    if (/naukri\.com/.test(host)) { board = "naukri"; jobs = _harvestNaukri(); }
+    if (/naukri\.com/.test(host)) { board = "naukri"; jobs = _harvestNaukriData(); if (!jobs.length) jobs = _harvestNaukri(); }
     else if (/hirist\.(tech|com)/.test(host)) board = "hirist";
     else if (/iimjobs\.com/.test(host)) board = "iimjobs";
     else if (/instahyre\.com/.test(host)) board = "instahyre";
