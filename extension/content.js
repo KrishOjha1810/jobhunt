@@ -5,9 +5,11 @@
   function labelText(el) {
     if (el.labels && el.labels.length) return el.labels[0].innerText || "";
     if (el.id) { const l = document.querySelector(`label[for="${CSS.escape(el.id)}"]`); if (l) return l.innerText || ""; }
+    const alb = el.getAttribute && el.getAttribute("aria-labelledby");
+    if (alb) { const l = document.getElementById(alb.split(/\s+/)[0]); if (l) return l.innerText || ""; }
     const w = el.closest("label"); if (w) return w.innerText || "";
     const fld = el.closest('.field, .application-question, [class*="field"], [class*="question"]');
-    if (fld) { const lab = fld.querySelector("label,.label,legend"); if (lab) return lab.innerText || ""; }
+    if (fld) { const lab = fld.querySelector("label, legend, .application-label, .label, .text"); if (lab) return lab.innerText || ""; }
     return "";
   }
   function hay(el) {
@@ -91,6 +93,143 @@
     for (const a of (answers || [])) { const el = document.querySelector(a.sel); if (el && setVal(el, a.text)) n++; }
     return n;
   }
+
+  // ---- rich field scan + fill (Greenhouse / Lever / any single-page ATS form) ----
+  // scanQuestions only saw text boxes. These also see <select> dropdowns, radio groups and checkboxes,
+  // carry each field's options + required flag, and tag EEO/demographic questions so the orchestrator
+  // can auto-decline them instead of bugging the user. This is what makes assisted boards near-auto.
+  const _EEO_RE = /gender|race|ethnic|hispanic|latino|veteran|disab|sexual orientation|do you identify|voluntary self|self.?identif|transgender|pronoun/i;
+  const _DECLINE_RE = /decline|prefer not|don'?t wish|do not wish|not to answer|not to disclose|not to identify|i don'?t want|choose not/i;
+  const _CONSENT_RE = /\bi agree\b|consent|privacy policy|terms|certify|acknowledge|i confirm|gdpr|data processing/i;
+  function _isIdentity(h) {
+    return /first name|last name|full name|your name|candidate name|email|phone|mobile|contact number|linkedin|github|^website$|portfolio|resume|cv\b|cover letter/.test(h);
+  }
+  function _isRequired(el, label) {
+    if (el.required || el.getAttribute("aria-required") === "true") return true;
+    const fld = el.closest('.field, .application-question, [class*="field"], [class*="question"], fieldset');
+    if (fld) {
+      if (fld.getAttribute("aria-required") === "true") return true;
+      const lab = fld.querySelector("label,legend,.label");
+      if (lab && /\*|\(required\)/.test(lab.innerText || "")) return true;
+    }
+    return /\*|\(required\)/.test(label || "");
+  }
+  function _selectOptions(el) {
+    return Array.from(el.options || [])
+      .map((o) => ({ label: (o.textContent || "").trim(), value: o.value }))
+      .filter((o) => o.value !== "" && !/^(please select|select\b|select\.\.\.|select an option|choose|--|-|n\/a)$/i.test(o.label));
+  }
+  // react-select comboboxes (Greenhouse's new React form renders every dropdown, incl. EEO, this way,
+  // NOT as a native <select>). You can't set a value; you open the menu and click the matching option.
+  const _wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  function _isCombobox(el) { return el.getAttribute("role") === "combobox" || el.getAttribute("aria-autocomplete") === "list" || el.getAttribute("aria-haspopup") === "listbox"; }
+  function _listboxOptions() {
+    let opts = Array.from(document.querySelectorAll('[role="option"]'));
+    if (!opts.length) opts = Array.from(document.querySelectorAll('[id*="-option-"]'));
+    return opts;
+  }
+  async function _openCombobox(el) {
+    try { el.focus(); el.click(); } catch (e) {}
+    for (let i = 0; i < 8; i++) { await _wait(90); if (_listboxOptions().length) return true; try { el.click(); } catch (e) {} }
+    return _listboxOptions().length > 0;
+  }
+  function _closeCombobox(el) { try { el.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); } catch (e) {} try { document.body.click(); } catch (e) {} }
+  async function _harvestCombobox(el) {
+    if (!(await _openCombobox(el))) { _closeCombobox(el); return []; }
+    const labels = _listboxOptions().map((o) => (o.textContent || "").trim()).filter(Boolean).slice(0, 40);
+    _closeCombobox(el);
+    return labels.map((l) => ({ label: l, value: l }));
+  }
+  async function fillCombobox(el, value) {
+    if (!el || value == null || value === "") return false;
+    if (!(await _openCombobox(el))) { _closeCombobox(el); return false; }
+    const v = _norm(value), opts = _listboxOptions();
+    let t = opts.find((o) => _norm(o.textContent) === v) || opts.find((o) => { const n = _norm(o.textContent); return n && (n.includes(v) || v.includes(n)); });
+    if (!t && /^(yes|y|true|1)$/.test(v)) t = opts.find((o) => /^yes\b/.test(_norm(o.textContent)));
+    if (!t && /^(no|n|false|0)$/.test(v)) t = opts.find((o) => /^no\b/.test(_norm(o.textContent)));
+    if (t) { t.click(); try { el.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); } catch (e) {} return true; }
+    try { const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set; set.call(el, value); el.dispatchEvent(new Event("input", { bubbles: true })); } catch (e) {}
+    await _wait(280);
+    try { el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); } catch (e) {}
+    return true;
+  }
+  async function scanFields() {
+    const out = [], seenRadio = new Set();
+    const push = (f) => { if (f.label && out.length < 25) { f.id = out.length; out.push(f); } };
+    for (const el of document.querySelectorAll('input[role="combobox"], [aria-autocomplete="list"]')) {
+      if (el.disabled || el.offsetParent === null) continue;
+      const label = (labelText(el) || "").trim();
+      if (!label || _isIdentity(hay(el))) continue;
+      const options = await _harvestCombobox(el);
+      push({ label: label.slice(0, 220), type: "combobox", required: _isRequired(el, label), eeo: _EEO_RE.test(label), options, sel: tag(el) });
+    }
+    for (const el of document.querySelectorAll("select")) {
+      if (el.disabled || el.offsetParent === null) continue;
+      const label = (labelText(el) || "").trim();
+      if (!label || _isIdentity(hay(el))) continue;
+      push({ label: label.slice(0, 220), type: "select", required: _isRequired(el, label), eeo: _EEO_RE.test(label), options: _selectOptions(el), sel: tag(el) });
+    }
+    for (const r of document.querySelectorAll('input[type="radio"]')) {
+      if (r.disabled || !r.name || seenRadio.has(r.name)) continue;
+      seenRadio.add(r.name);
+      const group = Array.from(document.querySelectorAll(`input[type="radio"][name="${CSS.escape(r.name)}"]`));
+      const fld = r.closest('fieldset, .field, .application-question, [class*="question"], [class*="field"]');
+      const legend = fld ? fld.querySelector("legend,label,.label") : null;
+      const label = ((legend && legend.innerText) || r.name || "").trim();
+      if (!label || _isIdentity(label.toLowerCase())) continue;
+      push({ label: label.slice(0, 220), type: "radio", required: group.some((x) => x.required), eeo: _EEO_RE.test(label),
+        options: group.map((x) => ({ label: (labelText(x) || x.value || "").trim(), value: x.value, sel: tag(x) })), sel: "" });
+    }
+    for (const el of document.querySelectorAll('input[type="checkbox"]')) {
+      if (el.disabled || el.offsetParent === null) continue;
+      const label = (labelText(el) || "").trim();
+      if (!label || _isIdentity(label.toLowerCase())) continue;
+      push({ label: label.slice(0, 220), type: "checkbox", required: _isRequired(el, label), eeo: _EEO_RE.test(label),
+        options: [{ label, value: el.value || "on", sel: tag(el) }], sel: "" });
+    }
+    for (const el of document.querySelectorAll('textarea, input[type="text"], input[type="url"], input[type="tel"], input:not([type])')) {
+      if (el.disabled || el.offsetParent === null || el.value || _isCombobox(el)) continue;
+      const label = (labelText(el) || el.placeholder || "").trim();
+      if (!label || _isIdentity(hay(el))) continue;
+      if (el.tagName !== "TEXTAREA" && label.length < 12) continue;
+      push({ label: label.slice(0, 220), type: el.tagName === "TEXTAREA" ? "textarea" : "text", required: _isRequired(el, label), eeo: _EEO_RE.test(label), options: [], sel: tag(el) });
+    }
+    return out;
+  }
+  function _norm(s) { return String(s == null ? "" : s).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(); }
+  function _bestOption(options, value) {
+    const v = _norm(value); if (!v || !options || !options.length) return null;
+    let o = options.find((x) => _norm(x.label) === v || _norm(x.value) === v);
+    if (o) return o;
+    o = options.find((x) => { const nl = _norm(x.label); return nl && (nl.includes(v) || v.includes(nl)); });
+    if (o) return o;
+    if (/^(yes|y|true|1)$/.test(v)) o = options.find((x) => /^(yes|y)\b/.test(_norm(x.label)));
+    else if (/^(no|n|false|0)$/.test(v)) o = options.find((x) => /^(no|n)\b/.test(_norm(x.label)));
+    return o || null;
+  }
+  async function fillField(field, value) {
+    if (!field) return false;
+    if (field.type === "combobox") { const el = document.querySelector(field.sel); return el ? await fillCombobox(el, value) : false; }
+    if (field.type === "select") {
+      const el = document.querySelector(field.sel); if (!el) return false;
+      const o = _bestOption(field.options, value); if (!o) return false;
+      el.value = o.value; el.dispatchEvent(new Event("input", { bubbles: true })); el.dispatchEvent(new Event("change", { bubbles: true }));
+      return el.value === o.value;
+    }
+    if (field.type === "radio") {
+      const o = _bestOption(field.options, value); if (!o || !o.sel) return false;
+      const el = document.querySelector(o.sel); if (!el) return false; el.click(); return !!el.checked;
+    }
+    if (field.type === "checkbox") {
+      const o = (field.options && field.options[0]) || null; if (!o || !o.sel) return false;
+      const el = document.querySelector(o.sel); if (!el) return false;
+      const want = !/^(no|n|false|0|off|unchecked)$/.test(_norm(value));
+      if (el.checked !== want) el.click();
+      return el.checked === want;
+    }
+    const el = document.querySelector(field.sel); return el ? setVal(el, value) : false;
+  }
+
   // ---- account walls (Workday & co. make you create an account per company) ----
   // Detect whether the page is a sign-up / sign-in wall or an email-verification step, so the agent
   // can clear it with the user's shared application identity instead of the user doing it by hand.
@@ -211,6 +350,11 @@
     c = find(/^(next|continue|save and continue)$/) || find(/next|continue|save and continue/);
     if (c) return { el: c.el, label: (c.el.innerText || "Next").trim().slice(0, 40), kind: "next" };
     return { kind: null };
+  }
+  // Some ATS gate the final submit behind a CAPTCHA (Lever uses hCaptcha). We never solve or bypass it;
+  // we fill everything, then hand the final click to the user. This just lets the orchestrator know.
+  function hasCaptcha() {
+    return !!document.querySelector('iframe[src*="hcaptcha" i], iframe[src*="recaptcha" i], .h-captcha, .g-recaptcha, #hcaptchaResponseInput, [name="h-captcha-response"], [data-hcaptcha-widget-id], [data-sitekey]');
   }
   function submitConfirmed() {
     const t = (document.body.innerText || "").toLowerCase();
@@ -379,6 +523,9 @@
       else if (msg.type === "PASTE_COVER") reply({ ok: pasteCover(msg.text) });
       else if (msg.type === "HIGHLIGHT_UPLOAD") reply({ ok: highlightUpload() });
       else if (msg.type === "FILL_ANSWERS") reply({ filled: fillAnswers(msg.answers) });
+      else if (msg.type === "SCAN_FIELDS") { scanFields().then((fields) => reply({ fields, captcha: hasCaptcha() })).catch((e) => reply({ fields: [], error: String(e) })); return true; }
+      else if (msg.type === "FILL_FIELD") { fillField(msg.field, msg.value).then((ok) => reply({ ok })).catch((e) => reply({ ok: false, error: String(e) })); return true; }
+      else if (msg.type === "CAPTCHA") reply({ captcha: hasCaptcha() });
       else if (msg.type === "UPLOAD_RESUME") {
         // Attach a resume FILE to this page's file input. A content script can't set input.value, but
         // it CAN set input.files via a DataTransfer object built from a fetched blob, which most ATS

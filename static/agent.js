@@ -160,16 +160,26 @@ function onNarrate(d) {
   if (d.log) { const x = document.createElement("div"); x.className = "l" + (d.me ? " me" : ""); x.innerHTML = d.log; $(id + "l").appendChild(x); }
   if (d.status) { const s = $(id + "s"); if (s) { s.textContent = d.status; s.className = "pill " + (d.cls || "live"); } }
   if (d.progress != null) { const p = $(id + "p"); if (p) p.style.width = d.progress + "%"; }
-  if (d.ask) { renderAsk(id, d.ask, d.askId); }
+  if (d.ask) { renderAsk(id, d.ask, d.askId, d.options); }
 }
-function renderAsk(id, question, askId) {
+function renderAsk(id, question, askId, options) {
   const box = document.createElement("div"); box.className = "ask";
-  box.innerHTML = `<div>${esc(question)}</div><div class="row"><input class="in" placeholder="your answer..."><button class="btn sm">Send</button></div>`;
+  const answer = (v) => { if (!v) return; box.remove(); extCall("ANSWER", { askId, answer: v }); };
+  if (options && options.length) {
+    // a choice question (dropdown / radio): show the real options as tappable buttons, plus "Other..."
+    box.innerHTML = `<div>${esc(question)}</div><div class="row opts" style="flex-wrap:wrap;gap:6px"></div>`;
+    const row = box.querySelector(".opts");
+    options.forEach((o) => { const b = document.createElement("button"); b.className = "btn sm ghost"; b.textContent = o; b.onclick = () => answer(o); row.appendChild(b); });
+    const other = document.createElement("button"); other.className = "btn sm"; other.textContent = "Other...";
+    other.onclick = () => { row.innerHTML = `<input class="in" placeholder="your answer..."><button class="btn sm">Send</button>`; const input = row.querySelector("input"), btn = row.querySelector("button"); const go = () => answer(input.value.trim()); btn.onclick = go; input.onkeydown = (e) => { if (e.key === "Enter") go(); }; input.focus(); };
+    row.appendChild(other);
+  } else {
+    box.innerHTML = `<div>${esc(question)}</div><div class="row"><input class="in" placeholder="your answer..."><button class="btn sm">Send</button></div>`;
+    const input = box.querySelector("input"), btn = box.querySelector("button");
+    const go = () => answer(input.value.trim()); btn.onclick = go; input.onkeydown = (e) => { if (e.key === "Enter") go(); };
+    setTimeout(() => input.focus(), 0);
+  }
   $(id + "l").appendChild(box);
-  const input = box.querySelector("input"), btn = box.querySelector("button");
-  const go = () => { const v = input.value.trim(); if (!v) return; box.remove(); extCall("ANSWER", { askId, answer: v }); };
-  btn.onclick = go; input.onkeydown = (e) => { if (e.key === "Enter") go(); };
-  input.focus();
 }
 async function runApply(jobs) {
   if (!jobs.length) return;
