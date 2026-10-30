@@ -1787,6 +1787,15 @@ def apply_page(request: Request, token: str = ""):
     return _page("apply.html")
 
 
+@app.get("/agent", response_class=HTMLResponse)
+def agent_page(request: Request, token: str = ""):
+    """The agent dashboard: matches, connections, and live-narrated applying , the whole experience on
+    one page (the browser extension works invisibly behind it to apply in the user's board sessions)."""
+    if not (current_user(request) or db.user_by_token(token)):
+        return RedirectResponse("/login")
+    return _page("agent.html")
+
+
 @app.get("/api/resume")
 def api_resume_get(request: Request, token: str = ""):
     """Return the user's structured resume (parsing it from their uploaded resume on first use) +

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "JobHunt Auto-Pilot",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "Auto-Pilot: log in to your boards once, then load your strong matches and apply across them in your own session (dry-run first). Plus manual autofill for one-off ATS pages.",
   "permissions": ["storage", "activeTab", "scripting", "sidePanel", "tabs"],
   "host_permissions": [
@@ -22,6 +22,11 @@
         "https://*.foundit.in/*", "https://*.linkedin.com/*"
       ],
       "js": ["ats.js", "content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://jobhunt-8i1m.onrender.com/*"],
+      "js": ["bridge.js"],
       "run_at": "document_idle"
     }
   ]
