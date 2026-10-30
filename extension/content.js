@@ -17,6 +17,7 @@
   }
   function setVal(el, val) {
     if (!el || val == null || val === "") return false;
+    if (typeof val === "string" && /^\[please answer\]/i.test(val)) return false;  // never write the LLM placeholder
     const proto = el.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
     const setter = Object.getOwnPropertyDescriptor(proto, "value").set;
     try { setter.call(el, val); } catch { el.value = val; }
@@ -142,12 +143,19 @@
   }
   async function fillCombobox(el, value) {
     if (!el || value == null || value === "") return false;
+    if (/^\[please answer\]/i.test(String(value))) return false;
     if (!(await _openCombobox(el))) { _closeCombobox(el); return false; }
     const v = _norm(value), opts = _listboxOptions();
-    let t = opts.find((o) => _norm(o.textContent) === v) || opts.find((o) => { const n = _norm(o.textContent); return n && (n.includes(v) || v.includes(n)); });
-    if (!t && /^(yes|y|true|1)$/.test(v)) t = opts.find((o) => /^yes\b/.test(_norm(o.textContent)));
-    if (!t && /^(no|n|false|0)$/.test(v)) t = opts.find((o) => /^no\b/.test(_norm(o.textContent)));
-    if (t) { t.click(); try { el.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); } catch (e) {} return true; }
+    if (opts.length) {
+      // a CHOICE combobox (fixed options, e.g. Yes/No, visa, EEO): pick a real option or FAIL , never
+      // inject a free-typed value, which was putting garbage ("Indian Citizen", "remote") into the box.
+      let t = opts.find((o) => _norm(o.textContent) === v) || opts.find((o) => { const n = _norm(o.textContent); return n && (n.includes(v) || v.includes(n)); });
+      if (!t && /^(yes|y|true|1)$/.test(v)) t = opts.find((o) => /^yes\b/.test(_norm(o.textContent)));
+      if (!t && /^(no|n|false|0)$/.test(v)) t = opts.find((o) => /^no\b/.test(_norm(o.textContent)));
+      if (t) { t.click(); try { el.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); } catch (e) {} return true; }
+      _closeCombobox(el); return false;  // no matching option , let the caller ask the user with the real options
+    }
+    // no options surfaced , treat as a free-text autocomplete (e.g. location): type + Enter
     try { const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set; set.call(el, value); el.dispatchEvent(new Event("input", { bubbles: true })); } catch (e) {}
     await _wait(280);
     try { el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); } catch (e) {}
@@ -209,6 +217,7 @@
   }
   async function fillField(field, value) {
     if (!field) return false;
+    if (value == null || value === "" || /^\[please answer\]/i.test(String(value))) return false;
     if (field.type === "combobox") { const el = document.querySelector(field.sel); return el ? await fillCombobox(el, value) : false; }
     if (field.type === "select") {
       const el = document.querySelector(field.sel); if (!el) return false;
@@ -532,14 +541,19 @@
         // accept as a real upload. The extension's host permission lets us fetch our own API here.
         (async () => {
           try {
-            const inp = document.querySelector('input[type=file]');
+            // prefer the actual resume input (Greenhouse's #resume is a hidden visually-hidden file input),
+            // not the cover-letter one; fall back to any file input.
+            const inp = document.querySelector('input[type=file]#resume, input[type=file][id*="resume" i], input[type=file][name*="resume" i], input[type=file][accept*="pdf" i], input[type=file]');
             if (!inp) { reply({ ok: false, reason: "no file input on this page" }); return; }
             const r = await fetch(msg.url);
-            if (!r.ok) { reply({ ok: false, reason: "resume not ready (" + r.status + ")" }); return; }
+            if (!r.ok) { reply({ ok: false, reason: "resume not ready (" + r.status + ") , set/generate your resume first" }); return; }
             const blob = await r.blob();
+            if (!blob || blob.size === 0) { reply({ ok: false, reason: "resume came back empty" }); return; }
             const file = new File([blob], msg.filename || "resume.docx", { type: blob.type || "application/octet-stream" });
             const dt = new DataTransfer(); dt.items.add(file);
-            inp.files = dt.files;
+            // React/controlled inputs ignore a plain inp.files = ...; set via the native setter, then fire events.
+            try { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "files").set.call(inp, dt.files); }
+            catch (e) { try { inp.files = dt.files; } catch (e2) {} }
             inp.dispatchEvent(new Event("input", { bubbles: true }));
             inp.dispatchEvent(new Event("change", { bubbles: true }));
             reply({ ok: inp.files && inp.files.length > 0, name: file.name });
