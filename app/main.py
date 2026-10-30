@@ -1299,6 +1299,76 @@ async def api_ingest(request: Request, token: str = ""):
     return {"ok": True, "received": len(jobs), "valid": len(clean), "added": added}
 
 
+@app.post("/api/harvest")
+async def api_harvest(request: Request, token: str = ""):
+    """Harvest jobs the user is ALREADY viewing in their own logged-in board session (Naukri / Hirist /
+    iimjobs and any other board). The extension content script reads the listings off the page the user
+    is looking at and POSTs them here , no server-side scraping, no bot-check evasion, just the user's
+    own session. We upsert them to the shared catalog, then rank them for THIS user with the same blended
+    recommender the digest and Browse use (deal-breakers, seniority hard-drop, semantic + preference
+    signals), and drop the strong ones straight into their Agent feed so they show up immediately.
+    Authenticated by the user's own token (NOT RUN_TOKEN)."""
+    user = _resolve_user(request, token)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid JSON body"}, status_code=400)
+    board = (body.get("board") or "").strip().lower() if isinstance(body, dict) else ""
+    jobs = body.get("jobs") if isinstance(body, dict) else body
+    if not isinstance(jobs, list) or not jobs:
+        return JSONResponse({"error": "body must be {\"jobs\": [...]} with at least one job"}, status_code=400)
+    from . import matcher, autoapply
+    clean, seen_urls = [], set()
+    for j in jobs[:120]:  # one results page's worth; keep a bad payload from ballooning
+        if not isinstance(j, dict):
+            continue
+        url = (j.get("url") or "").strip()
+        title = (j.get("title") or "").strip()
+        if not url or not title or url in seen_urls:
+            continue
+        seen_urls.add(url)
+        clean.append({
+            "url": url, "title": title[:300],
+            "company": (j.get("company") or "").strip()[:200],
+            "location": (j.get("location") or "").strip()[:200],
+            "description": (j.get("description") or "").strip()[:2000],
+            "salary": (j.get("salary") or "").strip()[:120],
+            "source": board or "harvest",
+            "posted_at": j.get("posted_at"),
+            "category": matcher.categorize({"title": title, "description": j.get("description") or ""}),
+        })
+    if not clean:
+        return JSONResponse({"error": "no usable jobs in payload (need url + title)"}, status_code=400)
+    added_catalog = db.upsert_jobs(clean)
+    # Rank with the per-user blended recommender (identical to the subscribed digest + Browse), then
+    # surface only the ones that clear the quality gate into the Agent feed, exactly like a normal match.
+    harvested = {j["url"] for j in clean}
+    queued = 0
+    try:
+        # rank the whole catalog (pruned to ~1500) so every harvested job gets a verdict on its own
+        # merit, not just those that land in an arbitrary top-N slice.
+        by_url = {j.get("url"): j for j in db.list_catalog_ranked(user, limit=1500)}
+        for url in harvested:
+            j = by_url.get(url)
+            if not j:
+                continue  # dropped by a hard filter (over-leveled, deal-breaker, remote-only, rejected co.)
+            score = int(j.get("rec_score") or 0)
+            if score < autoapply.QUALITY_THRESHOLD or db.is_seen(user["id"], url):
+                continue
+            db.log_job(user["id"], {
+                "title": j.get("title"), "company": j.get("company"), "category": j.get("category"),
+                "url": url, "score": score, "region": j.get("region"), "posted_at": j.get("posted_at"),
+            })
+            queued += 1
+    except Exception as e:
+        return {"ok": True, "received": len(jobs), "valid": len(clean), "added_catalog": added_catalog,
+                "queued": 0, "warn": f"ranking skipped: {type(e).__name__}: {str(e)[:120]}"}
+    return {"ok": True, "received": len(jobs), "valid": len(clean),
+            "added_catalog": added_catalog, "queued": queued}
+
+
 @app.get("/api/connections")
 def api_connections_get(request: Request, token: str = ""):
     """Board connection state + the shared application identity, for the Auto-Pilot Connections screen."""

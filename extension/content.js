@@ -524,6 +524,108 @@
     return { ok: false, reason: "couldn't find the apply path , open a hirist job, DevTools Network, click Apply, and send me the gladiator /user/... POST" };
   }
 
+  // ---- Harvest job listings from a board the user is already browsing, in their own logged-in session.
+  // This is a pure READ of the page the user is looking at (no network call, no header spoofing, no
+  // bot-check evasion) , exactly what the user sees. The backend ranks + queues what comes back.
+  function _absUrl(href) { try { return new URL(href, location.href).href.split("#")[0]; } catch (e) { return ""; } }
+  function _txt(root, sel) { const e = root.querySelector(sel); return e ? (e.innerText || e.textContent || "").trim() : ""; }
+  function _firstTxt(root, sels) { for (const s of sels) { const t = _txt(root, s); if (t) return t; } return ""; }
+
+  function _harvestJsonLd() {
+    // Many boards embed schema.org JobPosting; when present it's the cleanest source.
+    const out = [];
+    for (const s of document.querySelectorAll('script[type="application/ld+json"]')) {
+      let data; try { data = JSON.parse(s.textContent); } catch (e) { continue; }
+      const arr = Array.isArray(data) ? data : (data["@graph"] || [data]);
+      for (const d of arr) {
+        if (!d || typeof d !== "object") continue;
+        const ty = d["@type"];
+        if (!(ty === "JobPosting" || (Array.isArray(ty) && ty.includes("JobPosting")))) continue;
+        const org = d.hiringOrganization || {};
+        const locO = Array.isArray(d.jobLocation) ? (d.jobLocation[0] || {}) : (d.jobLocation || {});
+        const addr = locO.address || {};
+        out.push({
+          title: (d.title || "").trim(),
+          company: (typeof org === "string" ? org : (org.name || "")).trim(),
+          url: _absUrl(d.url || d.sameAs || location.href),
+          location: [addr.addressLocality, addr.addressRegion].filter(Boolean).join(", "),
+          salary: "",
+          description: String(d.description || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 1800),
+        });
+      }
+    }
+    return out;
+  }
+
+  function _harvestNaukri() {
+    const cards = document.querySelectorAll('div.srp-jobtuple-wrapper, article.jobTuple, div.cust-job-tuple, div.jobTuple');
+    const out = [];
+    for (const c of cards) {
+      const a = c.querySelector('a.title, a.jobTupleHeader__title, a[href*="/job-listings-"]');
+      if (!a) continue;
+      const url = _absUrl(a.href || a.getAttribute("href"));
+      if (!url) continue;
+      out.push({
+        title: (a.innerText || a.textContent || a.title || "").trim(),
+        company: _firstTxt(c, ['a.comp-name', 'a.subTitle', 'span.comp-name', 'a.companyInfo']),
+        url,
+        location: _firstTxt(c, ['span.locWdth', 'span.loc', 'li.location span', 'span.location']),
+        salary: _firstTxt(c, ['span.sal', 'span.sal-wrap span', 'li.salary span']),
+        description: [_firstTxt(c, ['span.job-desc', 'div.job-description']),
+          Array.from(c.querySelectorAll('ul.tags-gt li, .tags li')).map((t) => (t.innerText || "").trim()).join(", "),
+          _firstTxt(c, ['span.expwdth', 'span.exp'])].filter(Boolean).join(" | "),
+      });
+    }
+    return out;
+  }
+
+  function _harvestByLinks(hrefRe) {
+    // Generic fallback: anchors that look like job-detail links; climb to a card and pull nearby text.
+    const seen = new Set(), out = [];
+    for (const a of document.querySelectorAll("a[href]")) {
+      const href = a.href || a.getAttribute("href") || "";
+      if (!hrefRe.test(href)) continue;
+      const url = _absUrl(href);
+      if (!url || seen.has(url)) continue;
+      const title = (a.innerText || a.textContent || "").trim();
+      if (!title || title.length < 3) continue;
+      seen.add(url);
+      let card = a;
+      for (let i = 0; i < 4 && card.parentElement; i++) { card = card.parentElement; if ((card.innerText || "").length > title.length + 20) break; }
+      out.push({ title: title.slice(0, 200), company: "", url, location: "", salary: "",
+        description: (card.innerText || "").replace(/\s+/g, " ").trim().slice(0, 600) });
+    }
+    return out;
+  }
+
+  function harvestJobs() {
+    const host = location.hostname;
+    let board = "", jobs = [];
+    if (/naukri\.com/.test(host)) { board = "naukri"; jobs = _harvestNaukri(); }
+    else if (/hirist\.(tech|com)/.test(host)) board = "hirist";
+    else if (/iimjobs\.com/.test(host)) board = "iimjobs";
+    else if (/instahyre\.com/.test(host)) board = "instahyre";
+    else if (/foundit\.in/.test(host)) board = "foundit";
+    else if (/internshala\.com/.test(host)) board = "internshala";
+    if (!jobs.length) jobs = _harvestJsonLd();  // most reliable when the board embeds it
+    if (!jobs.length) {
+      const re = board === "naukri" ? /\/job-listings-/ :
+        board === "hirist" ? /hirist\.(tech|com)\/j\// :
+        board === "iimjobs" ? /iimjobs\.com\/j\// :
+        board === "instahyre" ? /instahyre\.com\/.*(opportunit|job)/i :
+        board === "internshala" ? /internshala\.com\/.*(internship|job)/i :
+        /\/(job|jobs|opportunit|vacanc)/i;
+      jobs = _harvestByLinks(re);
+    }
+    const seen = new Set(), clean = [];
+    for (const j of jobs) {
+      if (!j.url || !j.title || seen.has(j.url)) continue;
+      seen.add(j.url); clean.push(j);
+      if (clean.length >= 80) break;
+    }
+    return { board: board || host, jobs: clean, total: clean.length, sample: clean.slice(0, 3) };
+  }
+
   chrome.runtime.onMessage.addListener((msg, _s, reply) => {
     try {
       if (msg.type === "SCAN") reply({ ats: A.detect(), questions: scanQuestions(), title: document.title });
@@ -535,6 +637,7 @@
       else if (msg.type === "SCAN_FIELDS") { scanFields().then((fields) => reply({ fields, captcha: hasCaptcha() })).catch((e) => reply({ fields: [], error: String(e) })); return true; }
       else if (msg.type === "FILL_FIELD") { fillField(msg.field, msg.value).then((ok) => reply({ ok })).catch((e) => reply({ ok: false, error: String(e) })); return true; }
       else if (msg.type === "CAPTCHA") reply({ captcha: hasCaptcha() });
+      else if (msg.type === "HARVEST_JOBS") { try { reply(harvestJobs()); } catch (e) { reply({ jobs: [], total: 0, error: String(e) }); } }
       else if (msg.type === "UPLOAD_RESUME") {
         // Attach a resume FILE to this page's file input. A content script can't set input.value, but
         // it CAN set input.files via a DataTransfer object built from a fetched blob, which most ATS
