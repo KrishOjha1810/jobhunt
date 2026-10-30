@@ -7,8 +7,8 @@ chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => 
 // their logged-in board session, and streams narration back to the page. Browser same-origin security
 // is why this must live in the extension (a web page can't touch naukri/workday), and running in the
 // user's own browser means their session + IP, no server-side credential storage.
-const INDIA_BOARDS = ["naukri", "instahyre", "internshala", "foundit"];
-const API_BOARDS = ["instahyre", "naukri"];
+const INDIA_BOARDS = ["naukri", "instahyre", "internshala", "foundit", "ycombinator"];
+const API_BOARDS = ["instahyre", "naukri", "ycombinator"];
 let PORT = null;
 const ASKS = {};
 
@@ -74,7 +74,7 @@ async function tryUpload(tabId, block, job, ctx) { const up = await sendTo(tabId
 async function applyIndia(tabId, block, job, live, ctx) {
   const cleared = await clearGates(tabId, block, job.board, ctx); if (cleared === "stuck") return;
   let sub;
-  if (API_BOARDS.includes(job.board)) { bLog(block, `applying via ${job.label}'s own apply API, in your session`); sub = await sendTo(tabId, { type: "API_APPLY", board: job.board, url: job.url, dryRun: !live }); }
+  if (API_BOARDS.includes(job.board)) { bLog(block, `applying via ${job.label}'s own apply API, in your session`); let message; if (job.board === "ycombinator") { const cl = await apiJSON(ctx, `/api/cover_letter?job_id=${job.job_id || 0}`); if (cl && cl.ok && cl.cover_letter) message = cl.cover_letter; } sub = await sendTo(tabId, { type: "API_APPLY", board: job.board, url: job.url, dryRun: !live, message }); }
   else { bLog(block, "reading the page and your profile"); await fillFields(tabId, block, job, ctx); sub = await sendTo(tabId, { type: "SUBMIT", dryRun: !live, board: job.board }); }
   if (sub.error) { bStatus(block, "couldn't act", "err"); bLog(block, "couldn't reach this board , logged in?"); }
   else if (sub.alreadyApplied) { bStatus(block, "already applied", "ok"); bLog(block, "already applied , marking done."); await markApplied(ctx, job); }

@@ -193,7 +193,9 @@ async function getAtsIdentity() {
 // so the user never creates a per-company account by hand. Returns the latest SCAN, or "stuck" when
 // it needs the user to set up their identity first. The verification code is pause-and-ask (the
 // browser can't read the user's inbox; auto-read via Gmail is a later enhancement).
-const INDIA_BOARDS = ["naukri", "instahyre", "internshala", "foundit"];
+// Session-based boards: the user logs in via Connect and we reuse that session (a wall = reconnect,
+// never the shared ATS identity). YC/workatastartup is session-based too (its own login).
+const INDIA_BOARDS = ["naukri", "instahyre", "internshala", "foundit", "ycombinator"];
 async function clearGates(tabId, b, board) {
   let gate = await sendTo(tabId, { type: "DETECT_GATE" });
   let guard = 0, lastScan = null;
@@ -294,7 +296,7 @@ async function tryUploadResume(tabId, b, job) {
 }
 
 // Boards with a confirmed native apply API we can call from their own origin (reliable, no DOM).
-const API_BOARDS = ["instahyre", "naukri"];
+const API_BOARDS = ["instahyre", "naukri", "ycombinator"];
 // India boards: resume pre-stored. Instahyre/Naukri apply via their own API (rock-solid); others click.
 async function applyIndiaOneClick(tab, b, job, live) {
   const cleared = await clearGates(tab.id, b, job.board);
@@ -302,7 +304,11 @@ async function applyIndiaOneClick(tab, b, job, live) {
   let sub;
   if (API_BOARDS.includes(job.board)) {
     b.log(`applying via ${esc(job.label || "the board")}'s own apply API, in your logged-in session`);
-    sub = await sendTo(tab.id, { type: "API_APPLY", board: job.board, url: job.url, dryRun: !live });
+    let message;
+    if (job.board === "ycombinator") {  // YC's apply is a note to a real founder, send a genuine one
+      try { const cl = await api(`/api/cover_letter?token=${encodeURIComponent(TOKEN)}&job_id=${job.job_id || 0}`); if (cl.ok && cl.cover_letter) message = cl.cover_letter; } catch (e) {}
+    }
+    sub = await sendTo(tab.id, { type: "API_APPLY", board: job.board, url: job.url, dryRun: !live, message });
   } else {
     b.log("reading the page and your profile");
     await fillFormFields(tab.id, b, job);

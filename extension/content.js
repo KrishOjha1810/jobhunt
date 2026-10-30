@@ -286,6 +286,29 @@
     } catch (e) { return { ok: false, reason: String(e) }; }
   }
 
+  async function apiApplyYC(url, dryRun, message) {
+    const m = (url || location.href).match(/jobs\/(\d+)/);
+    const jobId = m ? m[1] : null;
+    const meta = document.querySelector('meta[name="csrf-token"]');
+    const csrf = meta ? meta.getAttribute("content") : "";
+    if (!csrf) return { ok: false, reason: "not logged in to Work at a Startup , log in and retry" };
+    if (!jobId) return { ok: false, reason: "couldn't read the YC job id from the URL" };
+    let companyId = null;
+    try { const jr = await fetch("/api/jobs/" + jobId, { credentials: "include" }); const jj = await jr.json(); companyId = (jj.company && jj.company.id) || jj.company_id || jj.companyId || null; } catch (e) {}
+    if (!companyId) return { ok: false, reason: "couldn't resolve the company id for this YC job" };
+    if (dryRun) return { ok: true, dryRun: true, wouldSubmit: true, label: "Apply (Work at a Startup)" };
+    const body = JSON.stringify({ company_id: Number(companyId), job_id: Number(jobId), message: message || "", custom_question_answers: null, open_to_relocation: false });
+    const post = (tok) => fetch("/apply", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", "Accept": "application/json", "X-CSRF-Token": tok, "X-Requested-With": "XMLHttpRequest" }, body });
+    try {
+      let r = await post(csrf);
+      if (r.status === 422) { const m2 = document.querySelector('meta[name="csrf-token"]'); r = await post(m2 ? m2.getAttribute("content") : csrf); }
+      const txt = await r.text();
+      if (/already applied|already submitted|message sent/i.test(txt)) return { ok: true, alreadyApplied: true };
+      if (r.status === 200) return { ok: true, confirmed: true };
+      return { ok: false, reason: "YC apply returned " + r.status };
+    } catch (e) { return { ok: false, reason: String(e) }; }
+  }
+
   chrome.runtime.onMessage.addListener((msg, _s, reply) => {
     try {
       if (msg.type === "SCAN") reply({ ats: A.detect(), questions: scanQuestions(), title: document.title });
@@ -316,9 +339,12 @@
         return true;  // async reply
       }
       else if (msg.type === "API_APPLY") {
-        const fn = msg.board === "instahyre" ? apiApplyInstahyre : (msg.board === "naukri" ? apiApplyNaukri : null);
-        if (!fn) { reply({ ok: false, reason: "no native apply API for this board" }); return true; }
-        fn(msg.url, msg.dryRun).then(reply).catch((e) => reply({ ok: false, reason: String(e) }));
+        let p;
+        if (msg.board === "instahyre") p = apiApplyInstahyre(msg.url, msg.dryRun);
+        else if (msg.board === "naukri") p = apiApplyNaukri(msg.url, msg.dryRun);
+        else if (msg.board === "ycombinator") p = apiApplyYC(msg.url, msg.dryRun, msg.message);
+        else { reply({ ok: false, reason: "no native apply API for this board" }); return true; }
+        p.then(reply).catch((e) => reply({ ok: false, reason: String(e) }));
         return true;  // async reply
       }
       else if (msg.type === "DETECT_GATE") reply(detectGate());
