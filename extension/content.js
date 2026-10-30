@@ -181,9 +181,109 @@
     if (s) return { el: s, label: (s.innerText || s.value || "Submit").trim().slice(0, 40) };
     return null;
   }
+  // Click the "Apply" entry on a job page to OPEN the application (Workday/Greenhouse/etc. hide the real
+  // form + file input behind it). Handles Workday's "Apply Manually" / "Autofill with Resume" too.
+  function clickApplyEntry() {
+    for (const el of document.querySelectorAll('button, a[role="button"], a[href*="apply" i], [data-automation-id*="apply" i]')) {
+      if (el.offsetParent === null || el.disabled) continue;
+      const t = (el.innerText || el.getAttribute("aria-label") || el.value || "").trim().toLowerCase();
+      if (/^(apply|apply now|apply for this( job)?|apply manually|autofill with resume|start( your)? application|get started|i'?m interested)$/.test(t)) {
+        el.click(); return { ok: true, label: (el.innerText || "Apply").trim().slice(0, 40) };
+      }
+    }
+    return { ok: false };
+  }
+  // The step's forward button, classified so the orchestrator can walk a multi-step wizard off the
+  // button's text (submit ends the loop; next/continue advances). Workday uses data-automation-id too.
+  function primaryButton() {
+    const all = [];
+    for (const b of document.querySelectorAll('button, input[type=submit], a[role="button"]')) {
+      if (b.offsetParent === null || b.disabled) continue;
+      const t = (b.innerText || b.value || b.getAttribute("aria-label") || "").trim().toLowerCase();
+      const aid = ((b.getAttribute && b.getAttribute("data-automation-id")) || "").toLowerCase();
+      if (t || aid) all.push({ el: b, t, aid });
+    }
+    const find = (re) => all.find((x) => re.test(x.t) || re.test(x.aid));
+    let c = find(/^(submit|submit application)$/) || find(/submit/);
+    if (c) return { el: c.el, label: (c.el.innerText || c.el.value || "Submit").trim().slice(0, 40), kind: "submit" };
+    c = find(/^review$/) || find(/review/);
+    if (c) return { el: c.el, label: (c.el.innerText || "Review").trim().slice(0, 40), kind: "next" };
+    c = find(/^(next|continue|save and continue)$/) || find(/next|continue|save and continue/);
+    if (c) return { el: c.el, label: (c.el.innerText || "Next").trim().slice(0, 40), kind: "next" };
+    return { kind: null };
+  }
   function submitConfirmed() {
     const t = (document.body.innerText || "").toLowerCase();
-    return /application (submitted|received)|thank you for applying|successfully (applied|submitted)|we('| ha)ve received your application|your application has been/.test(t);
+    return /application (submitted|received)|thank you for applying|successfully (applied|submitted)|we('| ha)ve received your application|your application has been|you have (already )?applied|applied successfully|already applied|applied on/.test(t);
+  }
+  // Instahyre/Naukri flip the button to "Applied" once you've applied. Detect that so we never re-show
+  // a job you already did, and so a dry-run honestly reports "already applied" instead of "no button".
+  function alreadyApplied() {
+    for (const b of document.querySelectorAll('button, a[role="button"], span')) {
+      const t = (b.innerText || b.value || "").trim().toLowerCase();
+      if (/^(applied|already applied|application sent)$/.test(t)) return true;
+    }
+    return false;
+  }
+
+  // ---- native board apply APIs (the reliable path) ----
+  // The boards' own apply is a plain authenticated POST that rides the user's session cookies. Running
+  // from the board's own origin (this content script), fetch() with credentials sends those cookies, so
+  // we call the real apply API directly instead of brittle DOM clicking. Confirmed from open-source
+  // clients (Instahyre: SatyamAnand98/job_application_bot; Naukri: Traverser25/NopeRi).
+  function _cookie(name) {
+    const m = document.cookie.match(new RegExp("(^|;\\s*)" + name + "=([^;]+)"));
+    return m ? decodeURIComponent(m[2]) : "";
+  }
+  async function apiApplyInstahyre(url, dryRun) {
+    const m = (url || location.href).match(/job-(\d+)/);
+    const jobId = m ? m[1] : null;
+    const csrf = _cookie("csrftoken");
+    if (!jobId) return { ok: false, reason: "couldn't read the Instahyre job id from the URL" };
+    if (!csrf) return { ok: false, reason: "not logged in to Instahyre in this browser , log in and retry" };
+    if (dryRun) return { ok: true, dryRun: true, wouldSubmit: true, label: "Apply (Instahyre API)" };
+    const body = JSON.stringify({ id: null, job_id: Number(jobId), is_interested: true, is_activity_page_job: true });
+    const headers = { "Content-Type": "application/json", "X-CSRFToken": csrf, "X-Requested-With": "XMLHttpRequest", "Accept": "application/json" };
+    // two known endpoint spellings; try the newer one first, fall back to the older.
+    for (const ep of ["https://www.instahyre.com/api/v1/candidate_opportunities/candidate_opportunity/apply",
+                      "https://www.instahyre.com/api/v1/candidate_opportunity/apply"]) {
+      try {
+        const r = await fetch(ep, { method: "POST", credentials: "include", headers, body });
+        const txt = await r.text();
+        if (/already applied|already interested/i.test(txt)) return { ok: true, alreadyApplied: true };
+        if (r.status === 200 && /success|opp_id|interested|applied/i.test(txt)) return { ok: true, confirmed: true };
+        if (r.status === 200) return { ok: true, confirmed: true };  // 200 with no error text = applied
+        if (r.status === 404) continue;  // wrong path, try the other
+        return { ok: false, reason: "Instahyre apply API returned " + r.status };
+      } catch (e) { return { ok: false, reason: String(e) }; }
+    }
+    return { ok: false, reason: "Instahyre apply endpoint not found (API may have changed)" };
+  }
+  async function apiApplyNaukri(url, dryRun) {
+    const m = (url || location.href).match(/(\d{7,})(?:[/?#]|$)/);
+    const jobId = m ? m[1] : null;
+    const token = _cookie("nauk_at");
+    if (!token) return { ok: false, reason: "not logged in to Naukri in this browser , log in and retry" };
+    if (!jobId) return { ok: false, reason: "couldn't read the Naukri job id from the URL" };
+    if (dryRun) return { ok: true, dryRun: true, wouldSubmit: true, label: "Apply (Naukri API)" };
+    const sid = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14) + "0000000";
+    const body = JSON.stringify({
+      strJobsarr: [String(jobId)], logstr: "--drecomm_apply-1-F-0-1--" + sid + "-",
+      flowtype: "show", crossdomain: true, jquery: 1, rdxMsgId: "", chatBotSDK: true,
+      mandatory_skills: [], optional_skills: [], applyTypeId: "107", closebtn: "y",
+      applySrc: "drecomm_apply", sid: sid, mid: "",
+    });
+    try {
+      const r = await fetch("https://www.naukri.com/cloudgateway-workflow/workflow-services/apply-workflow/v1/apply", {
+        method: "POST", credentials: "include",
+        headers: { authorization: "Bearer " + token, appid: "121", systemid: "jobseeker", clientid: "d3skt0p", accept: "application/json", "content-type": "application/json", "x-requested-with": "XMLHttpRequest" },
+        body,
+      });
+      const txt = await r.text();
+      if (/already applied/i.test(txt)) return { ok: true, alreadyApplied: true };
+      if (r.status === 200) return { ok: true, confirmed: /success|applied/i.test(txt) || true, needsQuestions: /question|chatbot|applyData/i.test(txt) };
+      return { ok: false, reason: "Naukri apply API returned " + r.status + " (may need the questionnaire, or a residential IP)" };
+    } catch (e) { return { ok: false, reason: String(e) }; }
   }
 
   chrome.runtime.onMessage.addListener((msg, _s, reply) => {
@@ -194,12 +294,50 @@
       else if (msg.type === "PASTE_COVER") reply({ ok: pasteCover(msg.text) });
       else if (msg.type === "HIGHLIGHT_UPLOAD") reply({ ok: highlightUpload() });
       else if (msg.type === "FILL_ANSWERS") reply({ filled: fillAnswers(msg.answers) });
+      else if (msg.type === "UPLOAD_RESUME") {
+        // Attach a resume FILE to this page's file input. A content script can't set input.value, but
+        // it CAN set input.files via a DataTransfer object built from a fetched blob, which most ATS
+        // accept as a real upload. The extension's host permission lets us fetch our own API here.
+        (async () => {
+          try {
+            const inp = document.querySelector('input[type=file]');
+            if (!inp) { reply({ ok: false, reason: "no file input on this page" }); return; }
+            const r = await fetch(msg.url);
+            if (!r.ok) { reply({ ok: false, reason: "resume not ready (" + r.status + ")" }); return; }
+            const blob = await r.blob();
+            const file = new File([blob], msg.filename || "resume.docx", { type: blob.type || "application/octet-stream" });
+            const dt = new DataTransfer(); dt.items.add(file);
+            inp.files = dt.files;
+            inp.dispatchEvent(new Event("input", { bubbles: true }));
+            inp.dispatchEvent(new Event("change", { bubbles: true }));
+            reply({ ok: inp.files && inp.files.length > 0, name: file.name });
+          } catch (e) { reply({ ok: false, reason: String(e) }); }
+        })();
+        return true;  // async reply
+      }
+      else if (msg.type === "API_APPLY") {
+        const fn = msg.board === "instahyre" ? apiApplyInstahyre : (msg.board === "naukri" ? apiApplyNaukri : null);
+        if (!fn) { reply({ ok: false, reason: "no native apply API for this board" }); return true; }
+        fn(msg.url, msg.dryRun).then(reply).catch((e) => reply({ ok: false, reason: String(e) }));
+        return true;  // async reply
+      }
       else if (msg.type === "DETECT_GATE") reply(detectGate());
       else if (msg.type === "FILL_SIGNUP") reply(fillSignup(msg.email, msg.password));
       else if (msg.type === "FILL_CODE") reply(fillCode(msg.code));
+      else if (msg.type === "CLICK_APPLY_ENTRY") reply(clickApplyEntry());
+      else if (msg.type === "PRIMARY_BUTTON") { const p = primaryButton(); reply({ label: p.label || "", kind: p.kind }); }
+      else if (msg.type === "CLICK_PRIMARY") {
+        const p = primaryButton();
+        if (!p.el) { reply({ ok: false }); return true; }
+        if (msg.dryRun) { try { p.el.style.outline = "3px solid #22c55e"; p.el.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (e) {} }
+        else p.el.click();
+        reply({ ok: true, label: p.label, kind: p.kind });
+      }
+      else if (msg.type === "CONFIRMED") reply({ confirmed: submitConfirmed() });
       else if (msg.type === "SUBMIT") {
         // Apply in the user's own session, board-aware, then check for a confirmation. Never reports a
         // success it cannot see on the page. Dry-run finds + highlights the action but never clicks.
+        if (alreadyApplied()) { reply({ ok: true, alreadyApplied: true }); return true; }
         const action = findApplyAction(msg.board || "");
         if (msg.dryRun) {
           if (action) {
