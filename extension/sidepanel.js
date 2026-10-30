@@ -296,7 +296,7 @@ async function tryUploadResume(tabId, b, job) {
 }
 
 // Boards with a confirmed native apply API we can call from their own origin (reliable, no DOM).
-const API_BOARDS = ["instahyre", "naukri", "ycombinator"];
+const API_BOARDS = ["instahyre", "naukri", "ycombinator", "foundit", "internshala"];
 // India boards: resume pre-stored. Instahyre/Naukri apply via their own API (rock-solid); others click.
 async function applyIndiaOneClick(tab, b, job, live) {
   const cleared = await clearGates(tab.id, b, job.board);

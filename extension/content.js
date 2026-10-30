@@ -309,6 +309,43 @@
     } catch (e) { return { ok: false, reason: String(e) }; }
   }
 
+  async function apiApplyFoundit(url, dryRun) {
+    const m = (url || location.href).match(/(\d{5,})/);
+    const jobId = m ? m[1] : null;
+    if (!jobId) return { ok: false, reason: "couldn't read the foundit job id from the URL" };
+    if (!_cookie("MSSOCLIENT")) return { ok: false, reason: "not logged in to foundit , log in and retry" };
+    if (dryRun) return { ok: true, dryRun: true, wouldSubmit: true, label: "Apply (foundit)" };
+    try {
+      const r = await fetch("/middleware/jobApply", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json; charset=utf-8", "Accept": "application/json" }, body: JSON.stringify({ job: { jobId: Number(jobId) } }) });
+      const j = await r.json().catch(() => ({}));
+      const txt = JSON.stringify(j || {});
+      if (/already applied|alreadyapplied/i.test(txt)) return { ok: true, alreadyApplied: true };
+      if (j && j.jobApplyStatus === 200) return { ok: true, confirmed: true };
+      if (/question|answers/i.test(txt)) return { ok: false, reason: "this foundit job has screening questions , open it to answer" };
+      return { ok: false, reason: "foundit apply status " + ((j && j.jobApplyStatus) || r.status) };
+    } catch (e) { return { ok: false, reason: String(e) }; }
+  }
+  async function apiApplyInternshala(url, dryRun) {
+    let id = null;
+    const el = document.querySelector("[data-job_id], [id^='individual_internship']");
+    if (el) id = el.getAttribute("data-job_id") || el.getAttribute("internshipid");
+    if (!id) { const mm = (url || location.href).match(/(\d{5,})/); id = mm ? mm[1] : null; }
+    const csrf = _cookie("csrf_cookie_name");
+    if (!csrf) return { ok: false, reason: "not logged in to Internshala , log in and retry" };
+    if (!id) return { ok: false, reason: "couldn't read the internship id from the page" };
+    if (dryRun) return { ok: true, dryRun: true, wouldSubmit: true, label: "Apply (Internshala)" };
+    const form = new URLSearchParams({ internship_id: id, current_job_profile: "", sequential_apply_referral: "", csrf_test_name: csrf });
+    try {
+      const r = await fetch("/application/single_click_apply", { method: "POST", credentials: "include", headers: { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8", "X-Requested-With": "XMLHttpRequest" }, body: form.toString() });
+      const txt = await r.text();
+      if (/already applied/i.test(txt)) return { ok: true, alreadyApplied: true };
+      if (/cover.?letter|additional_question|please answer/i.test(txt)) return { ok: false, reason: "this internship needs the cover-letter form , open it to apply" };
+      if (r.status === 200 && /success|applied|true/i.test(txt)) return { ok: true, confirmed: true };
+      if (r.status === 200) return { ok: true, confirmed: true };
+      return { ok: false, reason: "Internshala apply returned " + r.status };
+    } catch (e) { return { ok: false, reason: String(e) }; }
+  }
+
   chrome.runtime.onMessage.addListener((msg, _s, reply) => {
     try {
       if (msg.type === "SCAN") reply({ ats: A.detect(), questions: scanQuestions(), title: document.title });
@@ -343,6 +380,8 @@
         if (msg.board === "instahyre") p = apiApplyInstahyre(msg.url, msg.dryRun);
         else if (msg.board === "naukri") p = apiApplyNaukri(msg.url, msg.dryRun);
         else if (msg.board === "ycombinator") p = apiApplyYC(msg.url, msg.dryRun, msg.message);
+        else if (msg.board === "foundit") p = apiApplyFoundit(msg.url, msg.dryRun);
+        else if (msg.board === "internshala") p = apiApplyInternshala(msg.url, msg.dryRun);
         else { reply({ ok: false, reason: "no native apply API for this board" }); return true; }
         p.then(reply).catch((e) => reply({ ok: false, reason: String(e) }));
         return true;  // async reply
