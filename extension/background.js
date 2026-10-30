@@ -7,8 +7,8 @@ chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => 
 // their logged-in board session, and streams narration back to the page. Browser same-origin security
 // is why this must live in the extension (a web page can't touch naukri/workday), and running in the
 // user's own browser means their session + IP, no server-side credential storage.
-const INDIA_BOARDS = ["naukri", "instahyre", "internshala", "foundit", "ycombinator"];
-const API_BOARDS = ["instahyre", "naukri", "ycombinator", "foundit", "internshala"];
+const INDIA_BOARDS = ["naukri", "instahyre", "internshala", "foundit", "ycombinator", "hirist", "iimjobs"];
+const API_BOARDS = ["instahyre", "naukri", "ycombinator", "foundit", "internshala", "hirist", "iimjobs"];
 let PORT = null;
 const ASKS = {};
 

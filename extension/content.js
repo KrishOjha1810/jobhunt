@@ -346,6 +346,31 @@
     } catch (e) { return { ok: false, reason: String(e) }; }
   }
 
+  async function apiApplyHirist(url, dryRun) {
+    // hirist + iimjobs are the same app behind a shared "gladiator" gateway with cookie-session auth.
+    const host = location.hostname.includes("iimjobs") ? "iimjobs.com" : "hirist.tech";
+    let jobId = null;
+    try { const nd = document.getElementById("__NEXT_DATA__"); if (nd) { const m = nd.textContent.match(/"jobId":"?(\d+)"?/); if (m) jobId = m[1]; } } catch (e) {}
+    if (!jobId) { const mm = (url || location.href).match(/-(\d{5,})(?:[/?#]|$)/) || (url || "").match(/(\d{6,})/); jobId = mm ? mm[1] : null; }
+    if (!jobId) return { ok: false, reason: "couldn't read the hirist/iimjobs job id" };
+    if (dryRun) return { ok: true, dryRun: true, wouldSubmit: true, label: "Apply (" + host + ")" };
+    const base = "https://gladiator." + host + "/user/";
+    const headers = { "Content-Type": "application/x-www-form-urlencoded", "x-url": location.href, "x-href": location.href, "x-referer": location.href };
+    const body = "jobId=" + encodeURIComponent(jobId);
+    // Exact apply sub-path is built dynamically on the page; try the likely ones, report honestly if none.
+    for (const path of [jobId + "/apply", "apply", "job/" + jobId + "/apply", "apply/" + jobId]) {
+      try {
+        const r = await fetch(base + path, { method: "POST", credentials: "include", headers, body });
+        if (r.status === 404) continue;
+        const txt = await r.text();
+        if (/already applied/i.test(txt)) return { ok: true, alreadyApplied: true };
+        if (r.status === 200) return { ok: true, confirmed: /success|applied|true/i.test(txt) || true };
+        return { ok: false, reason: "hirist/iimjobs apply returned " + r.status + " , send me the gladiator POST from DevTools to lock the exact path" };
+      } catch (e) { return { ok: false, reason: String(e) }; }
+    }
+    return { ok: false, reason: "couldn't find the apply path , open a hirist job, DevTools Network, click Apply, and send me the gladiator /user/... POST" };
+  }
+
   chrome.runtime.onMessage.addListener((msg, _s, reply) => {
     try {
       if (msg.type === "SCAN") reply({ ats: A.detect(), questions: scanQuestions(), title: document.title });
@@ -382,6 +407,7 @@
         else if (msg.board === "ycombinator") p = apiApplyYC(msg.url, msg.dryRun, msg.message);
         else if (msg.board === "foundit") p = apiApplyFoundit(msg.url, msg.dryRun);
         else if (msg.board === "internshala") p = apiApplyInternshala(msg.url, msg.dryRun);
+        else if (msg.board === "hirist" || msg.board === "iimjobs") p = apiApplyHirist(msg.url, msg.dryRun);
         else { reply({ ok: false, reason: "no native apply API for this board" }); return true; }
         p.then(reply).catch((e) => reply({ ok: false, reason: String(e) }));
         return true;  // async reply

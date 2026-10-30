@@ -1,13 +1,13 @@
 {
   "manifest_version": 3,
   "name": "JobHunt Auto-Pilot",
-  "version": "2.3.0",
+  "version": "2.4.0",
   "description": "Auto-Pilot: log in to your boards once, then load your strong matches and apply across them in your own session (dry-run first). Plus manual autofill for one-off ATS pages.",
   "permissions": ["storage", "activeTab", "scripting", "sidePanel", "tabs"],
   "host_permissions": [
     "https://jobhunt-8i1m.onrender.com/*",
     "https://*.greenhouse.io/*", "https://*.lever.co/*", "https://*.ashbyhq.com/*", "https://*.myworkdayjobs.com/*",
-    "https://*.naukri.com/*", "https://*.instahyre.com/*", "https://*.internshala.com/*", "https://*.foundit.in/*", "https://*.workatastartup.com/*", "https://*.linkedin.com/*"
+    "https://*.naukri.com/*", "https://*.instahyre.com/*", "https://*.internshala.com/*", "https://*.foundit.in/*", "https://*.workatastartup.com/*", "https://*.hirist.tech/*", "https://*.iimjobs.com/*", "https://*.linkedin.com/*"
   ],
   "background": { "service_worker": "background.js" },
   "action": { "default_title": "JobHunt Auto-Apply" },
@@ -19,7 +19,7 @@
         "https://jobs.lever.co/*", "https://jobs.ashbyhq.com/*", "https://*.ashbyhq.com/*",
         "https://*.myworkdayjobs.com/*",
         "https://*.naukri.com/*", "https://*.instahyre.com/*", "https://*.internshala.com/*",
-        "https://*.foundit.in/*", "https://*.workatastartup.com/*", "https://*.linkedin.com/*"
+        "https://*.foundit.in/*", "https://*.workatastartup.com/*", "https://*.hirist.tech/*", "https://*.iimjobs.com/*", "https://*.linkedin.com/*"
       ],
       "js": ["ats.js", "content.js"],
       "run_at": "document_idle"

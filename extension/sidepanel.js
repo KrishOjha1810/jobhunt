@@ -195,7 +195,7 @@ async function getAtsIdentity() {
 // browser can't read the user's inbox; auto-read via Gmail is a later enhancement).
 // Session-based boards: the user logs in via Connect and we reuse that session (a wall = reconnect,
 // never the shared ATS identity). YC/workatastartup is session-based too (its own login).
-const INDIA_BOARDS = ["naukri", "instahyre", "internshala", "foundit", "ycombinator"];
+const INDIA_BOARDS = ["naukri", "instahyre", "internshala", "foundit", "ycombinator", "hirist", "iimjobs"];
 async function clearGates(tabId, b, board) {
   let gate = await sendTo(tabId, { type: "DETECT_GATE" });
   let guard = 0, lastScan = null;
@@ -296,7 +296,7 @@ async function tryUploadResume(tabId, b, job) {
 }
 
 // Boards with a confirmed native apply API we can call from their own origin (reliable, no DOM).
-const API_BOARDS = ["instahyre", "naukri", "ycombinator", "foundit", "internshala"];
+const API_BOARDS = ["instahyre", "naukri", "ycombinator", "foundit", "internshala", "hirist", "iimjobs"];
 // India boards: resume pre-stored. Instahyre/Naukri apply via their own API (rock-solid); others click.
 async function applyIndiaOneClick(tab, b, job, live) {
   const cleared = await clearGates(tab.id, b, job.board);
