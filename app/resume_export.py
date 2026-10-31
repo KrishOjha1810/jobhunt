@@ -31,8 +31,8 @@ def _run(p, text, size, color=BLACK, bold=False, underline=False):
     return r
 
 
-def _para(doc, align=None, before=0.0, after=2.0, line=1.02):
-    """A paragraph with the gold spacing: ~1.02x line height and tight before/after (in points)."""
+def _para(doc, align=None, before=0.0, after=2.0, line=1.0):
+    """A paragraph with the gold spacing: ~1.0x line height and tight before/after (in points)."""
     p = doc.add_paragraph()
     pf = p.paragraph_format
     if align is not None:
@@ -44,14 +44,14 @@ def _para(doc, align=None, before=0.0, after=2.0, line=1.02):
 
 
 def _heading(doc, text):
-    p = _para(doc, before=5.0, after=2.0)
+    p = _para(doc, before=3.5, after=1.0)
     _run(p, (text or "").upper(), 11.5, BLUE, bold=True)
     return p
 
 
 def _bullet(doc, text):
     """A literal '•' glyph with a manual hanging indent , NOT a Word list (gold uses no numbering)."""
-    p = _para(doc, before=0.0, after=2.0)
+    p = _para(doc, before=0.0, after=1.0)
     pf = p.paragraph_format
     pf.left_indent = Inches(0.2)
     pf.first_line_indent = Inches(-0.16)
@@ -152,6 +152,16 @@ def build_docx(r: dict) -> bytes:
         for i, link in enumerate(links):
             if i:
                 _run(p, "   |   ", 10, BLACK)
+            # allow {"text": "LinkedIn", "url": "..."} so the anchor shows a label, not the raw URL
+            if isinstance(link, dict):
+                text = str(link.get("text") or link.get("label") or "").strip()
+                href = str(link.get("url") or link.get("href") or "").strip()
+                if href:
+                    url = href if href.startswith("http") else "https://" + href
+                    _hyperlink(p, url, text or url)
+                elif text:
+                    _run(p, text, 10, BLUE, underline=True)
+                continue
             s = str(link).strip()
             if _looks_url(s):
                 url = s if s.startswith("http") else "https://" + s
