@@ -6,69 +6,102 @@
   <title>JobHunt , my agent</title>
   <link rel="stylesheet" href="/static/theme.css?v=7" />
   <style>
-    .wrap{max-width:1100px;padding-top:var(--sp-4)}
-    .head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:var(--sp-4)}
-    .head .sub{font-size:var(--fs-sm)}
+    .wrap{max-width:1120px;padding-top:var(--sp-4)}
+    /* top bar */
+    .top-bar{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:var(--sp-5)}
+    .brand{display:flex;align-items:center;gap:10px}
+    .brand .dot{width:9px;height:9px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 4px var(--accent-soft)}
+    .brand b{font-size:var(--fs-base);letter-spacing:.2px}
     .seg{display:inline-flex;gap:4px;background:var(--seg-bg);padding:4px;border-radius:var(--r-md);border:1px solid var(--field-border)}
-    .seg button{padding:7px 14px;border:0;border-radius:var(--r-sm);background:transparent;color:var(--seg-ink);font-size:var(--fs-sm);font-weight:600;cursor:pointer}
+    .seg button{padding:7px 15px;border:0;border-radius:var(--r-sm);background:transparent;color:var(--seg-ink);font-size:var(--fs-sm);font-weight:600;cursor:pointer;transition:background .15s,color .15s}
+    .seg button:hover{color:var(--ink)}
     .seg button.active{background:var(--accent-soft);color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
     .card{background:var(--card);border:1px solid var(--card-border);border-radius:var(--r-lg);box-shadow:var(--card-shadow)}
-    .hero{padding:var(--sp-5) var(--sp-6);margin-bottom:var(--sp-4);background:linear-gradient(135deg,rgba(224,161,66,.10),transparent 60%)}
-    .hero .kicker{margin-bottom:6px}
-    .hero h1{font-size:1.65rem;margin-bottom:4px}
-    .filters{display:flex;flex-wrap:wrap;gap:8px;margin:var(--sp-4) 0}
+    /* hero */
+    .hero{position:relative;overflow:hidden;padding:var(--sp-6);margin-bottom:var(--sp-5);background:linear-gradient(135deg,rgba(224,161,66,.14),transparent 62%)}
+    .hero h1{font-size:1.7rem;line-height:1.2;margin:6px 0 6px;max-width:34ch}
+    .hero .sub{font-size:var(--fs-base);max-width:60ch;color:var(--ink-2)}
+    .hero .statline{display:flex;gap:18px;margin-top:var(--sp-4);flex-wrap:wrap}
+    .stat .n{font-family:var(--font-mono);font-weight:800;font-size:1.3rem;color:var(--ink)}
+    .stat .k{font-size:var(--fs-xs);color:var(--muted);text-transform:uppercase;letter-spacing:.6px}
+    .filters{display:flex;flex-wrap:wrap;gap:8px;margin-top:var(--sp-4)}
     .chip{font-size:var(--fs-xs);padding:5px 11px;border-radius:var(--r-pill);background:var(--seg-bg);border:1px solid var(--field-border);color:var(--ink-2)}
-    .btn{height:38px;padding:0 16px;border:0;border-radius:var(--r-md);font-weight:700;font-size:var(--fs-sm);cursor:pointer;background:var(--grad);color:var(--accent-ink);font-family:inherit}
+    /* buttons */
+    .btn{height:38px;padding:0 16px;border:0;border-radius:var(--r-md);font-weight:700;font-size:var(--fs-sm);cursor:pointer;background:var(--grad);color:var(--accent-ink);font-family:inherit;transition:transform .12s,filter .15s}
+    .btn:hover{filter:brightness(1.06)} .btn:active{transform:translateY(1px)}
     .btn.ghost{background:transparent;border:1px solid var(--field-border);color:var(--ink)}
+    .btn.ghost:hover{border-color:var(--accent);color:var(--accent)}
     .btn.sm{height:30px;padding:0 12px;font-size:var(--fs-xs)}
-    .btn:disabled{opacity:.5;cursor:default}
-    .sectitle{display:flex;justify-content:space-between;align-items:center;margin:var(--sp-5) 0 var(--sp-3)}
+    .btn:disabled{opacity:.5;cursor:default;filter:none}
+    .sectitle{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:var(--sp-5) 0 var(--sp-3);flex-wrap:wrap}
     .sectitle h2{font-size:var(--fs-h2)}
-    .feed{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
-    .jc{background:var(--card);border:1px solid var(--card-border);border-radius:var(--r-md);padding:14px;display:flex;flex-direction:column;gap:8px}
+    .controls{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+    .controls .selrow{display:flex;align-items:center;gap:7px;margin:0;font-size:var(--fs-sm);color:var(--muted)}
+    /* feed + cards */
+    .feed{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:12px}
+    .jc{background:var(--card);border:1px solid var(--card-border);border-radius:var(--r-md);padding:15px;display:flex;flex-direction:column;gap:10px;transition:border-color .15s,transform .12s,box-shadow .15s}
+    .jc:hover{border-color:var(--accent);transform:translateY(-2px);box-shadow:var(--card-shadow)}
     .jc .top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
-    .jc .co{font-weight:700}
-    .jc .ti{color:var(--muted);font-size:var(--fs-sm);margin-top:2px}
-    .fit{font-family:var(--font-mono);font-weight:700;font-size:var(--fs-sm);color:var(--score-ink);background:var(--score-bg);border:1px solid var(--score-border);border-radius:var(--r-sm);padding:2px 8px;white-space:nowrap}
+    .jc .co{font-weight:700;line-height:1.25}
+    .jc .ti{color:var(--muted);font-size:var(--fs-sm);margin-top:3px}
+    .jc label{display:flex;gap:9px;align-items:flex-start;cursor:pointer}
+    .jc input.chk{margin-top:4px;accent-color:var(--accent)}
+    .fit{font-family:var(--font-mono);font-weight:800;font-size:var(--fs-sm);color:var(--score-ink);background:var(--score-bg);border:1px solid var(--score-border);border-radius:var(--r-sm);padding:3px 9px;white-space:nowrap}
+    .jc .foot{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:auto}
     .via{font-size:var(--fs-xs);color:var(--muted)}
     .pill{font-size:var(--fs-xs);padding:3px 9px;border-radius:var(--r-pill);font-weight:600}
     .pill.live{background:var(--accent-soft);color:var(--accent)} .pill.ok{background:var(--score-bg);color:var(--score-ink)}
     .pill.warn{background:rgba(251,191,36,.14);color:var(--warn)} .pill.err{background:rgba(248,113,113,.14);color:var(--danger)}
     .pill.muted{background:var(--seg-bg);color:var(--muted)}
-    .jc .btns{display:flex;gap:7px;margin-top:2px}
-    .jc .btns .btn{flex:1}
-    .selrow{display:flex;align-items:center;gap:10px;margin:var(--sp-3) 0}
-    /* boards grid */
+    /* empty / first-run state */
+    .empty{text-align:center;padding:var(--sp-6) var(--sp-5);border:1px dashed var(--field-border);border-radius:var(--r-lg);background:var(--seg-bg)}
+    .empty .big{font-size:1.15rem;font-weight:700;margin-bottom:6px}
+    .empty p{color:var(--muted);max-width:52ch;margin:0 auto 6px}
+    .empty .steps{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-top:var(--sp-4);text-align:left}
+    .empty .step{background:var(--card);border:1px solid var(--card-border);border-radius:var(--r-md);padding:12px 14px;max-width:230px}
+    .empty .step .num{font-family:var(--font-mono);color:var(--accent);font-weight:800}
+    .empty .step .t{font-weight:600;margin:4px 0 2px}
+    .empty .step .d{font-size:var(--fs-sm);color:var(--muted)}
+    /* boards */
     .boards{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
     .board{background:var(--card);border:1px solid var(--card-border);border-radius:var(--r-md);padding:14px}
     .board .bn{font-weight:700;display:flex;justify-content:space-between;align-items:center}
     .board .more{color:var(--muted);font-size:var(--fs-xs);margin:4px 0 10px}
     label.fld{display:block;font-size:var(--fs-sm);color:var(--muted);margin:10px 0 4px}
     input.in{width:100%;height:38px;padding:0 12px;border-radius:var(--r-md);border:1px solid var(--field-border);background:var(--field);color:var(--ink);font-family:inherit}
-    /* narration drawer */
-    .drawer{position:fixed;top:0;right:0;height:100vh;width:min(440px,92vw);background:var(--bg-elev);border-left:1px solid var(--card-border);box-shadow:var(--sh-lg);transform:translateX(100%);transition:transform .25s;z-index:50;display:flex;flex-direction:column}
+    input.in:focus{outline:0;border-color:var(--accent)}
+    /* live activity drawer */
+    .drawer{position:fixed;top:0;right:0;height:100vh;width:min(460px,94vw);background:var(--bg-elev);border-left:1px solid var(--card-border);box-shadow:var(--sh-lg);transform:translateX(100%);transition:transform .28s cubic-bezier(.4,0,.2,1);z-index:50;display:flex;flex-direction:column}
     .drawer.open{transform:none}
     .drawer .dh{display:flex;justify-content:space-between;align-items:center;padding:var(--sp-4) var(--sp-5);border-bottom:1px solid var(--line)}
+    .drawer .dh .tt{display:flex;align-items:center;gap:9px}
+    .livedot{width:8px;height:8px;border-radius:50%;background:var(--accent);animation:pulse 1.4s ease-in-out infinite}
+    @keyframes pulse{0%,100%{opacity:1;box-shadow:0 0 0 0 var(--accent-soft)}50%{opacity:.5;box-shadow:0 0 0 6px transparent}}
     .drawer .db{flex:1;overflow:auto;padding:var(--sp-4) var(--sp-5)}
-    .runjob{background:var(--card);border:1px solid var(--card-border);border-radius:var(--r-md);padding:12px;margin-bottom:12px}
+    .runjob{background:var(--card);border:1px solid var(--card-border);border-radius:var(--r-md);padding:13px;margin-bottom:12px}
     .runjob .rh{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
     .runjob .rt{font-weight:700;font-size:var(--fs-sm)}
     .runjob .rs{color:var(--muted);font-size:var(--fs-xs)}
-    .prog{height:5px;background:var(--field);border-radius:var(--r-pill);overflow:hidden;margin:9px 0}
-    .prog>div{height:100%;width:0;background:var(--grad);transition:width .3s}
-    .log{font-size:var(--fs-sm);line-height:1.55}
+    .prog{height:6px;background:var(--field);border-radius:var(--r-pill);overflow:hidden;margin:10px 0}
+    .prog>div{height:100%;width:0;background:var(--grad);transition:width .4s ease}
+    .log{font-size:var(--fs-sm);line-height:1.6}
     .log .l{padding:2px 0;color:var(--muted)} .log .l.me{color:var(--ink)} .log .l b{color:var(--accent);font-weight:600}
-    .ask{background:var(--field);border:1px solid var(--accent);border-radius:var(--r-sm);padding:10px;margin-top:8px}
-    .ask .row{display:flex;gap:8px;margin-top:7px}
+    /* on-page question , the key "ask on our page" UX */
+    .ask{background:var(--accent-soft);border:1px solid var(--accent);border-radius:var(--r-md);padding:12px;margin-top:10px}
+    .ask>div:first-child{font-weight:600;color:var(--ink)}
+    .ask .row{display:flex;gap:8px;margin-top:9px;flex-wrap:wrap}
+    .ask input.in{height:34px}
     .banner{background:var(--accent-soft);border:1px solid rgba(224,161,66,.35);border-radius:var(--r-md);padding:12px 14px;font-size:var(--fs-sm);margin:var(--sp-3) 0}
     .hidden{display:none}
-    #status{font-size:var(--fs-sm);margin-top:10px;min-height:18px}
+    #status{font-size:var(--fs-sm);margin-top:12px;min-height:18px;color:var(--muted)}
+    .scrim{position:fixed;inset:0;background:rgba(0,0,0,.4);opacity:0;pointer-events:none;transition:opacity .25s;z-index:49}
+    .scrim.open{opacity:1;pointer-events:auto}
   </style>
 </head>
 <body>
   <div class="wrap">
-    <div class="head">
-      <div><span class="kicker">JobHunt</span><h1>My Agent</h1><div class="sub" id="who">Load your matches and watch me apply, you don't touch a thing.</div></div>
+    <div class="top-bar">
+      <div class="brand"><span class="dot"></span><b>JobHunt</b></div>
       <div class="seg">
         <button data-tab="matches" class="active">Matches</button>
         <button data-tab="apps">Applications</button>
@@ -79,21 +112,27 @@
     <!-- MATCHES -->
     <section id="tab-matches">
       <div class="card hero">
-        <span class="kicker">Your goal</span>
-        <h1>Where do you want to land?</h1>
-        <div class="sub">I apply to your strong matches across every board you've connected, and narrate every step. You just watch.</div>
+        <span class="kicker">Your agent</span>
+        <h1>Jobs from all your boards, matched to your resume, applied for you.</h1>
+        <div class="sub" id="who">I pull roles from every board you use, rank them by how well they fit your resume, and apply , you just approve and answer anything only you can.</div>
+        <div class="statline">
+          <div class="stat"><div class="n" id="statMatches">,</div><div class="k">Matches</div></div>
+          <div class="stat"><div class="n" id="statApply">,</div><div class="k">I can apply</div></div>
+          <div class="stat"><div class="n" id="statApps">,</div><div class="k">Applied</div></div>
+        </div>
         <div class="filters" id="filters"></div>
       </div>
+
       <div class="sectitle">
         <h2>Jobs for you <span class="sub" id="matchCount"></span></h2>
-        <div style="display:flex;gap:8px;align-items:center">
-          <label class="selrow" style="margin:0"><input type="checkbox" id="apAll"> <span class="sub">Select all</span></label>
-        <label class="selrow" style="margin:0"><input type="checkbox" id="live"> <span class="sub">Live submit (off = safe dry-run)</span></label>
+        <div class="controls" id="applyAllRow">
+          <label class="selrow"><input type="checkbox" id="apAll"> <span>Select all</span></label>
+          <label class="selrow"><input type="checkbox" id="live"> <span>Live submit (off = safe dry-run)</span></label>
           <button class="btn sm ghost" id="reload">Reload</button>
-          <button class="btn sm" id="applyAll">Apply to all</button>
+          <button class="btn sm" id="applyAll">Apply to selected</button>
         </div>
       </div>
-      <div id="extWarn" class="banner hidden">To actually apply, install/enable the <b>JobHunt helper</b> extension and reload this page. The matches and tailoring work without it; the applying needs it (it rides your logged-in board sessions).</div>
+      <div id="extWarn" class="banner hidden">To actually apply, install and enable the JobHunt helper and reload this page. Finding and ranking jobs works without it; applying needs it (it rides your own logged-in board sessions, so nothing leaves your browser).</div>
       <div id="matchList" class="feed"></div>
       <div id="status"></div>
     </section>
@@ -107,10 +146,10 @@
     <!-- CONNECTIONS -->
     <section id="tab-connections" class="hidden">
       <div class="sectitle"><h2>Job platforms</h2></div>
-      <div class="sub" style="margin-bottom:12px">Log in to each once. I reuse your logged-in session to apply, so I never store a board password.</div>
+      <div class="sub" style="margin-bottom:12px">Log in to each once, in this browser. I reuse your own logged-in session to find and apply, so I never store a board password, and jobs from boards like Naukri flow in automatically while you browse.</div>
       <div class="boards" id="boards"></div>
       <div class="sectitle"><h2>ATS boards (Workday, Greenhouse, Lever, Ashby)</h2></div>
-      <div class="banner"><b>One address and password for every ATS.</b> Company sites make you create an account each time. Set one email you own and one password, and I handle every sign-up and sign-in. When a board emails a code, I'll ask you to paste it.</div>
+      <div class="banner"><b>One address and password for every ATS.</b> Company sites make you create an account each time. Set one email you own and one password, and I handle every sign-up and sign-in. When a board emails a code, I'll ask you to paste it right here.</div>
       <label class="fld">Application email (a dedicated inbox you own)</label>
       <input class="in" id="atsEmail" placeholder="e.g. yourname.jobs@gmail.com" />
       <label class="fld">One password for job-board sign-ups</label>
@@ -120,9 +159,10 @@
     </section>
   </div>
 
-  <!-- narration drawer -->
+  <!-- live activity drawer -->
+  <div class="scrim" id="scrim"></div>
   <div class="drawer" id="drawer">
-    <div class="dh"><h2>Applying</h2><button class="btn sm ghost" id="drawerClose">Close</button></div>
+    <div class="dh"><div class="tt"><span class="livedot"></span><h2>Applying</h2></div><button class="btn sm ghost" id="drawerClose">Close</button></div>
     <div class="db"><div class="sub" id="runHead"></div><div id="runList"></div><div class="sub" id="runStatus" style="margin-top:10px"></div></div>
   </div>
 

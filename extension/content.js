@@ -781,4 +781,27 @@
     } catch (e) { reply({ error: String(e) }); }
     return true;
   });
+
+  // ---- Auto-harvest: on the India boards the server can't fetch (Naukri / Hirist / iimjobs), silently
+  // read the listings off the page the user is already browsing in their own session and hand them to the
+  // background worker, which posts them to the backend. No button, no manual step , the board behaves like
+  // any other source. Runs once the SPA has rendered, and again on in-app navigation (URL changes).
+  const _AUTO_HARVEST = /naukri\.com|hirist\.(tech|com)|iimjobs\.com/;
+  if (_AUTO_HARVEST.test(location.hostname)) {
+    let _lastHarvestUrl = "";
+    const _autoHarvest = () => {
+      try {
+        const key = location.href.split("#")[0];
+        if (key === _lastHarvestUrl) return;
+        const res = harvestJobs();
+        if (res && res.jobs && res.jobs.length) {
+          _lastHarvestUrl = key;
+          try { chrome.runtime.sendMessage({ type: "HARVESTED", board: res.board, jobs: res.jobs }, () => void chrome.runtime.lastError); } catch (e) {}
+        }
+      } catch (e) {}
+    };
+    setTimeout(_autoHarvest, 2500);  // let the SPA render its first results
+    let _url = location.href;
+    setInterval(() => { if (location.href !== _url) { _url = location.href; setTimeout(_autoHarvest, 2000); } }, 1500);
+  }
 })();

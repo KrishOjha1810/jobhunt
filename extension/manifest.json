@@ -1,17 +1,16 @@
 {
   "manifest_version": 3,
   "name": "JobHunt Auto-Pilot",
-  "version": "2.6.0",
+  "version": "2.6.1",
   "description": "Auto-Pilot: log in to your boards once, then load your strong matches and apply across them in your own session (dry-run first). Plus manual autofill for one-off ATS pages.",
-  "permissions": ["storage", "activeTab", "scripting", "sidePanel", "tabs"],
+  "permissions": ["storage", "activeTab", "scripting", "tabs"],
   "host_permissions": [
     "https://jobhunt-8i1m.onrender.com/*",
     "https://*.greenhouse.io/*", "https://*.lever.co/*", "https://*.ashbyhq.com/*", "https://*.myworkdayjobs.com/*",
     "https://*.naukri.com/*", "https://*.instahyre.com/*", "https://*.internshala.com/*", "https://*.foundit.in/*", "https://*.workatastartup.com/*", "https://*.hirist.tech/*", "https://*.iimjobs.com/*", "https://*.linkedin.com/*"
   ],
   "background": { "service_worker": "background.js" },
-  "action": { "default_title": "JobHunt Auto-Apply" },
-  "side_panel": { "default_path": "sidepanel.html" },
+  "action": { "default_title": "Open JobHunt" },
   "content_scripts": [
     {
       "matches": [

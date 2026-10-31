@@ -1,5 +1,12 @@
-// Open the side panel when the toolbar icon is clicked (kept for the panel fallback).
-chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
+// The extension is invisible: no popup, no side panel. The whole UI is the /agent web page. Clicking the
+// toolbar icon just opens that page (with the saved token if we have one), so the extension is only ever
+// the silent engine behind the page.
+chrome.action.onClicked.addListener(async () => {
+  let token = "";
+  try { ({ token } = await chrome.storage.local.get(["token"])); } catch (e) {}
+  const url = "https://jobhunt-8i1m.onrender.com/agent" + (token ? "?token=" + encodeURIComponent(token) : "");
+  try { chrome.tabs.create({ url }); } catch (e) {}
+});
 
 // ============ Agent orchestrator ============
 // The web page (/agent) is the whole UI. It talks to this worker through a content-script bridge on
@@ -120,7 +127,20 @@ async function tryUpload(tabId, block, job, ctx) { const up = await sendTo(tabId
 async function applyIndia(tabId, block, job, live, ctx) {
   const cleared = await clearGates(tabId, block, job.board, ctx); if (cleared === "stuck") return;
   let sub;
-  if (API_BOARDS.includes(job.board)) { bLog(block, `applying via ${job.label}'s own apply API, in your session`); let message; if (job.board === "ycombinator") { const cl = await apiJSON(ctx, `/api/cover_letter?job_id=${job.job_id || 0}`); if (cl && cl.ok && cl.cover_letter) message = cl.cover_letter; } sub = await sendTo(tabId, { type: "API_APPLY", board: job.board, url: job.url, dryRun: !live, message }); }
+  if (API_BOARDS.includes(job.board)) {
+    bLog(block, `applying via ${job.label}'s own apply API, in your session`);
+    let message; if (job.board === "ycombinator") { const cl = await apiJSON(ctx, `/api/cover_letter?job_id=${job.job_id || 0}`); if (cl && cl.ok && cl.cover_letter) message = cl.cover_letter; }
+    sub = await sendTo(tabId, { type: "API_APPLY", board: job.board, url: job.url, dryRun: !live, message });
+    // If the board's apply needs a screening questionnaire/chatbot, the one-shot API can't answer it , so
+    // fall back to the on-page form wizard. fillFields surfaces anything we don't know on /agent itself
+    // (bAsk -> renderAsk), the user answers there, we learn it, then submit. Same path the ATS boards use,
+    // so Naukri/Hirist/iimjobs get the exact "ask on our page" UX, not a half-applied one-shot.
+    if (sub && (sub.needsQuestions || (sub.ok === false && /question/i.test(sub.reason || "")))) {
+      bLog(block, "this role has screening questions , I'll fill the form and ask you here for anything I don't have");
+      await fillFields(tabId, block, job, ctx);
+      sub = await sendTo(tabId, { type: "SUBMIT", dryRun: !live, board: job.board });
+    }
+  }
   else { bLog(block, "reading the page and your profile"); await fillFields(tabId, block, job, ctx); sub = await sendTo(tabId, { type: "SUBMIT", dryRun: !live, board: job.board }); }
   if (sub.error) { bStatus(block, "couldn't act", "err"); bLog(block, "couldn't reach this board , logged in?"); }
   else if (sub.alreadyApplied) { bStatus(block, "already applied", "ok"); bLog(block, "already applied , marking done."); await markApplied(ctx, job); }
@@ -168,6 +188,9 @@ chrome.runtime.onConnect.addListener((port) => {
   port.onMessage.addListener(async (msg) => {
     if (!msg || !msg.__jobhunt) return;
     if (msg.type === "PING") { port.postMessage({ __jobhuntAgent: true, id: msg.id, ok: true }); return; }
+    // The page hands us the user's token on load so the silent engine (auto-harvest, background posts) is
+    // authenticated without any side panel. Persist it for runs that happen outside this port's lifetime.
+    if (msg.type === "SET_TOKEN") { if (msg.token) { try { chrome.storage.local.set({ token: msg.token }); } catch (e) {} } return; }
     if (msg.type === "ANSWER") { const r = ASKS[msg.askId]; if (r) { delete ASKS[msg.askId]; r(msg.answer); } return; }
     if (msg.type === "RUN") {
       const ctx = { token: msg.token || "", apiBase: msg.apiBase || "", profile: msg.profile || {} };
@@ -178,4 +201,35 @@ chrome.runtime.onConnect.addListener((port) => {
     }
   });
   port.onDisconnect.addListener(() => { if (PORT === port) PORT = null; });
+});
+
+// ---- Auto-harvest intake: content scripts on Naukri/Hirist/iimjobs read the listings the user is
+// already browsing in their own logged-in session and send them here; we post them to the backend under
+// the user's token (read from storage, so this works even with the side panel closed). This is what makes
+// those boards behave like any other source , no button, no manual step. Same session, same IP, no
+// server-side scraping and no anti-bot token to forge: just the page the user is looking at.
+const HARVEST_API_BASE = "https://jobhunt-8i1m.onrender.com";
+let _lastHarvestKey = "", _lastHarvestAt = 0;
+chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
+  if (!msg || msg.type !== "HARVESTED") return;
+  (async () => {
+    try {
+      const jobs = (msg.jobs || []).filter((j) => j && j.url && j.title);
+      if (!jobs.length) { reply({ ok: false, reason: "no jobs" }); return; }
+      // debounce identical bursts (same board + first url + count) within 20s so SPA re-renders don't spam
+      const key = (msg.board || "") + "|" + jobs[0].url + "|" + jobs.length;
+      const now = Date.now();
+      if (key === _lastHarvestKey && now - _lastHarvestAt < 20000) { reply({ ok: true, deduped: true }); return; }
+      _lastHarvestKey = key; _lastHarvestAt = now;
+      const { token } = await chrome.storage.local.get(["token"]);
+      if (!token) { reply({ ok: false, reason: "not connected" }); return; }
+      const r = await fetch(`${HARVEST_API_BASE}/api/harvest?token=${encodeURIComponent(token)}`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ board: msg.board || "", jobs }),
+      });
+      const d = await r.json().catch(() => ({}));
+      reply({ ok: r.ok, queued: d.queued || 0, received: d.received || 0 });
+    } catch (e) { reply({ ok: false, reason: String(e) }); }
+  })();
+  return true;  // async reply
 });
