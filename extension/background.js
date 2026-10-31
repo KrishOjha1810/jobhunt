@@ -18,6 +18,9 @@ const INDIA_BOARDS = ["naukri", "instahyre", "internshala", "foundit", "ycombina
 const API_BOARDS = ["instahyre", "naukri", "ycombinator", "foundit", "internshala", "hirist", "iimjobs"];
 let PORT = null;
 const ASKS = {};
+// Heartbeat: an alarm firing wakes/keeps the service worker alive during a run (created in the RUN
+// handler, cleared when the run ends). The listener itself only needs to exist , no work required.
+try { chrome.alarms.onAlarm.addListener(() => {}); } catch (e) {}
 
 function sendTo(tabId, msg) {
   return new Promise((res) => chrome.tabs.sendMessage(tabId, msg, (r) => res(chrome.runtime.lastError ? { error: chrome.runtime.lastError.message } : (r || {}))));
@@ -210,7 +213,13 @@ chrome.runtime.onConnect.addListener((port) => {
       const ctx = { token: msg.token || "", apiBase: msg.apiBase || "", profile: msg.profile || {} };
       // profile for identity fill: fetch it once if not supplied
       if (!msg.profile) { const p = await apiJSON(ctx, "/api/autofill"); if (p && !p.error) ctx.profile = p; }
-      for (const job of (msg.jobs || [])) { await applyOne(job, !!msg.live, ctx); await sleep(1400 + Math.random() * 1400); }
+      // Keep the service worker alive for the WHOLE run with a chrome.alarms heartbeat. Unlike a page
+      // timer (which Chrome throttles when /agent is backgrounded for a captcha/login, letting the worker
+      // die mid-run and freeze every job on "queued"), an alarm is worker-side and fires regardless.
+      try { chrome.alarms.create("jobhunt-keepalive", { periodInMinutes: 0.4 }); } catch (e) {}
+      try {
+        for (const job of (msg.jobs || [])) { await applyOne(job, !!msg.live, ctx); await sleep(1400 + Math.random() * 1400); }
+      } finally { try { chrome.alarms.clear("jobhunt-keepalive"); } catch (e) {} }
       port.postMessage({ __jobhuntAgent: true, id: msg.id, ok: true, done: true });
     }
   });
