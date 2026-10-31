@@ -199,6 +199,9 @@ chrome.runtime.onConnect.addListener((port) => {
   port.onMessage.addListener(async (msg) => {
     if (!msg || !msg.__jobhunt) return;
     if (msg.type === "PING") { port.postMessage({ __jobhuntAgent: true, id: msg.id, ok: true }); return; }
+    // Receiving any message resets the service worker's idle timer; the page pings this every 15s during a
+    // run so the worker never sleeps mid-apply (which was freezing every job on "queued").
+    if (msg.type === "KEEPALIVE") return;
     // The page hands us the user's token on load so the silent engine (auto-harvest, background posts) is
     // authenticated without any side panel. Persist it for runs that happen outside this port's lifetime.
     if (msg.type === "SET_TOKEN") { if (msg.token) { try { chrome.storage.local.set({ token: msg.token }); } catch (e) {} } return; }
