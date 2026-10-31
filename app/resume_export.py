@@ -31,8 +31,8 @@ def _run(p, text, size, color=BLACK, bold=False, underline=False):
     return r
 
 
-def _para(doc, align=None, before=0.0, after=2.0, line=1.0):
-    """A paragraph with the gold spacing: ~1.0x line height and tight before/after (in points)."""
+def _para(doc, align=None, before=0.0, after=2.0, line=1.02):
+    """A paragraph with the gold spacing: ~1.04x line height and tight before/after (in points)."""
     p = doc.add_paragraph()
     pf = p.paragraph_format
     if align is not None:
@@ -44,14 +44,14 @@ def _para(doc, align=None, before=0.0, after=2.0, line=1.0):
 
 
 def _heading(doc, text):
-    p = _para(doc, before=3.5, after=1.0)
+    p = _para(doc, before=5.0, after=1.5)
     _run(p, (text or "").upper(), 11.5, BLUE, bold=True)
     return p
 
 
 def _bullet(doc, text):
     """A literal '•' glyph with a manual hanging indent , NOT a Word list (gold uses no numbering)."""
-    p = _para(doc, before=0.0, after=1.0)
+    p = _para(doc, before=0.0, after=2.0)
     pf = p.paragraph_format
     pf.left_indent = Inches(0.2)
     pf.first_line_indent = Inches(-0.16)

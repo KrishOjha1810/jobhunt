@@ -224,7 +224,12 @@ async function runApply(jobs) {
   if (live && !confirm(`LIVE submit ${jobs.length} application(s)? Real applications will be sent. Cancel for a safe dry-run.`)) return;
   $("runHead").textContent = live ? "Sending real applications. I'll ask if I get stuck." : "Safe dry-run: I prepare everything and stop before sending.";
   const blocks = jobs.map((j) => ({ job: j, block: makeBlock(j) }));
-  await extCall("RUN", { jobs: blocks.map((b) => ({ ...b.job, block: b.block })), live, token: qToken, apiBase: location.origin }, 1800000);
+  // Keep the MV3 service worker alive for the whole run: it sleeps after ~30s idle, which was freezing
+  // long multi-job runs (every card stuck on "queued"). A lightweight ping every 15s resets its idle timer.
+  const keepAlive = setInterval(() => { try { window.postMessage({ __jobhunt: true, type: "KEEPALIVE" }, "*"); } catch (e) {} }, 15000);
+  try {
+    await extCall("RUN", { jobs: blocks.map((b) => ({ ...b.job, block: b.block })), live, token: qToken, apiBase: location.origin }, 1800000);
+  } finally { clearInterval(keepAlive); }
   $("runHead").textContent = live ? "Done. Review each above." : "Dry-run done. Turn on Live submit to really send.";
 }
 
