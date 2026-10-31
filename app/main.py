@@ -2183,43 +2183,63 @@ async def api_resume_export(request: Request, token: str = ""):
 
 
 @app.get("/api/resume/tailored.docx")
-def api_resume_tailored_docx(request: Request, job_id: int = 0, url: str = "", token: str = ""):
-    """The per-job apply artifact: tailor the user's resume to this job, render it in the gold format,
-    auto-fit it to the page budget, and VALIDATE it. Returns the .docx only when it passes validation
-    (so a broken or overflowing resume is never handed to the apply flow); otherwise 422 with reasons.
-    X-Resume-Trimmed reports how many low-value bullets were cut to make it fit."""
-    from . import enrich, resume_render
+def api_resume_tailored_docx(request: Request, job_id: int = 0, url: str = "", tailor: int = 0, token: str = ""):
+    """The per-job apply artifact. By DEFAULT it returns the user's real resume rendered in the gold ATS
+    format , fast, and it always works, which is exactly what the apply flow needs so it can attach a file.
+    With ?tailor=1 it tailors the resume to the job and validates it; if tailoring or validation fails it
+    FALLS BACK to the base resume instead of refusing (a base resume attached beats no resume). The apply
+    flow therefore never gets a 422 and is never left with nothing to upload. X-Resume-Tailored says which
+    one was returned."""
+    from . import enrich, resume_render, resume_export
     user = _resolve_user(request, token)
     if not user:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
-    job = _resolve_job_for_context(user, job_id, url)
-    if not job:
-        return JSONResponse({"ok": False, "reason": "job not found"}, status_code=404)
     rj = db.get_resume_json(user["id"])
     if not rj:
         return JSONResponse({"ok": False, "needs_upload": True,
-                             "reason": "Upload your resume first , we tailor your real resume."},
+                             "reason": "Upload your resume first , we attach your real resume."},
                             status_code=409)
-    jd = _job_jd(job) or (job.get("title") or "")
-    edits, _err = enrich.tailor_edits(rj, job.get("title") or "", jd,
-                                      extra=db.profile_extra_text(user["id"]),
-                                      github=db.github_repos(user["id"]))
-    tailored = resume_render.apply_edits_to_json(rj, edits)
-    out = resume_render.build_validated(tailored, _user_years(user))
-    if not out["validation"]["ok"]:
-        return JSONResponse({"ok": False, "reason": "tailored resume did not pass validation",
-                             "failures": out["validation"]["failures"],
-                             "checks": out["validation"]["checks"]}, status_code=422)
     safe = "".join(c for c in (rj.get("name") or "resume") if c.isalnum() or c in "-_") or "resume"
-    comp = "".join(c for c in (job.get("company") or "job") if c.isalnum() or c in "-_") or "job"
-    return Response(
-        content=out["docx"],
-        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        headers={"Content-Disposition": f'attachment; filename="{safe}_{comp}.docx"',
-                 "X-Resume-Trimmed": str(out["trimmed"]),
-                 "X-ATS-Score": str(out.get("ats") or ""),
-                 "X-Resume-Valid": "true"},
-    )
+
+    def _base_response():
+        try:
+            data = resume_export.build_docx(rj)
+        except Exception:
+            data = db.get_resume_docx(user["id"])
+        if not data:
+            return JSONResponse({"ok": False, "reason": "couldn't render your resume"}, status_code=500)
+        return Response(
+            content=data,
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            headers={"Content-Disposition": f'attachment; filename="{safe}_JobHunt.docx"',
+                     "X-Resume-Tailored": "false"},
+        )
+
+    if not tailor:
+        return _base_response()
+    job = _resolve_job_for_context(user, job_id, url)
+    if not job:
+        return _base_response()
+    try:
+        jd = _job_jd(job) or (job.get("title") or "")
+        edits, _err = enrich.tailor_edits(rj, job.get("title") or "", jd,
+                                          extra=db.profile_extra_text(user["id"]),
+                                          github=db.github_repos(user["id"]))
+        tailored = resume_render.apply_edits_to_json(rj, edits)
+        out = resume_render.build_validated(tailored, _user_years(user))
+        if out["validation"]["ok"]:
+            comp = "".join(c for c in (job.get("company") or "job") if c.isalnum() or c in "-_") or "job"
+            return Response(
+                content=out["docx"],
+                media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                headers={"Content-Disposition": f'attachment; filename="{safe}_{comp}.docx"',
+                         "X-Resume-Trimmed": str(out["trimmed"]),
+                         "X-ATS-Score": str(out.get("ats") or ""),
+                         "X-Resume-Tailored": "true"},
+            )
+    except Exception:
+        pass
+    return _base_response()
 
 
 # The handful of questions almost every application asks , pre-resolved from the answer bank/profile
