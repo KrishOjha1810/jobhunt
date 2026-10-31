@@ -33,12 +33,16 @@ const BOARDS = [
 
 // ---------------- extension bridge ----------------
 const PENDING = {};
-function extCall(type, payload) {
+function extCall(type, payload, timeoutMs) {
   return new Promise((resolve) => {
     const id = "m" + Math.random().toString(36).slice(2);
     PENDING[id] = resolve;
     window.postMessage({ __jobhunt: true, id, type, ...payload }, "*");
-    setTimeout(() => { if (PENDING[id]) { delete PENDING[id]; resolve({ error: "no response" }); } }, 60000);
+    // A RUN over several jobs (each opens a tab, fills, waits, may ask you) easily exceeds a minute, so a
+    // short fixed timeout was resolving early and printing "Done" while jobs were still going. Callers pass
+    // a longer timeout for RUN; 0 disables it (resolve only on the real done message).
+    const ms = timeoutMs == null ? 60000 : timeoutMs;
+    if (ms > 0) setTimeout(() => { if (PENDING[id]) { delete PENDING[id]; resolve({ error: "no response" }); } }, ms);
   });
 }
 window.addEventListener("message", (e) => {
@@ -169,8 +173,14 @@ $("drawerClose").onclick = closeDrawer;
 function makeBlock(job) {
   const id = "rb" + Math.random().toString(36).slice(2, 8);
   const el = document.createElement("div");
-  el.className = "runjob";
-  el.innerHTML = `<div class="rh"><div><div class="rt">${esc(job.company || "")}</div><div class="rs">${esc((job.title || "").slice(0, 52))} &middot; ${esc(job.label || "")}</div></div><span class="pill live" id="${id}s">queued</span></div><div class="prog"><div id="${id}p"></div></div><div class="log" id="${id}l"></div>`;
+  el.className = "runjob s-queued";
+  el.innerHTML = `
+    <div class="rhead">
+      <div class="rhl"><span class="rdot"></span><div><div class="rt">${esc(job.company || "")}</div><div class="rs">${esc((job.title || "").slice(0, 64))}</div>${job.label ? `<span class="rboard">${esc(job.label)}</span>` : ""}</div></div>
+      <span class="pill muted" id="${id}s">queued</span>
+    </div>
+    <div class="prog"><div id="${id}p"></div></div>
+    <div class="rlog" id="${id}l"></div>`;
   $("runList").prepend(el);
   BLOCKS[id] = { el };
   return id;
@@ -178,23 +188,27 @@ function makeBlock(job) {
 function onNarrate(d) {
   const id = d.block; if (!id || !$(id + "l")) return;
   if (d.log) { const x = document.createElement("div"); x.className = "l" + (d.me ? " me" : ""); x.innerHTML = d.log; $(id + "l").appendChild(x); }
-  if (d.status) { const s = $(id + "s"); if (s) { s.textContent = d.status; s.className = "pill " + (d.cls || "live"); } }
+  if (d.status) {
+    const s = $(id + "s"); if (s) { s.textContent = d.status; s.className = "pill " + (d.cls || "live"); }
+    const jb = BLOCKS[id] && BLOCKS[id].el; if (jb) jb.className = "runjob s-" + (d.cls || "live");  // color the left rail + dot by status
+  }
   if (d.progress != null) { const p = $(id + "p"); if (p) p.style.width = d.progress + "%"; }
   if (d.ask) { renderAsk(id, d.ask, d.askId, d.options); }
 }
 function renderAsk(id, question, askId, options) {
   const box = document.createElement("div"); box.className = "ask";
   const answer = (v) => { if (!v) return; box.remove(); extCall("ANSWER", { askId, answer: v }); };
+  const head = `<div class="qhead">needs you</div><div class="qtext">${esc(question)}</div>`;
   if (options && options.length) {
-    // a choice question (dropdown / radio): show the real options as tappable buttons, plus "Other..."
-    box.innerHTML = `<div>${esc(question)}</div><div class="row opts" style="flex-wrap:wrap;gap:6px"></div>`;
+    // a choice question (dropdown / radio): show the real options as tappable chips, plus "Other..."
+    box.innerHTML = head + `<div class="opts"></div>`;
     const row = box.querySelector(".opts");
-    options.forEach((o) => { const b = document.createElement("button"); b.className = "btn sm ghost"; b.textContent = o; b.onclick = () => answer(o); row.appendChild(b); });
-    const other = document.createElement("button"); other.className = "btn sm"; other.textContent = "Other...";
-    other.onclick = () => { row.innerHTML = `<input class="in" placeholder="your answer..."><button class="btn sm">Send</button>`; const input = row.querySelector("input"), btn = row.querySelector("button"); const go = () => answer(input.value.trim()); btn.onclick = go; input.onkeydown = (e) => { if (e.key === "Enter") go(); }; input.focus(); };
+    options.forEach((o) => { const b = document.createElement("button"); b.className = "opt"; b.textContent = o; b.onclick = () => answer(o); row.appendChild(b); });
+    const other = document.createElement("button"); other.className = "opt other"; other.textContent = "Other...";
+    other.onclick = () => { row.innerHTML = `<input class="in" placeholder="type your answer..."><button class="btn sm">Send</button>`; const input = row.querySelector("input"), btn = row.querySelector("button"); const go = () => answer(input.value.trim()); btn.onclick = go; input.onkeydown = (e) => { if (e.key === "Enter") go(); }; input.focus(); };
     row.appendChild(other);
   } else {
-    box.innerHTML = `<div>${esc(question)}</div><div class="row"><input class="in" placeholder="your answer..."><button class="btn sm">Send</button></div>`;
+    box.innerHTML = head + `<div class="row"><input class="in" placeholder="type your answer..."><button class="btn sm">Send</button></div>`;
     const input = box.querySelector("input"), btn = box.querySelector("button");
     const go = () => answer(input.value.trim()); btn.onclick = go; input.onkeydown = (e) => { if (e.key === "Enter") go(); };
     setTimeout(() => input.focus(), 0);
@@ -210,7 +224,7 @@ async function runApply(jobs) {
   if (live && !confirm(`LIVE submit ${jobs.length} application(s)? Real applications will be sent. Cancel for a safe dry-run.`)) return;
   $("runHead").textContent = live ? "Sending real applications. I'll ask if I get stuck." : "Safe dry-run: I prepare everything and stop before sending.";
   const blocks = jobs.map((j) => ({ job: j, block: makeBlock(j) }));
-  await extCall("RUN", { jobs: blocks.map((b) => ({ ...b.job, block: b.block })), live, token: qToken, apiBase: location.origin });
+  await extCall("RUN", { jobs: blocks.map((b) => ({ ...b.job, block: b.block })), live, token: qToken, apiBase: location.origin }, 1800000);
   $("runHead").textContent = live ? "Done. Review each above." : "Dry-run done. Turn on Live submit to really send.";
 }
 

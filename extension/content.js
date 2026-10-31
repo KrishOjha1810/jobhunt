@@ -124,20 +124,32 @@
   // NOT as a native <select>). You can't set a value; you open the menu and click the matching option.
   const _wait = (ms) => new Promise((r) => setTimeout(r, ms));
   function _isCombobox(el) { return el.getAttribute("role") === "combobox" || el.getAttribute("aria-autocomplete") === "list" || el.getAttribute("aria-haspopup") === "listbox"; }
-  function _listboxOptions() {
-    let opts = Array.from(document.querySelectorAll('[role="option"]'));
-    if (!opts.length) opts = Array.from(document.querySelectorAll('[id*="-option-"]'));
+  function _listboxOptions(el) {
+    // Read ONLY the listbox this combobox controls , never every [role=option] on the page (that was
+    // pairing, say, the Yes/No employment question with the phone field's 200 country-code options).
+    if (el) {
+      const ctrl = el.getAttribute("aria-controls") || el.getAttribute("aria-owns");
+      if (ctrl) { const box = document.getElementById(ctrl); if (box) { const o = Array.from(box.querySelectorAll('[role="option"], [id*="-option-"]')); if (o.length) return o; } }
+      // react-select: input id "react-select-3-input" -> options share base "react-select-3-option-N"
+      const m = (el.id || "").match(/^(.*?)-input$/);
+      if (m && m[1]) { try { const o = Array.from(document.querySelectorAll('[id^="' + CSS.escape(m[1]) + '-option"]')); if (o.length) return o; } catch (e) {} }
+    }
+    // fall back to a VISIBLE/expanded listbox (the one that just opened), not the whole document
+    const vis = Array.from(document.querySelectorAll('[role="listbox"]')).filter((l) => l.offsetParent !== null);
+    let opts = [];
+    for (const l of vis) opts.push(...Array.from(l.querySelectorAll('[role="option"], [id*="-option-"]')));
+    if (!opts.length) opts = Array.from(document.querySelectorAll('[role="option"]'));  // last resort
     return opts;
   }
   async function _openCombobox(el) {
     try { el.focus(); el.click(); } catch (e) {}
-    for (let i = 0; i < 8; i++) { await _wait(90); if (_listboxOptions().length) return true; try { el.click(); } catch (e) {} }
-    return _listboxOptions().length > 0;
+    for (let i = 0; i < 8; i++) { await _wait(90); if (_listboxOptions(el).length) return true; try { el.click(); } catch (e) {} }
+    return _listboxOptions(el).length > 0;
   }
   function _closeCombobox(el) { try { el.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); } catch (e) {} try { document.body.click(); } catch (e) {} }
   async function _harvestCombobox(el) {
     if (!(await _openCombobox(el))) { _closeCombobox(el); return []; }
-    const labels = _listboxOptions().map((o) => (o.textContent || "").trim()).filter(Boolean).slice(0, 40);
+    const labels = _listboxOptions(el).map((o) => (o.textContent || "").trim()).filter(Boolean).slice(0, 40);
     _closeCombobox(el);
     return labels.map((l) => ({ label: l, value: l }));
   }
@@ -145,13 +157,15 @@
     if (!el || value == null || value === "") return false;
     if (/^\[please answer\]/i.test(String(value))) return false;
     if (!(await _openCombobox(el))) { _closeCombobox(el); return false; }
-    const v = _norm(value), opts = _listboxOptions();
+    const v = _norm(value), opts = _listboxOptions(el);
     if (opts.length) {
       // a CHOICE combobox (fixed options, e.g. Yes/No, visa, EEO): pick a real option or FAIL , never
       // inject a free-typed value, which was putting garbage ("Indian Citizen", "remote") into the box.
-      let t = opts.find((o) => _norm(o.textContent) === v) || opts.find((o) => { const n = _norm(o.textContent); return n && (n.includes(v) || v.includes(n)); });
-      if (!t && /^(yes|y|true|1)$/.test(v)) t = opts.find((o) => /^yes\b/.test(_norm(o.textContent)));
-      if (!t && /^(no|n|false|0)$/.test(v)) t = opts.find((o) => /^no\b/.test(_norm(o.textContent)));
+      // exact -> yes/no -> whole-word token (same safe order as _bestOption; no raw substring)
+      let t = opts.find((o) => _norm(o.textContent) === v);
+      if (!t && /^(yes|y|true|1)$/.test(v)) t = opts.find((o) => /^(yes|y)\b/.test(_norm(o.textContent)));
+      if (!t && /^(no|n|false|0)$/.test(v)) t = opts.find((o) => /^(no|n)\b/.test(_norm(o.textContent)));
+      if (!t) t = opts.find((o) => { const n = _norm(o.textContent); return n && (_wordHit(n, v) || _wordHit(v, n)); });
       if (t) { t.click(); try { el.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); } catch (e) {} return true; }
       _closeCombobox(el); return false;  // no matching option , let the caller ask the user with the real options
     }
@@ -164,7 +178,7 @@
   async function scanFields() {
     const out = [], seenRadio = new Set();
     const push = (f) => { if (f.label && out.length < 25) { f.id = out.length; out.push(f); } };
-    for (const el of document.querySelectorAll('input[role="combobox"], [aria-autocomplete="list"]')) {
+    for (const el of document.querySelectorAll('input[role="combobox"], [role="combobox"], [aria-autocomplete="list"], [aria-haspopup="listbox"]')) {
       if (el.disabled || el.offsetParent === null) continue;
       const label = (labelText(el) || "").trim();
       if (!label || _isIdentity(hay(el))) continue;
@@ -205,14 +219,21 @@
     return out;
   }
   function _norm(s) { return String(s == null ? "" : s).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(); }
+  // whole-word containment on _norm'd (space-separated) text, so "india" never matches "indiana" and
+  // "no" never matches "not sure"/"none".
+  function _wordHit(hay, needle) {
+    if (!hay || !needle) return false;
+    return new RegExp("(^| )" + needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "( |$)").test(hay);
+  }
   function _bestOption(options, value) {
     const v = _norm(value); if (!v || !options || !options.length) return null;
-    let o = options.find((x) => _norm(x.label) === v || _norm(x.value) === v);
+    let o = options.find((x) => _norm(x.label) === v || _norm(x.value) === v);  // exact
     if (o) return o;
-    o = options.find((x) => { const nl = _norm(x.label); return nl && (nl.includes(v) || v.includes(nl)); });
-    if (o) return o;
-    if (/^(yes|y|true|1)$/.test(v)) o = options.find((x) => /^(yes|y)\b/.test(_norm(x.label)));
-    else if (/^(no|n|false|0)$/.test(v)) o = options.find((x) => /^(no|n)\b/.test(_norm(x.label)));
+    // yes/no BEFORE any loose matching, so a plain Yes/No answer can't grab "Not sure" or "None"
+    if (/^(yes|y|true|1)$/.test(v)) { o = options.find((x) => /^(yes|y)\b/.test(_norm(x.label))); if (o) return o; }
+    if (/^(no|n|false|0)$/.test(v)) { o = options.find((x) => /^(no|n)\b/.test(_norm(x.label))); if (o) return o; }
+    // whole-word containment either direction (token match), not raw substring
+    o = options.find((x) => { const nl = _norm(x.label); return nl && (_wordHit(nl, v) || _wordHit(v, nl)); });
     return o || null;
   }
   async function fillField(field, value) {
@@ -405,7 +426,7 @@
         const txt = await r.text();
         if (/already applied|already interested/i.test(txt)) return { ok: true, alreadyApplied: true };
         if (r.status === 200 && /success|opp_id|interested|applied/i.test(txt)) return { ok: true, confirmed: true };
-        if (r.status === 200) return { ok: true, confirmed: true };  // 200 with no error text = applied
+        if (r.status === 200) return { ok: true, confirmed: false };  // 200 but no success signal , applied, not confirmed
         if (r.status === 404) continue;  // wrong path, try the other
         return { ok: false, reason: "Instahyre apply API returned " + r.status };
       } catch (e) { return { ok: false, reason: String(e) }; }
@@ -434,7 +455,7 @@
       });
       const txt = await r.text();
       if (/already applied/i.test(txt)) return { ok: true, alreadyApplied: true };
-      if (r.status === 200) return { ok: true, confirmed: /success|applied/i.test(txt) || true, needsQuestions: /question|chatbot|applyData/i.test(txt) };
+      if (r.status === 200) return { ok: true, confirmed: /success|applied/i.test(txt), needsQuestions: /question|chatbot|applyData/i.test(txt) };
       return { ok: false, reason: "Naukri apply API returned " + r.status + " (may need the questionnaire, or a residential IP)" };
     } catch (e) { return { ok: false, reason: String(e) }; }
   }
@@ -494,7 +515,7 @@
       if (/already applied/i.test(txt)) return { ok: true, alreadyApplied: true };
       if (/cover.?letter|additional_question|please answer/i.test(txt)) return { ok: false, reason: "this internship needs the cover-letter form , open it to apply" };
       if (r.status === 200 && /success|applied|true/i.test(txt)) return { ok: true, confirmed: true };
-      if (r.status === 200) return { ok: true, confirmed: true };
+      if (r.status === 200) return { ok: true, confirmed: false };  // 200 but no success signal , applied, not confirmed
       return { ok: false, reason: "Internshala apply returned " + r.status };
     } catch (e) { return { ok: false, reason: String(e) }; }
   }
@@ -517,7 +538,7 @@
         if (r.status === 404) continue;
         const txt = await r.text();
         if (/already applied/i.test(txt)) return { ok: true, alreadyApplied: true };
-        if (r.status === 200) return { ok: true, confirmed: /success|applied|true/i.test(txt) || true };
+        if (r.status === 200) return { ok: true, confirmed: /success|applied|true/i.test(txt) };
         return { ok: false, reason: "hirist/iimjobs apply returned " + r.status + " , send me the gladiator POST from DevTools to lock the exact path" };
       } catch (e) { return { ok: false, reason: String(e) }; }
     }
