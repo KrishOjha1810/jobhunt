@@ -179,3 +179,34 @@ chrome.runtime.onConnect.addListener((port) => {
   });
   port.onDisconnect.addListener(() => { if (PORT === port) PORT = null; });
 });
+
+// ---- Auto-harvest intake: content scripts on Naukri/Hirist/iimjobs read the listings the user is
+// already browsing in their own logged-in session and send them here; we post them to the backend under
+// the user's token (read from storage, so this works even with the side panel closed). This is what makes
+// those boards behave like any other source , no button, no manual step. Same session, same IP, no
+// server-side scraping and no anti-bot token to forge: just the page the user is looking at.
+const HARVEST_API_BASE = "https://jobhunt-8i1m.onrender.com";
+let _lastHarvestKey = "", _lastHarvestAt = 0;
+chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
+  if (!msg || msg.type !== "HARVESTED") return;
+  (async () => {
+    try {
+      const jobs = (msg.jobs || []).filter((j) => j && j.url && j.title);
+      if (!jobs.length) { reply({ ok: false, reason: "no jobs" }); return; }
+      // debounce identical bursts (same board + first url + count) within 20s so SPA re-renders don't spam
+      const key = (msg.board || "") + "|" + jobs[0].url + "|" + jobs.length;
+      const now = Date.now();
+      if (key === _lastHarvestKey && now - _lastHarvestAt < 20000) { reply({ ok: true, deduped: true }); return; }
+      _lastHarvestKey = key; _lastHarvestAt = now;
+      const { token } = await chrome.storage.local.get(["token"]);
+      if (!token) { reply({ ok: false, reason: "not connected" }); return; }
+      const r = await fetch(`${HARVEST_API_BASE}/api/harvest?token=${encodeURIComponent(token)}`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ board: msg.board || "", jobs }),
+      });
+      const d = await r.json().catch(() => ({}));
+      reply({ ok: r.ok, queued: d.queued || 0, received: d.received || 0 });
+    } catch (e) { reply({ ok: false, reason: String(e) }); }
+  })();
+  return true;  // async reply
+});

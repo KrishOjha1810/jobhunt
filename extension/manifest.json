@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "JobHunt Auto-Pilot",
-  "version": "2.6.0",
+  "version": "2.6.1",
   "description": "Auto-Pilot: log in to your boards once, then load your strong matches and apply across them in your own session (dry-run first). Plus manual autofill for one-off ATS pages.",
   "permissions": ["storage", "activeTab", "scripting", "sidePanel", "tabs"],
   "host_permissions": [
