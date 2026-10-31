@@ -88,35 +88,45 @@ async function fillFields(tabId, block, job, ctx) {
   const fields = (scan && scan.fields) || [];
   const captcha = !!(scan && scan.captcha);
   if (!fields.length) return { captcha };
-  const _consent = (f) => f.type === "checkbox" && /\bi agree\b|consent|privacy|terms|certify|acknowledge|i confirm|gdpr/i.test(f.label);
+  // consent to auto-tick: terms/privacy/GDPR style, but NOT marketing opt-ins (don't sign the user up).
+  const _consent = (f) => f.type === "checkbox"
+    && /\bi agree\b|consent|privacy policy|\bterms\b|certify|acknowledge|i confirm|gdpr/i.test(f.label)
+    && !/subscribe|newsletter|marketing|promotion|updates|mailing list/i.test(f.label);
   // only draft answers for fields we'll actually consult , EEO auto-declines and consent auto-ticks, so
   // sending those to the answer endpoint would just burn LLM calls on questions we never read.
   const askable = fields.filter((f) => !f.eeo && !_consent(f));
   const { answers } = await resolveAnswers(ctx, job.job_id, askable.map((f) => f.label));
-  const byLabel = {}; askable.forEach((f, i) => { byLabel[f.label] = answers[i]; });
+  let ai = 0;  // pointer into `answers`, which is aligned to `askable`; EEO/consent are skipped below, so
+  //             it advances only on the same fields `askable` contains (fixes answers landing on the
+  //             wrong question whenever an EEO/consent field came before them).
   for (let k = 0; k < fields.length; k++) {
     const f = fields[k];
     try {
       if (f.eeo) {
         const dec = (f.options || []).find((o) => /decline|prefer not|don'?t wish|do not wish|not to answer|not to disclose|not to identify|choose not/i.test(o.label));
         if (dec) { await sendTo(tabId, { type: "FILL_FIELD", field: f, value: dec.label }); bLog(block, `set <b>${f.label.slice(0, 40)}</b> to "prefer not to answer"`); }
+        else if (f.required) { bStatus(block, "needs you", "warn"); bLog(block, `required demographic question <b>${f.label.slice(0, 40)}</b> has no "prefer not to answer" , set it in the tab`); }
         continue;
       }
-      if (f.type === "checkbox" && /\bi agree\b|consent|privacy|terms|certify|acknowledge|i confirm|gdpr/i.test(f.label)) {
+      if (_consent(f)) {
         await sendTo(tabId, { type: "FILL_FIELD", field: f, value: "yes" }); bLog(block, `agreed to <b>${f.label.slice(0, 40)}</b>`); continue;
       }
-      const val = answers[k];
+      const val = answers[ai++];  // askable-aligned (advanced once per non-EEO/non-consent field)
       if (!_isPlaceholder(val)) {
         const r = await sendTo(tabId, { type: "FILL_FIELD", field: f, value: val });
-        if (r && r.ok) { learnAnswer(ctx, f.label, val); bLog(block, `answered <b>${f.label.slice(0, 48)}</b> from your profile`); continue; }
+        // NOTE: don't learnAnswer here , these answers include LLM drafts; a bank entry comes only from a
+        // user-confirmed answer below, so we never poison the bank with an unverified guess.
+        if (r && r.ok) { bLog(block, `answered <b>${f.label.slice(0, 48)}</b> from your profile`); continue; }
       }
       // couldn't fill from what we know, and it matters (required, or a choice we must pick) , ask on the page
       if (f.required || f.type === "select" || f.type === "radio") {
         bStatus(block, "needs you", "warn"); bLog(block, "one question i couldn't fill:");
         const opts = (f.options || []).map((o) => o.label).filter(Boolean);
         const ans = await bAsk(block, f.label, opts);
-        await sendTo(tabId, { type: "FILL_FIELD", field: f, value: ans }); learnAnswer(ctx, f.label, ans);
-        bStatus(block, "in progress", "live");
+        const r2 = await sendTo(tabId, { type: "FILL_FIELD", field: f, value: ans });
+        if (r2 && r2.ok) { learnAnswer(ctx, f.label, ans); bLog(block, `set <b>${f.label.slice(0, 40)}</b>`); }
+        else { bLog(block, `couldn't apply that answer to <b>${f.label.slice(0, 40)}</b> , I'll open the tab so you can set it`); bStatus(block, "needs you", "warn"); try { await chrome.tabs.update(tabId, { active: true }); } catch (e) {} }
+        if (!(r2 && r2.ok)) { /* leave status as needs-you */ } else bStatus(block, "in progress", "live");
       }
     } finally { bProg(block, k + 1, fields.length); }
   }
@@ -162,8 +172,9 @@ async function applyAts(tabId, block, job, live, ctx) {
     const pb = await sendTo(tabId, { type: "PRIMARY_BUTTON", board: job.board });
     if (!pb.kind) { const again = await sendTo(tabId, { type: "CLICK_APPLY_ENTRY", board: job.board }); if (again.ok) { bLog(block, `clicked <b>${again.label}</b>`); await waitTab(tabId); await sleep(1600); await waitContent(tabId); continue; } bStatus(block, "needs you", "warn"); bLog(block, "filled this page but no Next/Submit found , open the tab and finish."); try { await chrome.tabs.update(tabId, { active: true }); } catch (e) {} return; }
     if (pb.kind === "submit") {
-      if (!live) { await sendTo(tabId, { type: "CLICK_PRIMARY", dryRun: true }); bStatus(block, "ready", "ok"); bLog(block, `ready at <b>${pb.label}</b> , filled + resume attached. Dry-run, nothing sent.`); return; }
-      if (captcha) { bStatus(block, "needs you", "warn"); bLog(block, `all filled + resume attached. This board puts a CAPTCHA on submit, which I won't bypass , solve it and click <b>${pb.label}</b> in the tab (opening it now).`); try { await chrome.tabs.update(tabId, { active: true }); } catch (e) {} return; }
+      const resumeNote = uploaded ? "resume attached" : "couldn't attach a resume automatically (attach it in the tab)";
+      if (!live) { await sendTo(tabId, { type: "CLICK_PRIMARY", dryRun: true }); bStatus(block, "ready", "ok"); bLog(block, `ready at <b>${pb.label}</b> , filled, ${resumeNote}. Dry-run, nothing sent.`); return; }
+      if (captcha) { bStatus(block, "needs you", "warn"); bLog(block, `filled, ${resumeNote}. This board puts a CAPTCHA on submit, which I won't bypass , solve it and click <b>${pb.label}</b> in the tab (opening it now).`); try { await chrome.tabs.update(tabId, { active: true }); } catch (e) {} return; }
       await sendTo(tabId, { type: "CLICK_PRIMARY" }); await sleep(2800); const c = await sendTo(tabId, { type: "CONFIRMED" }); bStatus(block, "submitted", "ok"); bLog(block, c && c.confirmed ? "submitted , confirmed." : "submitted (verify in the tab)."); await markApplied(ctx, job); return;
     }
     bLog(block, `step ${step + 1}: ${pb.label}`); await sendTo(tabId, { type: "CLICK_PRIMARY" }); await waitTab(tabId); await sleep(1600); await waitContent(tabId);

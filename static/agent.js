@@ -33,12 +33,16 @@ const BOARDS = [
 
 // ---------------- extension bridge ----------------
 const PENDING = {};
-function extCall(type, payload) {
+function extCall(type, payload, timeoutMs) {
   return new Promise((resolve) => {
     const id = "m" + Math.random().toString(36).slice(2);
     PENDING[id] = resolve;
     window.postMessage({ __jobhunt: true, id, type, ...payload }, "*");
-    setTimeout(() => { if (PENDING[id]) { delete PENDING[id]; resolve({ error: "no response" }); } }, 60000);
+    // A RUN over several jobs (each opens a tab, fills, waits, may ask you) easily exceeds a minute, so a
+    // short fixed timeout was resolving early and printing "Done" while jobs were still going. Callers pass
+    // a longer timeout for RUN; 0 disables it (resolve only on the real done message).
+    const ms = timeoutMs == null ? 60000 : timeoutMs;
+    if (ms > 0) setTimeout(() => { if (PENDING[id]) { delete PENDING[id]; resolve({ error: "no response" }); } }, ms);
   });
 }
 window.addEventListener("message", (e) => {
@@ -210,7 +214,7 @@ async function runApply(jobs) {
   if (live && !confirm(`LIVE submit ${jobs.length} application(s)? Real applications will be sent. Cancel for a safe dry-run.`)) return;
   $("runHead").textContent = live ? "Sending real applications. I'll ask if I get stuck." : "Safe dry-run: I prepare everything and stop before sending.";
   const blocks = jobs.map((j) => ({ job: j, block: makeBlock(j) }));
-  await extCall("RUN", { jobs: blocks.map((b) => ({ ...b.job, block: b.block })), live, token: qToken, apiBase: location.origin });
+  await extCall("RUN", { jobs: blocks.map((b) => ({ ...b.job, block: b.block })), live, token: qToken, apiBase: location.origin }, 1800000);
   $("runHead").textContent = live ? "Done. Review each above." : "Dry-run done. Turn on Live submit to really send.";
 }
 
