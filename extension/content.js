@@ -124,26 +124,47 @@
   // NOT as a native <select>). You can't set a value; you open the menu and click the matching option.
   const _wait = (ms) => new Promise((r) => setTimeout(r, ms));
   function _isCombobox(el) { return el.getAttribute("role") === "combobox" || el.getAttribute("aria-autocomplete") === "list" || el.getAttribute("aria-haspopup") === "listbox"; }
+  function _isPhoneCountryOption(o) {
+    // The phone field's intl-tel-input country dropdown is ALWAYS in the DOM with role=option items like
+    // "Afghanistan+93". It is never a real question's answer set, so we must never harvest it. Match the
+    // container first; the text test requires a country-name shape ("Name +code") and excludes timezone
+    // offsets like "(UTC+8)" / "GMT+5" so a real UTC-offset dropdown isn't wrongly filtered.
+    if (!o) return true;
+    try { if (o.closest('.iti, .iti__country-list, [class*="iti__"], [class*="country-list"], [class*="countryList"]')) return true; } catch (e) {}
+    const t = (o.textContent || "").trim();
+    if (!/\+\d{1,4}$/.test(t)) return false;
+    if (/[()]/.test(t) || /\b(utc|gmt)\b/i.test(t)) return false;
+    return /^[A-Za-zÀ-ɏ][A-Za-z .,'&À-ɏ-]*\+\d{1,4}$/.test(t);
+  }
+  function _menuOptions(box) {
+    if (!box) return [];
+    return Array.from(box.querySelectorAll('[role="option"], [id*="-option-"]')).filter((o) => !_isPhoneCountryOption(o));
+  }
   function _listboxOptions(el) {
-    // Read ONLY the listbox this combobox controls , never every [role=option] on the page (that was
-    // pairing, say, the Yes/No employment question with the phone field's 200 country-code options).
+    // Return ONLY the menu THIS combobox owns. Scope via the aria relations / react-select instance id /
+    // the control's own container , and NEVER fall back to "any [role=option] on the page" (that grabbed the
+    // ever-present phone country list, which also fooled _openCombobox into thinking a menu was open).
     if (el) {
       const ctrl = el.getAttribute("aria-controls") || el.getAttribute("aria-owns");
-      if (ctrl) { const box = document.getElementById(ctrl); if (box) { const o = Array.from(box.querySelectorAll('[role="option"], [id*="-option-"]')); if (o.length) return o; } }
-      // react-select: input id "react-select-3-input" -> options share base "react-select-3-option-N"
-      const m = (el.id || "").match(/^(.*?)-input$/);
-      if (m && m[1]) { try { const o = Array.from(document.querySelectorAll('[id^="' + CSS.escape(m[1]) + '-option"]')); if (o.length) return o; } catch (e) {} }
+      if (ctrl) { const o = _menuOptions(document.getElementById(ctrl)); if (o.length) return o; }
+      const ad = el.getAttribute("aria-activedescendant");
+      if (ad) { const act = document.getElementById(ad); const lb = act && act.closest && act.closest('[role="listbox"]'); const o = _menuOptions(lb); if (o.length) return o; }
+      const m = (el.id || "").match(/^(.*?)-(?:input|placeholder)$/);
+      if (m && m[1]) { const o = _menuOptions(document.getElementById(m[1] + "-listbox")); if (o.length) return o; }
+      try { const cont = el.closest('[class*="select"], [class*="combobox"], [class*="dropdown"], [class*="field"], [class*="question"]');
+        if (cont) { const o = _menuOptions(cont.querySelector('[role="listbox"]')); if (o.length) return o; } } catch (e) {}
     }
-    // fall back to a VISIBLE/expanded listbox (the one that just opened), not the whole document
-    const vis = Array.from(document.querySelectorAll('[role="listbox"]')).filter((l) => l.offsetParent !== null);
-    let opts = [];
-    for (const l of vis) opts.push(...Array.from(l.querySelectorAll('[role="option"], [id*="-option-"]')));
-    if (!opts.length) opts = Array.from(document.querySelectorAll('[role="option"]'));  // last resort
-    return opts;
+    // last resort: a VISIBLE listbox, with the phone country list filtered out (so it can never be returned)
+    for (const l of Array.from(document.querySelectorAll('[role="listbox"]')).filter((x) => x.offsetParent !== null)) {
+      const o = _menuOptions(l); if (o.length) return o;
+    }
+    return [];
   }
   async function _openCombobox(el) {
     try { el.focus(); el.click(); } catch (e) {}
-    for (let i = 0; i < 8; i++) { await _wait(90); if (_listboxOptions(el).length) return true; try { el.click(); } catch (e) {} }
+    // poll for the menu; re-click only ONCE midway (re-clicking every tick toggles a react-select menu shut,
+    // so a menu that opens slower than one tick would oscillate and intermittently look empty).
+    for (let i = 0; i < 10; i++) { await _wait(90); if (_listboxOptions(el).length) return true; if (i === 4) { try { el.click(); } catch (e) {} } }
     return _listboxOptions(el).length > 0;
   }
   function _closeCombobox(el) { try { el.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); } catch (e) {} try { document.body.click(); } catch (e) {} }
@@ -169,7 +190,11 @@
       if (t) { t.click(); try { el.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); } catch (e) {} return true; }
       _closeCombobox(el); return false;  // no matching option , let the caller ask the user with the real options
     }
-    // no options surfaced , treat as a free-text autocomplete (e.g. location): type + Enter
+    // No options surfaced. This is a free-text autocomplete (e.g. a location box that suggests only after
+    // you type) , OR a choice box whose menu we failed to scope. NEVER type an enum-like answer (Yes/No, a
+    // number) into an unscoped box , that was the "Indian Citizen"/"remote" garbage bug; fail closed so the
+    // caller asks the user instead. Only type genuinely free-text values (names, locations, URLs, sentences).
+    if (/^(yes|no|y|n|true|false|\d+)$/i.test(String(value).trim())) { _closeCombobox(el); return false; }
     try { const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set; set.call(el, value); el.dispatchEvent(new Event("input", { bubbles: true })); } catch (e) {}
     await _wait(280);
     try { el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); } catch (e) {}
@@ -180,6 +205,8 @@
     const push = (f) => { if (f.label && out.length < 25) { f.id = out.length; out.push(f); } };
     for (const el of document.querySelectorAll('input[role="combobox"], [role="combobox"], [aria-autocomplete="list"], [aria-haspopup="listbox"]')) {
       if (el.disabled || el.offsetParent === null) continue;
+      // skip the phone field's intl-tel country selector , it's part of the (identity) phone input, not a question
+      try { if (el.closest('.iti, [class*="iti__"], [class*="phone"], [class*="tel"]')) continue; } catch (e) {}
       const label = (labelText(el) || "").trim();
       if (!label || _isIdentity(hay(el))) continue;
       const options = await _harvestCombobox(el);

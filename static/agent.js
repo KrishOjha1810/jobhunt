@@ -62,9 +62,10 @@ async function pingExt() {
 document.querySelectorAll(".seg button").forEach((b) => b.onclick = () => {
   const tab = b.dataset.tab;
   document.querySelectorAll(".seg button").forEach((x) => x.classList.toggle("active", x === b));
-  ["matches", "apps", "connections"].forEach((t) => $("tab-" + t).classList.toggle("hidden", t !== tab));
+  ["matches", "apps", "profile", "connections"].forEach((t) => $("tab-" + t).classList.toggle("hidden", t !== tab));
   if (tab === "apps") loadApps();
   if (tab === "connections") loadConnections();
+  if (tab === "profile") loadApplyProfile();
 });
 
 // ---------------- matches ----------------
@@ -164,6 +165,51 @@ $("atsSave").onclick = async () => {
   if (body.password) $("atsPw").value = "••••••••";
 };
 
+// ---------------- apply profile (the facts I fill into every form) ----------------
+const _PF_FIELDS = ["phone", "location_city", "linkedin_url", "github_url", "portfolio_url",
+  "work_authorization", "total_experience_years", "notice_period_days", "current_ctc", "expected_ctc", "willing_to_relocate"];
+async function loadApplyProfile() {
+  try {
+    const d = await api("/api/apply-profile");
+    const p = (d && d.apply_profile) || {};
+    _PF_FIELDS.forEach((f) => { const el = $("pf_" + f); if (el) el.value = p[f] == null ? "" : p[f]; });
+  } catch (e) {}
+  loadResumeInfo();
+}
+async function saveApplyProfile() {
+  const body = {};
+  _PF_FIELDS.forEach((f) => { const el = $("pf_" + f); if (el) body[f] = el.value.trim(); });
+  $("pfStatus").textContent = "Saving…";
+  try { await apiPost("/api/apply-profile", body); $("pfStatus").innerHTML = '<span class="ok">Saved. I\'ll fill these into every application automatically.</span>'; }
+  catch (e) { $("pfStatus").innerHTML = '<span class="err">Could not save. Try again.</span>'; }
+}
+async function loadResumeInfo() {
+  const el = $("resumeInfo"); if (!el) return;
+  try {
+    const r = await api("/api/resume");
+    const rj = (r && r.resume) || r || {};
+    const name = rj.name || "";
+    const skills = rj.skills ? (Array.isArray(rj.skills) ? rj.skills.length : Object.keys(rj.skills).length) : 0;
+    const exp = (rj.experience || []).length, proj = (rj.projects || []).length;
+    el.innerHTML = name
+      ? `On file: <b>${esc(name)}</b> , ${skills} skill group(s), ${exp} role(s), ${proj} project(s). This is attached when I apply.`
+      : "No resume on file yet , upload one below so I can attach it.";
+  } catch (e) { el.textContent = "Couldn't load your resume."; }
+}
+async function uploadResume() {
+  const fileEl = $("resumeFile"); const f = fileEl && fileEl.files && fileEl.files[0];
+  if (!f) { $("resumeStatus").innerHTML = '<span class="err">Pick a PDF/DOCX first.</span>'; return; }
+  $("resumeStatus").textContent = "Uploading & parsing…";
+  try {
+    const fd = new FormData(); fd.append("file", f);
+    const sep = "/api/resume/import".includes("?") ? "&" : "?";
+    const r = await fetch("/api/resume/import" + (T ? sep + T : ""), { method: "POST", credentials: "include", body: fd });
+    const d = await r.json();
+    if (d && (d.ok || d.resume)) { $("resumeStatus").innerHTML = '<span class="ok">Resume updated , the next applies use this one.</span>'; loadResumeInfo(); }
+    else { $("resumeStatus").innerHTML = '<span class="err">' + esc((d && d.reason) || "Couldn't parse that file.") + '</span>'; }
+  } catch (e) { $("resumeStatus").innerHTML = '<span class="err">Upload failed. Try again.</span>'; }
+}
+
 // ---------------- run (narration via the extension) ----------------
 const BLOCKS = {};
 function openDrawer() { $("drawer").classList.add("open"); const s = $("scrim"); if (s) s.classList.add("open"); }
@@ -240,6 +286,8 @@ async function runApply(jobs) {
   try { const d = await api("/api/jobs"); const n = (d.jobs || []).filter((j) => ["applied", "interview", "offer"].includes((j.status || "").toLowerCase())).length; const el = $("statApps"); if (el) el.textContent = n; } catch (e) {}
   const apply = $("applyAll"); if (apply) apply.onclick = () => runApply(Array.from(document.querySelectorAll(".chk:checked")).map((c) => AP_ITEMS[+c.dataset.i]).filter(Boolean));
   const reload = $("reload"); if (reload) reload.onclick = loadMatches;
+  const pfSave = $("pfSave"); if (pfSave) pfSave.onclick = saveApplyProfile;
+  const resumeUpload = $("resumeUpload"); if (resumeUpload) resumeUpload.onclick = uploadResume;
   pingExt();
   loadMatches();
 })();
