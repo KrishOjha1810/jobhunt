@@ -125,27 +125,61 @@ async function fillFields(tabId, block, job, ctx) {
         await sendTo(tabId, { type: "FILL_FIELD", field: f, value: "yes" }); bLog(block, `agreed to <b>${f.label.slice(0, 40)}</b>`); continue;
       }
       const val = answers[ai++];  // askable-aligned (advanced once per non-EEO/non-consent field)
+      let filled = false;
       if (!_isPlaceholder(val)) {
         const r = await sendTo(tabId, { type: "FILL_FIELD", field: f, value: val });
         // NOTE: don't learnAnswer here , these answers include LLM drafts; a bank entry comes only from a
         // user-confirmed answer below, so we never poison the bank with an unverified guess.
-        if (r && r.ok) { bLog(block, `answered <b>${f.label.slice(0, 48)}</b> from your profile`); continue; }
+        if (r && r.ok) { bLog(block, `answered <b>${f.label.slice(0, 48)}</b> from your profile`); filled = true; }
       }
-      // couldn't fill from what we know, and it matters (required, or a choice we must pick) , ask on the page
+      // Re-apply an answer already given THIS run, silently. A single-page ATS form re-scans between steps,
+      // so without this we'd re-ask the same question on every pass , that was the "asking me twice" bug.
+      if (!filled && job._ans && job._ans[f.label] != null) {
+        const r = await sendTo(tabId, { type: "FILL_FIELD", field: f, value: job._ans[f.label] });
+        if (r && r.ok) filled = true;
+      }
+      if (filled) continue;
+      // Genuinely unknown and it matters (required, or a choice we must pick) , ask ON THE PAGE, exactly once
+      // per question per run. If we already asked, or the user's answer won't take on this widget, record it as
+      // unfilled and move on , never nag, and never yank the hidden job tab to the foreground (the thing that
+      // caused the constant page-switching). Any leftover is handed off once, at the end, in applyOne.
       if (f.required || f.type === "select" || f.type === "radio") {
-        bStatus(block, "needs you", "warn"); bLog(block, "one question i couldn't fill:");
+        if (job._asked && job._asked.has(f.label)) { job._unfilled && job._unfilled.add(f.label); continue; }
+        job._asked && job._asked.add(f.label);
+        bStatus(block, "needs you", "warn"); bLog(block, "one question i need from you:");
         const opts = (f.options || []).map((o) => o.label).filter(Boolean);
         const ans = await bAsk(block, f.label, opts);
-        const r2 = await sendTo(tabId, { type: "FILL_FIELD", field: f, value: ans });
-        if (r2 && r2.ok) { learnAnswer(ctx, f.label, ans); bLog(block, `set <b>${f.label.slice(0, 40)}</b>`); }
-        else { bLog(block, `couldn't apply that answer to <b>${f.label.slice(0, 40)}</b> , I'll open the tab so you can set it`); bStatus(block, "needs you", "warn"); try { await chrome.tabs.update(tabId, { active: true }); } catch (e) {} }
-        if (!(r2 && r2.ok)) { /* leave status as needs-you */ } else bStatus(block, "in progress", "live");
+        if (ans) {
+          if (job._ans) job._ans[f.label] = ans;
+          const r2 = await sendTo(tabId, { type: "FILL_FIELD", field: f, value: ans });
+          if (r2 && r2.ok) { learnAnswer(ctx, f.label, ans); bLog(block, `set <b>${f.label.slice(0, 40)}</b>`); bStatus(block, "in progress", "live"); }
+          else { job._unfilled && job._unfilled.add(f.label); bLog(block, `couldn't set <b>${f.label.slice(0, 40)}</b> on this form , I'll open it at the end so you can finish it`); }
+        } else { job._unfilled && job._unfilled.add(f.label); }
       }
     } finally { bProg(block, k + 1, fields.length); }
   }
   return { captcha };
 }
-async function tryUpload(tabId, block, job, ctx) { const up = await sendTo(tabId, { type: "UPLOAD_RESUME", url: `${ctx.apiBase}/api/resume/tailored.docx?token=${encodeURIComponent(ctx.token || "")}&job_id=${job.job_id || 0}`, filename: "resume.docx" }); if (up && up.ok) { bLog(block, "attached your tailored resume"); return true; } return false; }
+// base64 a binary buffer in chunks (avoids blowing the call stack on apply of fromCharCode to a big array).
+function _abToB64(buf) { const b = new Uint8Array(buf); let s = ""; const C = 0x8000; for (let i = 0; i < b.length; i += C) s += String.fromCharCode.apply(null, b.subarray(i, i + C)); return btoa(s); }
+async function tryUpload(tabId, block, job, ctx) {
+  // Fetch the resume HERE in the service worker, not in the content script: the worker uses the extension's
+  // host permission, so it is NOT subject to the job page's CORS or CSP (both of which silently blocked a
+  // content-script fetch to our onrender API , the real reason "couldn't attach a resume" kept showing).
+  // We hand the bytes to the page as base64 for it to build the File and set on the input.
+  try {
+    const url = `${ctx.apiBase}/api/resume/tailored.docx?token=${encodeURIComponent(ctx.token || "")}&job_id=${job.job_id || 0}`;
+    const r = await fetch(url);
+    if (!r.ok) { bLog(block, `couldn't fetch your resume (${r.status})`); return false; }
+    const buf = await r.arrayBuffer();
+    if (!buf || !buf.byteLength) { bLog(block, "your resume came back empty"); return false; }
+    const mime = r.headers.get("content-type") || "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    const up = await sendTo(tabId, { type: "UPLOAD_RESUME", dataB64: _abToB64(buf), filename: "resume.docx", mime });
+    if (up && up.ok) { bLog(block, "attached your resume"); return true; }
+    bLog(block, up && up.reason ? `couldn't attach resume: ${up.reason}` : "couldn't attach resume on this page");
+    return false;
+  } catch (e) { bLog(block, "couldn't attach resume"); return false; }
+}
 
 async function applyIndia(tabId, block, job, live, ctx) {
   const cleared = await clearGates(tabId, block, job.board, ctx); if (cleared === "stuck") return;
@@ -183,7 +217,7 @@ async function applyAts(tabId, block, job, live, ctx) {
     const ff = await fillFields(tabId, block, job, ctx); if (ff && ff.captcha) captcha = true;
     if (!uploaded) uploaded = await tryUpload(tabId, block, job, ctx);
     const pb = await sendTo(tabId, { type: "PRIMARY_BUTTON", board: job.board });
-    if (!pb.kind) { const again = await sendTo(tabId, { type: "CLICK_APPLY_ENTRY", board: job.board }); if (again.ok) { bLog(block, `clicked <b>${again.label}</b>`); await waitTab(tabId); await sleep(1600); await waitContent(tabId); continue; } bStatus(block, "needs you", "warn"); bLog(block, "filled this page but no Next/Submit found , open the tab and finish."); try { await chrome.tabs.update(tabId, { active: true }); } catch (e) {} return; }
+    if (!pb.kind) { const again = await sendTo(tabId, { type: "CLICK_APPLY_ENTRY", board: job.board }); if (again.ok) { bLog(block, `clicked <b>${again.label}</b>`); await waitTab(tabId); await sleep(1600); await waitContent(tabId); continue; } bStatus(block, "needs you", "warn"); bLog(block, "filled this page but couldn't find a Next/Submit button."); job._unfilled.add("the Submit/Next step"); return; }
     if (pb.kind === "submit") {
       const resumeNote = uploaded ? "resume attached" : "couldn't attach a resume automatically (attach it in the tab)";
       if (!live) { await sendTo(tabId, { type: "CLICK_PRIMARY", dryRun: true }); bStatus(block, "ready", "ok"); bLog(block, `ready at <b>${pb.label}</b> , filled, ${resumeNote}. Dry-run, nothing sent.`); return; }
@@ -192,10 +226,13 @@ async function applyAts(tabId, block, job, live, ctx) {
     }
     bLog(block, `step ${step + 1}: ${pb.label}`); await sendTo(tabId, { type: "CLICK_PRIMARY" }); await waitTab(tabId); await sleep(1600); await waitContent(tabId);
   }
-  bStatus(block, "needs you", "warn"); bLog(block, "many steps , I got partway, finish in the tab.");
+  bStatus(block, "needs you", "warn"); bLog(block, "this application has many steps , I got partway."); job._unfilled.add("the remaining steps");
 }
 async function applyOne(job, live, ctx) {
   const block = job.block;
+  // Per-job apply memory: answers given this run (so a re-scan never re-asks), questions already asked, and
+  // the few we genuinely couldn't set here (handed off ONCE at the end, never by yanking the tab per field).
+  job._ans = {}; job._asked = new Set(); job._unfilled = new Set();
   bStatus(block, "in progress", "live"); bLog(block, `applying you to <b>${job.title || "this role"}</b> at ${job.company || ""} via ${job.label || "the board"}`);
   let tabId = null;
   try {
@@ -205,6 +242,13 @@ async function applyOne(job, live, ctx) {
     if (scan.error) { bStatus(block, "page not ready", "err"); bLog(block, "couldn't read this page , log in to the board and retry."); return; }
     if (INDIA_BOARDS.includes(job.board)) await applyIndia(tab.id, block, job, live, ctx);
     else await applyAts(tab.id, block, job, live, ctx);
+    // ONE hand-off, at the end, for anything we couldn't fill on the form. In Live we open the application a
+    // single time so the user finishes those few fields; in dry-run we just name them on our page, no switch.
+    if (job._unfilled.size) {
+      const list = [...job._unfilled].map((s) => s.slice(0, 42)).join("; ");
+      if (live) { bStatus(block, "needs you", "warn"); bLog(block, `I filled everything I could. ${job._unfilled.size} item(s) I couldn't set here , opening the application once so you can finish: ${list}`); try { await chrome.tabs.update(tabId, { active: true }); } catch (e) {} }
+      else bLog(block, `heads up: ${job._unfilled.size} item(s) I couldn't set here (${list}) , in Live mode I'll open the form once so you can finish them.`);
+    }
   } catch (e) { bStatus(block, "error", "err"); bLog(block, String(e && e.message || e)); }
   finally {
     // Close the hidden tab, UNLESS a hand-off brought it to the front for the user to finish (captcha /

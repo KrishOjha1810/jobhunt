@@ -174,9 +174,14 @@
     _closeCombobox(el);
     return labels.map((l) => ({ label: l, value: l }));
   }
-  async function fillCombobox(el, value) {
+  async function fillCombobox(el, value, knownOptions) {
     if (!el || value == null || value === "") return false;
     if (/^\[please answer\]/i.test(String(value))) return false;
+    // A combobox whose question has fixed options (Yes/No, a country list, visa, EEO) is a CHOICE field:
+    // the only valid answers are those options. We know this from the scan (knownOptions), independently of
+    // whether the live menu scopes this time, so we must NEVER free-type into it , that was "remote" landing
+    // in a Yes/No visa dropdown.
+    const isChoice = !!(knownOptions && knownOptions.length);
     if (!(await _openCombobox(el))) { _closeCombobox(el); return false; }
     const v = _norm(value), opts = _listboxOptions(el);
     if (opts.length) {
@@ -191,10 +196,11 @@
       _closeCombobox(el); return false;  // no matching option , let the caller ask the user with the real options
     }
     // No options surfaced. This is a free-text autocomplete (e.g. a location box that suggests only after
-    // you type) , OR a choice box whose menu we failed to scope. NEVER type an enum-like answer (Yes/No, a
-    // number) into an unscoped box , that was the "Indian Citizen"/"remote" garbage bug; fail closed so the
-    // caller asks the user instead. Only type genuinely free-text values (names, locations, URLs, sentences).
-    if (/^(yes|no|y|n|true|false|\d+)$/i.test(String(value).trim())) { _closeCombobox(el); return false; }
+    // you type) , OR a choice box whose menu we failed to scope. NEVER type into a box we KNOW is a choice
+    // field (knownOptions), nor an enum-like answer (Yes/No, a number) into an unscoped box , that was the
+    // "Indian Citizen"/"remote" garbage bug; fail closed so the caller asks the user with the real options.
+    // Only type genuinely free-text values (names, locations, URLs, sentences) into a true free-text box.
+    if (isChoice || /^(yes|no|y|n|true|false|\d+)$/i.test(String(value).trim())) { _closeCombobox(el); return false; }
     try { const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set; set.call(el, value); el.dispatchEvent(new Event("input", { bubbles: true })); } catch (e) {}
     await _wait(280);
     try { el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); } catch (e) {}
@@ -266,7 +272,7 @@
   async function fillField(field, value) {
     if (!field) return false;
     if (value == null || value === "" || /^\[please answer\]/i.test(String(value))) return false;
-    if (field.type === "combobox") { const el = document.querySelector(field.sel); return el ? await fillCombobox(el, value) : false; }
+    if (field.type === "combobox") { const el = document.querySelector(field.sel); return el ? await fillCombobox(el, value, field.options) : false; }
     if (field.type === "select") {
       const el = document.querySelector(field.sel); if (!el) return false;
       const o = _bestOption(field.options, value); if (!o) return false;
@@ -755,9 +761,20 @@
             // not the cover-letter one; fall back to any file input.
             const inp = document.querySelector('input[type=file]#resume, input[type=file][id*="resume" i], input[type=file][name*="resume" i], input[type=file][accept*="pdf" i], input[type=file]');
             if (!inp) { reply({ ok: false, reason: "no file input on this page" }); return; }
-            const r = await fetch(msg.url);
-            if (!r.ok) { reply({ ok: false, reason: "resume not ready (" + r.status + ") , set/generate your resume first" }); return; }
-            const blob = await r.blob();
+            let blob;
+            if (msg.dataB64) {
+              // Bytes fetched by the background worker (which bypasses this job page's CORS + CSP, both of which
+              // block a content-script fetch to our onrender API , that was why the resume never attached).
+              try {
+                const bin = atob(msg.dataB64); const u8 = new Uint8Array(bin.length);
+                for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+                blob = new Blob([u8], { type: msg.mime || "application/octet-stream" });
+              } catch (e) { reply({ ok: false, reason: "resume decode failed" }); return; }
+            } else {
+              const r = await fetch(msg.url);  // legacy path (same-origin pages only)
+              if (!r.ok) { reply({ ok: false, reason: "resume not ready (" + r.status + ")" }); return; }
+              blob = await r.blob();
+            }
             if (!blob || blob.size === 0) { reply({ ok: false, reason: "resume came back empty" }); return; }
             const file = new File([blob], msg.filename || "resume.docx", { type: blob.type || "application/octet-stream" });
             const dt = new DataTransfer(); dt.items.add(file);
