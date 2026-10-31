@@ -1,5 +1,12 @@
-// Open the side panel when the toolbar icon is clicked (kept for the panel fallback).
-chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
+// The extension is invisible: no popup, no side panel. The whole UI is the /agent web page. Clicking the
+// toolbar icon just opens that page (with the saved token if we have one), so the extension is only ever
+// the silent engine behind the page.
+chrome.action.onClicked.addListener(async () => {
+  let token = "";
+  try { ({ token } = await chrome.storage.local.get(["token"])); } catch (e) {}
+  const url = "https://jobhunt-8i1m.onrender.com/agent" + (token ? "?token=" + encodeURIComponent(token) : "");
+  try { chrome.tabs.create({ url }); } catch (e) {}
+});
 
 // ============ Agent orchestrator ============
 // The web page (/agent) is the whole UI. It talks to this worker through a content-script bridge on
@@ -181,6 +188,9 @@ chrome.runtime.onConnect.addListener((port) => {
   port.onMessage.addListener(async (msg) => {
     if (!msg || !msg.__jobhunt) return;
     if (msg.type === "PING") { port.postMessage({ __jobhuntAgent: true, id: msg.id, ok: true }); return; }
+    // The page hands us the user's token on load so the silent engine (auto-harvest, background posts) is
+    // authenticated without any side panel. Persist it for runs that happen outside this port's lifetime.
+    if (msg.type === "SET_TOKEN") { if (msg.token) { try { chrome.storage.local.set({ token: msg.token }); } catch (e) {} } return; }
     if (msg.type === "ANSWER") { const r = ASKS[msg.askId]; if (r) { delete ASKS[msg.askId]; r(msg.answer); } return; }
     if (msg.type === "RUN") {
       const ctx = { token: msg.token || "", apiBase: msg.apiBase || "", profile: msg.profile || {} };
