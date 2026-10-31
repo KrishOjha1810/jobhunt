@@ -120,7 +120,20 @@ async function tryUpload(tabId, block, job, ctx) { const up = await sendTo(tabId
 async function applyIndia(tabId, block, job, live, ctx) {
   const cleared = await clearGates(tabId, block, job.board, ctx); if (cleared === "stuck") return;
   let sub;
-  if (API_BOARDS.includes(job.board)) { bLog(block, `applying via ${job.label}'s own apply API, in your session`); let message; if (job.board === "ycombinator") { const cl = await apiJSON(ctx, `/api/cover_letter?job_id=${job.job_id || 0}`); if (cl && cl.ok && cl.cover_letter) message = cl.cover_letter; } sub = await sendTo(tabId, { type: "API_APPLY", board: job.board, url: job.url, dryRun: !live, message }); }
+  if (API_BOARDS.includes(job.board)) {
+    bLog(block, `applying via ${job.label}'s own apply API, in your session`);
+    let message; if (job.board === "ycombinator") { const cl = await apiJSON(ctx, `/api/cover_letter?job_id=${job.job_id || 0}`); if (cl && cl.ok && cl.cover_letter) message = cl.cover_letter; }
+    sub = await sendTo(tabId, { type: "API_APPLY", board: job.board, url: job.url, dryRun: !live, message });
+    // If the board's apply needs a screening questionnaire/chatbot, the one-shot API can't answer it , so
+    // fall back to the on-page form wizard. fillFields surfaces anything we don't know on /agent itself
+    // (bAsk -> renderAsk), the user answers there, we learn it, then submit. Same path the ATS boards use,
+    // so Naukri/Hirist/iimjobs get the exact "ask on our page" UX, not a half-applied one-shot.
+    if (sub && (sub.needsQuestions || (sub.ok === false && /question/i.test(sub.reason || "")))) {
+      bLog(block, "this role has screening questions , I'll fill the form and ask you here for anything I don't have");
+      await fillFields(tabId, block, job, ctx);
+      sub = await sendTo(tabId, { type: "SUBMIT", dryRun: !live, board: job.board });
+    }
+  }
   else { bLog(block, "reading the page and your profile"); await fillFields(tabId, block, job, ctx); sub = await sendTo(tabId, { type: "SUBMIT", dryRun: !live, board: job.board }); }
   if (sub.error) { bStatus(block, "couldn't act", "err"); bLog(block, "couldn't reach this board , logged in?"); }
   else if (sub.alreadyApplied) { bStatus(block, "already applied", "ok"); bLog(block, "already applied , marking done."); await markApplied(ctx, job); }
