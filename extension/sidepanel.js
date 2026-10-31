@@ -397,6 +397,45 @@ function runSelected() {
   runApply(chosen);
 }
 
+// ===================== HARVEST (read jobs off the board the user is browsing) =====================
+// Reads the listings off whatever supported board the user is currently on (in their own logged-in
+// session), sends them to the backend to rank against the resume, and pulls the strong ones into the
+// Agent queue. This is how Naukri / Hirist / iimjobs (which the server can't fetch) get into the feed.
+const _HARVEST_HOSTS = /naukri\.com|hirist\.(tech|com)|iimjobs\.com|instahyre\.com|foundit\.in|internshala\.com/;
+async function harvestHere() {
+  const el = $("harvest"); const orig = el ? el.textContent : "";
+  try {
+    if (el) { el.disabled = true; el.textContent = "Reading this page..."; }
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab || !tab.id) { statusIn("apSummary", "No active tab open.", "err"); return; }
+    if (!_HARVEST_HOSTS.test(tab.url || "")) {
+      statusIn("apSummary", "Open a Naukri / Hirist / iimjobs (or Instahyre / foundit / Internshala) search page, then tap this.", "err");
+      return;
+    }
+    const ready = await waitContent(tab.id);
+    if (ready.error) { statusIn("apSummary", "This page isn't ready yet , reload it and try again.", "err"); return; }
+    const res = await sendTo(tab.id, { type: "HARVEST_JOBS" });
+    const jobs = (res && res.jobs) || [];
+    if (!jobs.length) {
+      statusIn("apSummary", "Couldn't read any jobs here. Make sure you're on a search-results page with listings visible (and logged in).", "err");
+      return;
+    }
+    statusIn("apSummary", `Read ${jobs.length} job(s), matching to your resume...`);
+    const d = await api(`/api/harvest?token=${encodeURIComponent(TOKEN)}`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ board: res.board || "", jobs }),
+    });
+    if (d.error) { statusIn("apSummary", "Harvest failed: " + d.error, "err"); return; }
+    const q = d.queued || 0;
+    statusIn("apSummary", `Found ${jobs.length}, added ${q} strong match(es) to your queue.`, q ? "ok" : "");
+    if (q) apLoad();
+  } catch (e) {
+    statusIn("apSummary", "Harvest failed: " + (e.message || e), "err");
+  } finally {
+    if (el) { el.disabled = false; el.textContent = orig; }
+  }
+}
+
 // ===================== SETUP + BOOT =====================
 async function save(raw) {
   const token = parseToken(raw);
@@ -424,6 +463,7 @@ function enterAgent() {
   $("navConn").onclick = () => { showView("connections"); loadConnections(); };
   $("toAgentFromConn").onclick = () => showView("agent");
   $("apLoad").onclick = apLoad;
+  $("harvest").onclick = harvestHere;
   $("apRunAll").onclick = runSelected;
   $("atsSave").onclick = saveAts;
   $("atsReveal").onclick = revealAts;

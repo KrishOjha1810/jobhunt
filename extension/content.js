@@ -17,6 +17,7 @@
   }
   function setVal(el, val) {
     if (!el || val == null || val === "") return false;
+    if (typeof val === "string" && /^\[please answer\]/i.test(val)) return false;  // never write the LLM placeholder
     const proto = el.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
     const setter = Object.getOwnPropertyDescriptor(proto, "value").set;
     try { setter.call(el, val); } catch { el.value = val; }
@@ -142,12 +143,19 @@
   }
   async function fillCombobox(el, value) {
     if (!el || value == null || value === "") return false;
+    if (/^\[please answer\]/i.test(String(value))) return false;
     if (!(await _openCombobox(el))) { _closeCombobox(el); return false; }
     const v = _norm(value), opts = _listboxOptions();
-    let t = opts.find((o) => _norm(o.textContent) === v) || opts.find((o) => { const n = _norm(o.textContent); return n && (n.includes(v) || v.includes(n)); });
-    if (!t && /^(yes|y|true|1)$/.test(v)) t = opts.find((o) => /^yes\b/.test(_norm(o.textContent)));
-    if (!t && /^(no|n|false|0)$/.test(v)) t = opts.find((o) => /^no\b/.test(_norm(o.textContent)));
-    if (t) { t.click(); try { el.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); } catch (e) {} return true; }
+    if (opts.length) {
+      // a CHOICE combobox (fixed options, e.g. Yes/No, visa, EEO): pick a real option or FAIL , never
+      // inject a free-typed value, which was putting garbage ("Indian Citizen", "remote") into the box.
+      let t = opts.find((o) => _norm(o.textContent) === v) || opts.find((o) => { const n = _norm(o.textContent); return n && (n.includes(v) || v.includes(n)); });
+      if (!t && /^(yes|y|true|1)$/.test(v)) t = opts.find((o) => /^yes\b/.test(_norm(o.textContent)));
+      if (!t && /^(no|n|false|0)$/.test(v)) t = opts.find((o) => /^no\b/.test(_norm(o.textContent)));
+      if (t) { t.click(); try { el.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); } catch (e) {} return true; }
+      _closeCombobox(el); return false;  // no matching option , let the caller ask the user with the real options
+    }
+    // no options surfaced , treat as a free-text autocomplete (e.g. location): type + Enter
     try { const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set; set.call(el, value); el.dispatchEvent(new Event("input", { bubbles: true })); } catch (e) {}
     await _wait(280);
     try { el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); } catch (e) {}
@@ -209,6 +217,7 @@
   }
   async function fillField(field, value) {
     if (!field) return false;
+    if (value == null || value === "" || /^\[please answer\]/i.test(String(value))) return false;
     if (field.type === "combobox") { const el = document.querySelector(field.sel); return el ? await fillCombobox(el, value) : false; }
     if (field.type === "select") {
       const el = document.querySelector(field.sel); if (!el) return false;
@@ -515,6 +524,167 @@
     return { ok: false, reason: "couldn't find the apply path , open a hirist job, DevTools Network, click Apply, and send me the gladiator /user/... POST" };
   }
 
+  // ---- Harvest job listings from a board the user is already browsing, in their own logged-in session.
+  // This is a pure READ of the page the user is looking at (no network call, no header spoofing, no
+  // bot-check evasion) , exactly what the user sees. The backend ranks + queues what comes back.
+  function _absUrl(href) { try { return new URL(href, location.href).href.split("#")[0]; } catch (e) { return ""; } }
+  function _txt(root, sel) { const e = root.querySelector(sel); return e ? (e.innerText || e.textContent || "").trim() : ""; }
+  function _firstTxt(root, sels) { for (const s of sels) { const t = _txt(root, s); if (t) return t; } return ""; }
+
+  function _harvestJsonLd() {
+    // Many boards embed schema.org JobPosting; when present it's the cleanest source.
+    const out = [];
+    for (const s of document.querySelectorAll('script[type="application/ld+json"]')) {
+      let data; try { data = JSON.parse(s.textContent); } catch (e) { continue; }
+      const arr = Array.isArray(data) ? data : (data["@graph"] || [data]);
+      for (const d of arr) {
+        if (!d || typeof d !== "object") continue;
+        const ty = d["@type"];
+        if (!(ty === "JobPosting" || (Array.isArray(ty) && ty.includes("JobPosting")))) continue;
+        const org = d.hiringOrganization || {};
+        const locO = Array.isArray(d.jobLocation) ? (d.jobLocation[0] || {}) : (d.jobLocation || {});
+        const addr = locO.address || {};
+        out.push({
+          title: (d.title || "").trim(),
+          company: (typeof org === "string" ? org : (org.name || "")).trim(),
+          url: _absUrl(d.url || d.sameAs || location.href),
+          location: [addr.addressLocality, addr.addressRegion].filter(Boolean).join(", "),
+          salary: "",
+          description: String(d.description || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 1800),
+        });
+      }
+    }
+    return out;
+  }
+
+  function _harvestNaukri() {
+    const cards = document.querySelectorAll('div.srp-jobtuple-wrapper, article.jobTuple, div.cust-job-tuple, div.jobTuple');
+    const out = [];
+    for (const c of cards) {
+      const a = c.querySelector('a.title, a.jobTupleHeader__title, a[href*="/job-listings-"]');
+      if (!a) continue;
+      const url = _absUrl(a.href || a.getAttribute("href"));
+      if (!url) continue;
+      out.push({
+        title: (a.innerText || a.textContent || a.title || "").trim(),
+        company: _firstTxt(c, ['a.comp-name', 'a.subTitle', 'span.comp-name', 'a.companyInfo']),
+        url,
+        location: _firstTxt(c, ['span.locWdth', 'span.loc', 'li.location span', 'span.location']),
+        salary: _firstTxt(c, ['span.sal', 'span.sal-wrap span', 'li.salary span']),
+        description: [_firstTxt(c, ['span.job-desc', 'div.job-description']),
+          Array.from(c.querySelectorAll('ul.tags-gt li, .tags li')).map((t) => (t.innerText || "").trim()).join(", "),
+          _firstTxt(c, ['span.expwdth', 'span.exp'])].filter(Boolean).join(" | "),
+      });
+    }
+    return out;
+  }
+
+  function _harvestByLinks(hrefRe) {
+    // Generic fallback: anchors that look like job-detail links; climb to a card and pull nearby text.
+    const seen = new Set(), out = [];
+    for (const a of document.querySelectorAll("a[href]")) {
+      const href = a.href || a.getAttribute("href") || "";
+      if (!hrefRe.test(href)) continue;
+      const url = _absUrl(href);
+      if (!url || seen.has(url)) continue;
+      const title = (a.innerText || a.textContent || "").trim();
+      if (!title || title.length < 3) continue;
+      seen.add(url);
+      let card = a;
+      for (let i = 0; i < 4 && card.parentElement; i++) { card = card.parentElement; if ((card.innerText || "").length > title.length + 20) break; }
+      out.push({ title: title.slice(0, 200), company: "", url, location: "", salary: "",
+        description: (card.innerText || "").replace(/\s+/g, " ").trim().slice(0, 600) });
+    }
+    return out;
+  }
+
+  // Pull a balanced JSON object out of inline script text starting at (or after) a marker. Reads only
+  // the page the user already loaded , no network, no header spoofing. Returns the parsed object or null.
+  function _extractBalancedJSON(text, marker) {
+    const at = marker ? text.indexOf(marker) : 0;
+    if (at === -1) return null;
+    const start = text.indexOf("{", at);
+    if (start === -1) return null;
+    let depth = 0, inStr = false, esc = false;
+    for (let k = start; k < text.length; k++) {
+      const ch = text[k];
+      if (inStr) { if (esc) esc = false; else if (ch === "\\") esc = true; else if (ch === '"') inStr = false; }
+      else if (ch === '"') inStr = true;
+      else if (ch === "{") depth++;
+      else if (ch === "}") { if (--depth === 0) { try { return JSON.parse(text.slice(start, k + 1)); } catch (e) { return null; } } }
+    }
+    return null;
+  }
+  function _deepFindJobArrays(obj, out, depth) {
+    // Collect arrays of objects that look like Naukri job records (have jdURL + title).
+    if (!obj || typeof obj !== "object" || depth > 9) return;
+    if (Array.isArray(obj)) {
+      if (obj.length && obj[0] && typeof obj[0] === "object" && obj[0].jdURL && obj[0].title) out.push(obj);
+      else for (const v of obj) _deepFindJobArrays(v, out, depth + 1);
+      return;
+    }
+    for (const k in obj) { try { _deepFindJobArrays(obj[k], out, depth + 1); } catch (e) {} }
+  }
+  function _harvestNaukriData() {
+    // Naukri renders from a jobDetails[] payload embedded in the page (keys confirmed from its public
+    // shape: jdURL, title, companyName, placeholders, tagsAndSkills, experienceText, salaryDetail). When
+    // it's in the initial HTML we read it straight from the <script> text , no CSS selectors, exact shape.
+    const found = [];
+    for (const s of document.querySelectorAll("script")) {
+      const t = s.textContent || "";
+      if (!t || t.indexOf("jdURL") === -1) continue;
+      let data = _extractBalancedJSON(t, "__INITIAL_STATE__") || _extractBalancedJSON(t, "");
+      if (data) _deepFindJobArrays(data, found, 0);
+    }
+    const base = "https://www.naukri.com", seen = new Set(), out = [];
+    for (const arr of found) for (const j of arr) {
+      const raw = j.jdURL || "";
+      const url = raw ? (raw.indexOf("http") === 0 ? raw : base + raw) : "";
+      if (!url || !j.title || seen.has(url)) continue;
+      seen.add(url);
+      let loc = "";
+      for (const p of (j.placeholders || [])) if (p && p.type === "location") loc = p.label || "";
+      const sd = j.salaryDetail || {};
+      const sal = (sd && !sd.hideSalary && (sd.minimumSalary || sd.maximumSalary))
+        ? [sd.minimumSalary, sd.maximumSalary].filter(Boolean).join(" - ") + " " + (sd.currency || "") : "";
+      out.push({
+        title: String(j.title || "").trim(),
+        company: String(j.companyName || "").trim(),
+        url, location: loc, salary: sal.trim(),
+        description: [j.tagsAndSkills || "", j.experienceText || ""].filter(Boolean).join(" | "),
+      });
+    }
+    return out;
+  }
+
+  function harvestJobs() {
+    const host = location.hostname;
+    let board = "", jobs = [];
+    if (/naukri\.com/.test(host)) { board = "naukri"; jobs = _harvestNaukriData(); if (!jobs.length) jobs = _harvestNaukri(); }
+    else if (/hirist\.(tech|com)/.test(host)) board = "hirist";
+    else if (/iimjobs\.com/.test(host)) board = "iimjobs";
+    else if (/instahyre\.com/.test(host)) board = "instahyre";
+    else if (/foundit\.in/.test(host)) board = "foundit";
+    else if (/internshala\.com/.test(host)) board = "internshala";
+    if (!jobs.length) jobs = _harvestJsonLd();  // most reliable when the board embeds it
+    if (!jobs.length) {
+      const re = board === "naukri" ? /\/job-listings-/ :
+        board === "hirist" ? /hirist\.(tech|com)\/j\// :
+        board === "iimjobs" ? /iimjobs\.com\/j\// :
+        board === "instahyre" ? /instahyre\.com\/.*(opportunit|job)/i :
+        board === "internshala" ? /internshala\.com\/.*(internship|job)/i :
+        /\/(job|jobs|opportunit|vacanc)/i;
+      jobs = _harvestByLinks(re);
+    }
+    const seen = new Set(), clean = [];
+    for (const j of jobs) {
+      if (!j.url || !j.title || seen.has(j.url)) continue;
+      seen.add(j.url); clean.push(j);
+      if (clean.length >= 80) break;
+    }
+    return { board: board || host, jobs: clean, total: clean.length, sample: clean.slice(0, 3) };
+  }
+
   chrome.runtime.onMessage.addListener((msg, _s, reply) => {
     try {
       if (msg.type === "SCAN") reply({ ats: A.detect(), questions: scanQuestions(), title: document.title });
@@ -526,20 +696,26 @@
       else if (msg.type === "SCAN_FIELDS") { scanFields().then((fields) => reply({ fields, captcha: hasCaptcha() })).catch((e) => reply({ fields: [], error: String(e) })); return true; }
       else if (msg.type === "FILL_FIELD") { fillField(msg.field, msg.value).then((ok) => reply({ ok })).catch((e) => reply({ ok: false, error: String(e) })); return true; }
       else if (msg.type === "CAPTCHA") reply({ captcha: hasCaptcha() });
+      else if (msg.type === "HARVEST_JOBS") { try { reply(harvestJobs()); } catch (e) { reply({ jobs: [], total: 0, error: String(e) }); } }
       else if (msg.type === "UPLOAD_RESUME") {
         // Attach a resume FILE to this page's file input. A content script can't set input.value, but
         // it CAN set input.files via a DataTransfer object built from a fetched blob, which most ATS
         // accept as a real upload. The extension's host permission lets us fetch our own API here.
         (async () => {
           try {
-            const inp = document.querySelector('input[type=file]');
+            // prefer the actual resume input (Greenhouse's #resume is a hidden visually-hidden file input),
+            // not the cover-letter one; fall back to any file input.
+            const inp = document.querySelector('input[type=file]#resume, input[type=file][id*="resume" i], input[type=file][name*="resume" i], input[type=file][accept*="pdf" i], input[type=file]');
             if (!inp) { reply({ ok: false, reason: "no file input on this page" }); return; }
             const r = await fetch(msg.url);
-            if (!r.ok) { reply({ ok: false, reason: "resume not ready (" + r.status + ")" }); return; }
+            if (!r.ok) { reply({ ok: false, reason: "resume not ready (" + r.status + ") , set/generate your resume first" }); return; }
             const blob = await r.blob();
+            if (!blob || blob.size === 0) { reply({ ok: false, reason: "resume came back empty" }); return; }
             const file = new File([blob], msg.filename || "resume.docx", { type: blob.type || "application/octet-stream" });
             const dt = new DataTransfer(); dt.items.add(file);
-            inp.files = dt.files;
+            // React/controlled inputs ignore a plain inp.files = ...; set via the native setter, then fire events.
+            try { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "files").set.call(inp, dt.files); }
+            catch (e) { try { inp.files = dt.files; } catch (e2) {} }
             inp.dispatchEvent(new Event("input", { bubbles: true }));
             inp.dispatchEvent(new Event("change", { bubbles: true }));
             reply({ ok: inp.files && inp.files.length > 0, name: file.name });
