@@ -70,6 +70,7 @@
     .empty .step .d{font-size:var(--fs-sm);color:var(--muted)}
     /* boards */
     .boards{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
+    .pgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px 16px}
     .board{background:var(--card);border:1px solid var(--card-border);border-radius:var(--r-md);padding:14px}
     .board .bn{font-weight:700;display:flex;justify-content:space-between;align-items:center}
     .board .more{color:var(--muted);font-size:var(--fs-xs);margin:4px 0 10px}
@@ -130,6 +131,7 @@
       <div class="seg">
         <button data-tab="matches" class="active">Matches</button>
         <button data-tab="apps">Applications</button>
+        <button data-tab="profile">Profile</button>
         <button data-tab="connections">Connections</button>
       </div>
     </div>
@@ -166,6 +168,36 @@
     <section id="tab-apps" class="hidden">
       <div class="sectitle"><h2>Applications</h2></div>
       <div id="appsList" class="feed"></div>
+    </section>
+
+    <!-- PROFILE -->
+    <section id="tab-profile" class="hidden">
+      <div class="sectitle"><h2>Your apply profile</h2></div>
+      <div class="banner">These are the facts I fill into every application , set them once and I stop asking. LinkedIn, GitHub and the rest fill themselves across Greenhouse, Lever, Naukri and more.</div>
+      <div class="pgrid">
+        <div><label class="fld">Phone</label><input class="in" id="pf_phone" placeholder="+91 ..."></div>
+        <div><label class="fld">Location (city, country)</label><input class="in" id="pf_location_city" placeholder="Indore, India"></div>
+        <div><label class="fld">LinkedIn URL</label><input class="in" id="pf_linkedin_url" placeholder="https://www.linkedin.com/in/..."></div>
+        <div><label class="fld">GitHub URL</label><input class="in" id="pf_github_url" placeholder="https://github.com/..."></div>
+        <div><label class="fld">Portfolio URL</label><input class="in" id="pf_portfolio_url" placeholder="https://..."></div>
+        <div><label class="fld">Work authorization</label><input class="in" id="pf_work_authorization" placeholder="e.g. Indian citizen, no sponsorship needed"></div>
+        <div><label class="fld">Total experience (years)</label><input class="in" id="pf_total_experience_years" placeholder="2"></div>
+        <div><label class="fld">Notice period (days)</label><input class="in" id="pf_notice_period_days" placeholder="30"></div>
+        <div><label class="fld">Current CTC</label><input class="in" id="pf_current_ctc" placeholder="e.g. 12 LPA"></div>
+        <div><label class="fld">Expected CTC</label><input class="in" id="pf_expected_ctc" placeholder="e.g. 20 LPA"></div>
+        <div><label class="fld">Willing to relocate</label><input class="in" id="pf_willing_to_relocate" placeholder="Yes / No"></div>
+      </div>
+      <button class="btn sm" id="pfSave" style="margin-top:14px">Save profile</button>
+      <div id="pfStatus" class="sub" style="margin-top:10px"></div>
+
+      <div class="sectitle" style="margin-top:var(--sp-6)"><h2>Your resume</h2></div>
+      <div class="banner">This is the resume I attach when I apply. Replace it any time , the next applies use the new one.</div>
+      <div id="resumeInfo" class="sub">Loading…</div>
+      <div class="row" style="margin-top:10px;gap:8px;align-items:center">
+        <input type="file" id="resumeFile" accept=".pdf,.doc,.docx" style="color:var(--muted)">
+        <button class="btn sm" id="resumeUpload">Upload / replace</button>
+      </div>
+      <div id="resumeStatus" class="sub" style="margin-top:10px"></div>
     </section>
 
     <!-- CONNECTIONS -->
