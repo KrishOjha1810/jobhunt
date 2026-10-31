@@ -51,10 +51,12 @@ _BOARD_RULES = [
     ("greenhouse.io", ("greenhouse", "assisted")),
     ("jobs.lever.co", ("lever", "assisted")),
     ("lever.co", ("lever", "assisted")),
-    # Multi-step / account-walled: no reliable zero-touch, open and do it yourself.
-    ("jobs.ashbyhq.com", ("ashby", "open_only")),
-    ("ashbyhq.com", ("ashby", "open_only")),
-    ("myworkdayjobs.com", ("workday", "open_only")),
+    # Ashby + Workday: the assisted wizard fills every field it can, signs in / creates the account with
+    # your saved application identity, clicks through the steps, and surfaces anything it can't on /agent.
+    # Workday is multi-step and may hand the final step back to you, but it is no longer "open yourself".
+    ("jobs.ashbyhq.com", ("ashby", "assisted")),
+    ("ashbyhq.com", ("ashby", "assisted")),
+    ("myworkdayjobs.com", ("workday", "assisted")),
 ]
 
 # human labels for the UI

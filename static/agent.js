@@ -88,7 +88,10 @@ function matchCard(j, i, selectable) {
 }
 function renderMatches() {
   const auto = [], rest = [];
-  AP_ITEMS.forEach((j, i) => (j.can_autoapply ? auto : rest).push([j, i]));
+  // The agent can apply to BOTH one-click (auto) and assisted (Greenhouse/Lever/Ashby , it fills every
+  // field and surfaces questions here, you may only finish a captcha). Both go in the selectable lane;
+  // only truly open-only boards (Workday multi-step, LinkedIn) stay "open yourself".
+  AP_ITEMS.forEach((j, i) => ((j.supported || j.can_autoapply) ? auto : rest).push([j, i]));
   const sM = $("statMatches"); if (sM) sM.textContent = AP_ITEMS.length;
   const sA = $("statApply"); if (sA) sA.textContent = auto.length;
   $("matchCount").textContent = AP_ITEMS.length ? `, ${auto.length} I can apply to` : "";
