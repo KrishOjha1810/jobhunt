@@ -124,20 +124,32 @@
   // NOT as a native <select>). You can't set a value; you open the menu and click the matching option.
   const _wait = (ms) => new Promise((r) => setTimeout(r, ms));
   function _isCombobox(el) { return el.getAttribute("role") === "combobox" || el.getAttribute("aria-autocomplete") === "list" || el.getAttribute("aria-haspopup") === "listbox"; }
-  function _listboxOptions() {
-    let opts = Array.from(document.querySelectorAll('[role="option"]'));
-    if (!opts.length) opts = Array.from(document.querySelectorAll('[id*="-option-"]'));
+  function _listboxOptions(el) {
+    // Read ONLY the listbox this combobox controls , never every [role=option] on the page (that was
+    // pairing, say, the Yes/No employment question with the phone field's 200 country-code options).
+    if (el) {
+      const ctrl = el.getAttribute("aria-controls") || el.getAttribute("aria-owns");
+      if (ctrl) { const box = document.getElementById(ctrl); if (box) { const o = Array.from(box.querySelectorAll('[role="option"], [id*="-option-"]')); if (o.length) return o; } }
+      // react-select: input id "react-select-3-input" -> options share base "react-select-3-option-N"
+      const m = (el.id || "").match(/^(.*?)-input$/);
+      if (m && m[1]) { try { const o = Array.from(document.querySelectorAll('[id^="' + CSS.escape(m[1]) + '-option"]')); if (o.length) return o; } catch (e) {} }
+    }
+    // fall back to a VISIBLE/expanded listbox (the one that just opened), not the whole document
+    const vis = Array.from(document.querySelectorAll('[role="listbox"]')).filter((l) => l.offsetParent !== null);
+    let opts = [];
+    for (const l of vis) opts.push(...Array.from(l.querySelectorAll('[role="option"], [id*="-option-"]')));
+    if (!opts.length) opts = Array.from(document.querySelectorAll('[role="option"]'));  // last resort
     return opts;
   }
   async function _openCombobox(el) {
     try { el.focus(); el.click(); } catch (e) {}
-    for (let i = 0; i < 8; i++) { await _wait(90); if (_listboxOptions().length) return true; try { el.click(); } catch (e) {} }
-    return _listboxOptions().length > 0;
+    for (let i = 0; i < 8; i++) { await _wait(90); if (_listboxOptions(el).length) return true; try { el.click(); } catch (e) {} }
+    return _listboxOptions(el).length > 0;
   }
   function _closeCombobox(el) { try { el.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); } catch (e) {} try { document.body.click(); } catch (e) {} }
   async function _harvestCombobox(el) {
     if (!(await _openCombobox(el))) { _closeCombobox(el); return []; }
-    const labels = _listboxOptions().map((o) => (o.textContent || "").trim()).filter(Boolean).slice(0, 40);
+    const labels = _listboxOptions(el).map((o) => (o.textContent || "").trim()).filter(Boolean).slice(0, 40);
     _closeCombobox(el);
     return labels.map((l) => ({ label: l, value: l }));
   }
@@ -145,7 +157,7 @@
     if (!el || value == null || value === "") return false;
     if (/^\[please answer\]/i.test(String(value))) return false;
     if (!(await _openCombobox(el))) { _closeCombobox(el); return false; }
-    const v = _norm(value), opts = _listboxOptions();
+    const v = _norm(value), opts = _listboxOptions(el);
     if (opts.length) {
       // a CHOICE combobox (fixed options, e.g. Yes/No, visa, EEO): pick a real option or FAIL , never
       // inject a free-typed value, which was putting garbage ("Indian Citizen", "remote") into the box.
