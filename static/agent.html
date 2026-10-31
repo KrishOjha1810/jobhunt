@@ -35,8 +35,14 @@
     .btn:disabled{opacity:.5;cursor:default;filter:none}
     .sectitle{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:var(--sp-5) 0 var(--sp-3);flex-wrap:wrap}
     .sectitle h2{font-size:var(--fs-h2)}
-    .controls{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
-    .controls .selrow{display:flex;align-items:center;gap:7px;margin:0;font-size:var(--fs-sm);color:var(--muted)}
+    .controls{display:flex;gap:16px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+    .controls .selrow{display:flex;align-items:center;gap:8px;margin:0;font-size:var(--fs-sm);color:var(--ink-2);cursor:pointer;user-select:none;white-space:nowrap}
+    .controls .selrow:hover{color:var(--ink)}
+    /* custom checkboxes , bigger, rounded, accent fill with a check (the default ones read as unstyled) */
+    input[type=checkbox]{appearance:none;-webkit-appearance:none;width:18px;height:18px;flex:none;border:1.5px solid var(--field-border);border-radius:5px;background:var(--field);cursor:pointer;position:relative;transition:background .12s,border-color .12s}
+    input[type=checkbox]:hover{border-color:var(--accent)}
+    input[type=checkbox]:checked{background:var(--accent);border-color:var(--accent)}
+    input[type=checkbox]:checked::after{content:"";position:absolute;left:5px;top:1.5px;width:5px;height:9px;border:solid var(--accent-ink);border-width:0 2px 2px 0;transform:rotate(45deg)}
     /* feed + cards */
     .feed{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:12px}
     .jc{background:var(--card);border:1px solid var(--card-border);border-radius:var(--r-md);padding:15px;display:flex;flex-direction:column;gap:10px;transition:border-color .15s,transform .12s,box-shadow .15s}
@@ -127,7 +133,7 @@
         <h2>Jobs for you <span class="sub" id="matchCount"></span></h2>
         <div class="controls" id="applyAllRow">
           <label class="selrow"><input type="checkbox" id="apAll"> <span>Select all</span></label>
-          <label class="selrow"><input type="checkbox" id="live"> <span>Live submit (off = safe dry-run)</span></label>
+          <label class="selrow" title="Off = safe dry-run: I prepare everything but never click submit."><input type="checkbox" id="live"> <span>Live submit</span></label>
           <button class="btn sm ghost" id="reload">Reload</button>
           <button class="btn sm" id="applyAll">Apply to selected</button>
         </div>
