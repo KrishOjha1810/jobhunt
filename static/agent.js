@@ -83,19 +83,34 @@ function matchCard(j, i, selectable) {
       <div>${selectable ? `<label style="display:flex;gap:8px;align-items:flex-start"><input type="checkbox" class="chk" data-i="${i}" style="margin-top:4px"><span><span class="co">${esc(j.company || "")}</span><div class="ti">${esc((j.title || "").slice(0, 60))}</div></span></label>` : `<div class="co">${esc(j.company || "")}</div><div class="ti">${esc((j.title || "").slice(0, 60))}</div>`}</div>
       ${fit ? `<span class="fit">${esc(fit)}</span>` : ""}
     </div>
-    <div style="display:flex;justify-content:space-between;align-items:center">${chip}${act}</div>
+    <div class="foot">${chip}${act}</div>
   </div>`;
 }
 function renderMatches() {
   const auto = [], rest = [];
   AP_ITEMS.forEach((j, i) => (j.can_autoapply ? auto : rest).push([j, i]));
+  const sM = $("statMatches"); if (sM) sM.textContent = AP_ITEMS.length;
+  const sA = $("statApply"); if (sA) sA.textContent = auto.length;
   $("matchCount").textContent = AP_ITEMS.length ? `, ${auto.length} I can apply to` : "";
+  if (!AP_ITEMS.length) {
+    $("matchList").innerHTML = `<div class="empty">
+      <div class="big">No matches yet , let's fill your feed</div>
+      <p>I bring jobs in from every board you use and rank them against your resume. Here's how to get them flowing:</p>
+      <div class="steps">
+        <div class="step"><div class="num">1</div><div class="t">Connect your boards</div><div class="d">Log in once to Naukri, Instahyre, foundit and the rest in the Connections tab.</div></div>
+        <div class="step"><div class="num">2</div><div class="t">Browse like normal</div><div class="d">Open a search on a board you're logged into , matching roles appear here automatically, no clicks.</div></div>
+        <div class="step"><div class="num">3</div><div class="t">Approve and apply</div><div class="d">Pick the ones you like and I apply, asking you here only for things I can't know.</div></div>
+      </div>
+      <div style="margin-top:18px"><button class="btn" id="emptyConn">Connect your boards</button></div>
+    </div>`;
+    const ec = $("emptyConn"); if (ec) ec.onclick = () => document.querySelector('.seg [data-tab="connections"]').click();
+    return;
+  }
   let html = "";
   if (auto.length) html += '<div class="feed">' + auto.map(([j, i]) => matchCard(j, i, true)).join("") + "</div>";
-  else html += `<div class="banner">No one-click jobs today. I apply to boards where your resume is pre-stored (Naukri, Instahyre, Internshala, foundit). <a href="#" id="toConn">Connect your boards</a> to get them here.</div>`;
+  else html += `<div class="banner">Nothing I can one-click right now. Browse a connected board (Naukri, Instahyre, foundit) while logged in and matches appear here, or <a href="#" id="toConn">connect your boards</a>.</div>`;
   if (rest.length) html += `<div class="sectitle"><h2>Open yourself (${rest.length})</h2></div><div class="feed">` + rest.map(([j, i]) => matchCard(j, i, false)).join("") + "</div>";
   $("matchList").innerHTML = html;
-  $("applyAllRow") && ($("applyAllRow").style.display = auto.length ? "flex" : "none");
   $("matchList").querySelectorAll("[data-apply]").forEach((b) => b.onclick = () => runApply([AP_ITEMS[+b.dataset.apply]]));
   $("matchList").querySelectorAll("[data-assist]").forEach((b) => b.onclick = () => runApply([AP_ITEMS[+b.dataset.assist]]));
   const all = $("apAll"); if (all) all.onclick = (e) => document.querySelectorAll(".chk").forEach((c) => c.checked = e.target.checked);
@@ -144,8 +159,10 @@ $("atsSave").onclick = async () => {
 
 // ---------------- run (narration via the extension) ----------------
 const BLOCKS = {};
-function openDrawer() { $("drawer").classList.add("open"); }
-$("drawerClose").onclick = () => $("drawer").classList.remove("open");
+function openDrawer() { $("drawer").classList.add("open"); const s = $("scrim"); if (s) s.classList.add("open"); }
+function closeDrawer() { $("drawer").classList.remove("open"); const s = $("scrim"); if (s) s.classList.remove("open"); }
+$("drawerClose").onclick = closeDrawer;
+{ const s = $("scrim"); if (s) s.onclick = closeDrawer; }
 function makeBlock(job) {
   const id = "rb" + Math.random().toString(36).slice(2, 8);
   const el = document.createElement("div");
@@ -196,7 +213,9 @@ async function runApply(jobs) {
 
 // ---------------- boot ----------------
 (async () => {
-  try { const me = await api("/api/autofill"); $("who").textContent = `Signed in as ${me.name || me.email || "you"}. I apply to your matches and narrate every step , you just watch.`; } catch (e) {}
+  try { const me = await api("/api/autofill"); const nm = me.name ? me.name.split(" ")[0] : ""; $("who").textContent = `${nm ? nm + ", I" : "I"} pull roles from every board you use, rank them against your resume, and apply , you approve and answer only what I can't know.`; } catch (e) {}
+  // applied count for the hero stat (one-time, non-blocking)
+  try { const d = await api("/api/jobs"); const n = (d.jobs || []).filter((j) => ["applied", "interview", "offer"].includes((j.status || "").toLowerCase())).length; const el = $("statApps"); if (el) el.textContent = n; } catch (e) {}
   const apply = $("applyAll"); if (apply) apply.onclick = () => runApply(Array.from(document.querySelectorAll(".chk:checked")).map((c) => AP_ITEMS[+c.dataset.i]).filter(Boolean));
   const reload = $("reload"); if (reload) reload.onclick = loadMatches;
   pingExt();
