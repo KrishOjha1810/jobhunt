@@ -21,6 +21,9 @@ const ASKS = {};
 // Heartbeat: an alarm firing wakes/keeps the service worker alive during a run (created in the RUN
 // handler, cleared when the run ends). The listener itself only needs to exist , no work required.
 try { chrome.alarms.onAlarm.addListener(() => {}); } catch (e) {}
+// Clear a heartbeat orphaned by a previous crashed/hung run (alarms persist across restarts), so it can't
+// keep the worker awake forever.
+try { chrome.alarms.clear("jobhunt-keepalive"); } catch (e) {}
 
 function sendTo(tabId, msg) {
   return new Promise((res) => chrome.tabs.sendMessage(tabId, msg, (r) => res(chrome.runtime.lastError ? { error: chrome.runtime.lastError.message } : (r || {}))));
@@ -43,7 +46,14 @@ const bLog = (block, log, me) => narrate(block, { log, me: !!me });
 const bStatus = (block, status, cls) => narrate(block, { status, cls: cls || "live" });
 const bProg = (block, n, total) => { if (total) narrate(block, { progress: Math.round(100 * n / total) }); };
 function bAsk(block, question, options) {
-  return new Promise((resolve) => { const askId = "a" + Math.random().toString(36).slice(2); ASKS[askId] = resolve; narrate(block, { ask: question, askId, options: options && options.length ? options : null }); });
+  return new Promise((resolve) => {
+    const askId = "a" + Math.random().toString(36).slice(2);
+    ASKS[askId] = resolve;
+    narrate(block, { ask: question, askId, options: options && options.length ? options : null });
+    // safety net: if the user never answers (closed the drawer, walked away), resolve blank after 10 min so
+    // the apply loop finishes, the job gets a terminal status, and the keepalive alarm is cleared , no hang.
+    setTimeout(() => { if (ASKS[askId]) { delete ASKS[askId]; resolve(""); } }, 600000);
+  });
 }
 
 async function apiJSON(ctx, path, body) {
@@ -187,13 +197,20 @@ async function applyAts(tabId, block, job, live, ctx) {
 async function applyOne(job, live, ctx) {
   const block = job.block;
   bStatus(block, "in progress", "live"); bLog(block, `applying you to <b>${job.title || "this role"}</b> at ${job.company || ""} via ${job.label || "the board"}`);
+  let tabId = null;
   try {
     const tab = await chrome.tabs.create({ url: job.url, active: false });
+    tabId = tab.id;
     await waitTab(tab.id); const scan = await waitContent(tab.id);
     if (scan.error) { bStatus(block, "page not ready", "err"); bLog(block, "couldn't read this page , log in to the board and retry."); return; }
     if (INDIA_BOARDS.includes(job.board)) await applyIndia(tab.id, block, job, live, ctx);
     else await applyAts(tab.id, block, job, live, ctx);
   } catch (e) { bStatus(block, "error", "err"); bLog(block, String(e && e.message || e)); }
+  finally {
+    // Close the hidden tab, UNLESS a hand-off brought it to the front for the user to finish (captcha /
+    // login / "finish in the tab" all call tabs.update(active:true)). Otherwise 20 jobs = 20 orphan tabs.
+    if (tabId != null) { try { const t = await chrome.tabs.get(tabId); if (t && !t.active) await chrome.tabs.remove(tabId); } catch (e) {} }
+  }
 }
 
 chrome.runtime.onConnect.addListener((port) => {
@@ -216,14 +233,19 @@ chrome.runtime.onConnect.addListener((port) => {
       // Keep the service worker alive for the WHOLE run with a chrome.alarms heartbeat. Unlike a page
       // timer (which Chrome throttles when /agent is backgrounded for a captcha/login, letting the worker
       // die mid-run and freeze every job on "queued"), an alarm is worker-side and fires regardless.
-      try { chrome.alarms.create("jobhunt-keepalive", { periodInMinutes: 0.4 }); } catch (e) {}
+      try { chrome.alarms.create("jobhunt-keepalive", { periodInMinutes: 0.5 }); } catch (e) {}
       try {
         for (const job of (msg.jobs || [])) { await applyOne(job, !!msg.live, ctx); await sleep(1400 + Math.random() * 1400); }
       } finally { try { chrome.alarms.clear("jobhunt-keepalive"); } catch (e) {} }
       port.postMessage({ __jobhuntAgent: true, id: msg.id, ok: true, done: true });
     }
   });
-  port.onDisconnect.addListener(() => { if (PORT === port) PORT = null; });
+  port.onDisconnect.addListener(() => {
+    if (PORT === port) PORT = null;
+    // the page went away (bfcache/navigation) , settle any pending on-page question so a waiting apply loop
+    // can finish instead of hanging on an answer that can never arrive.
+    for (const k of Object.keys(ASKS)) { try { const r = ASKS[k]; delete ASKS[k]; r(""); } catch (e) {} }
+  });
 });
 
 // ---- Auto-harvest intake: content scripts on Naukri/Hirist/iimjobs read the listings the user is

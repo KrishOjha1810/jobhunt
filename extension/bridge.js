@@ -12,6 +12,7 @@
   let port = null;
 
   function connect() {
+    try { if (port) port.disconnect(); } catch (e) {}  // drop any prior port so we never leak a second live one
     try { port = chrome.runtime.connect({ name: "agent" }); }
     catch (e) { port = null; return null; }
     try {

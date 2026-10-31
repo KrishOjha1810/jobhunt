@@ -126,10 +126,15 @@
   function _isCombobox(el) { return el.getAttribute("role") === "combobox" || el.getAttribute("aria-autocomplete") === "list" || el.getAttribute("aria-haspopup") === "listbox"; }
   function _isPhoneCountryOption(o) {
     // The phone field's intl-tel-input country dropdown is ALWAYS in the DOM with role=option items like
-    // "Afghanistan+93". It is never a real question's answer set, so we must never harvest it.
+    // "Afghanistan+93". It is never a real question's answer set, so we must never harvest it. Match the
+    // container first; the text test requires a country-name shape ("Name +code") and excludes timezone
+    // offsets like "(UTC+8)" / "GMT+5" so a real UTC-offset dropdown isn't wrongly filtered.
     if (!o) return true;
     try { if (o.closest('.iti, .iti__country-list, [class*="iti__"], [class*="country-list"], [class*="countryList"]')) return true; } catch (e) {}
-    return /\+\d{1,4}\)?\s*$/.test((o.textContent || "").trim());
+    const t = (o.textContent || "").trim();
+    if (!/\+\d{1,4}$/.test(t)) return false;
+    if (/[()]/.test(t) || /\b(utc|gmt)\b/i.test(t)) return false;
+    return /^[A-Za-zÀ-ɏ][A-Za-z .,'&À-ɏ-]*\+\d{1,4}$/.test(t);
   }
   function _menuOptions(box) {
     if (!box) return [];
@@ -157,7 +162,9 @@
   }
   async function _openCombobox(el) {
     try { el.focus(); el.click(); } catch (e) {}
-    for (let i = 0; i < 8; i++) { await _wait(90); if (_listboxOptions(el).length) return true; try { el.click(); } catch (e) {} }
+    // poll for the menu; re-click only ONCE midway (re-clicking every tick toggles a react-select menu shut,
+    // so a menu that opens slower than one tick would oscillate and intermittently look empty).
+    for (let i = 0; i < 10; i++) { await _wait(90); if (_listboxOptions(el).length) return true; if (i === 4) { try { el.click(); } catch (e) {} } }
     return _listboxOptions(el).length > 0;
   }
   function _closeCombobox(el) { try { el.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); } catch (e) {} try { document.body.click(); } catch (e) {} }
@@ -183,7 +190,11 @@
       if (t) { t.click(); try { el.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); } catch (e) {} return true; }
       _closeCombobox(el); return false;  // no matching option , let the caller ask the user with the real options
     }
-    // no options surfaced , treat as a free-text autocomplete (e.g. location): type + Enter
+    // No options surfaced. This is a free-text autocomplete (e.g. a location box that suggests only after
+    // you type) , OR a choice box whose menu we failed to scope. NEVER type an enum-like answer (Yes/No, a
+    // number) into an unscoped box , that was the "Indian Citizen"/"remote" garbage bug; fail closed so the
+    // caller asks the user instead. Only type genuinely free-text values (names, locations, URLs, sentences).
+    if (/^(yes|no|y|n|true|false|\d+)$/i.test(String(value).trim())) { _closeCombobox(el); return false; }
     try { const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set; set.call(el, value); el.dispatchEvent(new Event("input", { bubbles: true })); } catch (e) {}
     await _wait(280);
     try { el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); } catch (e) {}
