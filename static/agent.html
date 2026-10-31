@@ -84,19 +84,38 @@
     .livedot{width:8px;height:8px;border-radius:50%;background:var(--accent);animation:pulse 1.4s ease-in-out infinite}
     @keyframes pulse{0%,100%{opacity:1;box-shadow:0 0 0 0 var(--accent-soft)}50%{opacity:.5;box-shadow:0 0 0 6px transparent}}
     .drawer .db{flex:1;overflow:auto;padding:var(--sp-4) var(--sp-5)}
-    .runjob{background:var(--card);border:1px solid var(--card-border);border-radius:var(--r-md);padding:13px;margin-bottom:12px}
-    .runjob .rh{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
-    .runjob .rt{font-weight:700;font-size:var(--fs-sm)}
-    .runjob .rs{color:var(--muted);font-size:var(--fs-xs)}
-    .prog{height:6px;background:var(--field);border-radius:var(--r-pill);overflow:hidden;margin:10px 0}
-    .prog>div{height:100%;width:0;background:var(--grad);transition:width .4s ease}
-    .log{font-size:var(--fs-sm);line-height:1.6}
-    .log .l{padding:2px 0;color:var(--muted)} .log .l.me{color:var(--ink)} .log .l b{color:var(--accent);font-weight:600}
-    /* on-page question , the key "ask on our page" UX */
-    .ask{background:var(--accent-soft);border:1px solid var(--accent);border-radius:var(--r-md);padding:12px;margin-top:10px}
-    .ask>div:first-child{font-weight:600;color:var(--ink)}
-    .ask .row{display:flex;gap:8px;margin-top:9px;flex-wrap:wrap}
-    .ask input.in{height:34px}
+    /* run job cards , a status-colored left rail, a status dot, a board chip, a step timeline */
+    .runjob{background:var(--card);border:1px solid var(--card-border);border-left:3px solid var(--field-border);border-radius:var(--r-md);padding:14px 15px;margin-bottom:12px;transition:border-color .2s,box-shadow .2s}
+    .runjob.s-live{border-left-color:var(--accent);box-shadow:0 0 0 1px var(--accent-soft)}
+    .runjob.s-ok{border-left-color:var(--score-ink)}
+    .runjob.s-warn{border-left-color:var(--warn)}
+    .runjob.s-err{border-left-color:var(--danger)}
+    .runjob .rhead{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+    .runjob .rhl{display:flex;gap:10px;align-items:flex-start;min-width:0}
+    .rdot{width:9px;height:9px;border-radius:50%;background:var(--muted);margin-top:4px;flex:none}
+    .runjob.s-live .rdot{background:var(--accent);animation:pulse 1.4s ease-in-out infinite}
+    .runjob.s-ok .rdot{background:var(--score-ink)} .runjob.s-warn .rdot{background:var(--warn)} .runjob.s-err .rdot{background:var(--danger)}
+    .runjob .rt{font-weight:700;font-size:var(--fs-sm);line-height:1.25}
+    .runjob .rs{color:var(--muted);font-size:var(--fs-xs);margin-top:2px}
+    .rboard{display:inline-block;margin-top:7px;font-size:10px;letter-spacing:.3px;text-transform:uppercase;color:var(--ink-2);background:var(--seg-bg);border:1px solid var(--field-border);border-radius:var(--r-pill);padding:2px 8px}
+    .prog{height:5px;background:var(--field);border-radius:var(--r-pill);overflow:hidden;margin:11px 0 9px}
+    .prog>div{height:100%;width:0;background:var(--grad);transition:width .45s ease;border-radius:var(--r-pill)}
+    .rlog{font-size:var(--fs-sm);line-height:1.5;display:flex;flex-direction:column;gap:3px;padding-left:4px}
+    .rlog .l{position:relative;padding:1px 0 1px 16px;color:var(--muted)}
+    .rlog .l::before{content:"";position:absolute;left:0;top:8px;width:5px;height:5px;border-radius:50%;background:var(--field-border)}
+    .rlog .l:last-child{color:var(--ink-2)} .rlog .l:last-child::before{background:var(--accent)}
+    .rlog .l.me{color:var(--ink)} .rlog .l b{color:var(--accent);font-weight:600}
+    /* on-page question , the "needs you" card */
+    .ask{background:linear-gradient(180deg,var(--accent-soft),transparent);border:1px solid var(--accent);border-radius:var(--r-md);padding:13px 14px;margin:10px 0 4px}
+    .ask .qhead{display:flex;align-items:center;gap:7px;font-size:var(--fs-xs);font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:var(--accent);margin-bottom:7px}
+    .ask .qhead::before{content:"?";display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:var(--accent);color:var(--accent-ink);font-size:11px;font-weight:800}
+    .ask .qtext{font-weight:600;color:var(--ink);line-height:1.4}
+    .ask .opts{display:flex;gap:7px;margin-top:10px;flex-wrap:wrap}
+    .ask .opt{padding:7px 13px;border-radius:var(--r-pill);border:1px solid var(--field-border);background:var(--card);color:var(--ink);font-size:var(--fs-sm);font-weight:600;cursor:pointer;transition:border-color .12s,color .12s,transform .12s;font-family:inherit}
+    .ask .opt:hover{border-color:var(--accent);color:var(--accent);transform:translateY(-1px)}
+    .ask .opt.other{background:transparent;color:var(--muted)}
+    .ask .row{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+    .ask input.in{height:36px}
     .banner{background:var(--accent-soft);border:1px solid rgba(224,161,66,.35);border-radius:var(--r-md);padding:12px 14px;font-size:var(--fs-sm);margin:var(--sp-3) 0}
     .hidden{display:none}
     #status{font-size:var(--fs-sm);margin-top:12px;min-height:18px;color:var(--muted)}
