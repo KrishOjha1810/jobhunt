@@ -209,22 +209,24 @@ def _fetch(terms: list, india_wanted: bool, max_adzuna_terms: int = 3, india_aut
     tasks.append(lambda: himalayas.fetch(""))
     tasks.append(lambda: themuse.fetch(""))     # keyless; India city-level + non-dev/early-career
     tasks.append(lambda: internships.fetch(""))  # community GitHub internship JSON (India/Remote)
-    if india_wanted:
+    if india_wanted or india_autoapply:
+        # India-based user (full-India OR a USD-remote India user on the auto-apply lane): pull the
+        # no-login boards where the resume is pre-stored and apply is one action (Internshala,
+        # Instahyre), so the one-click Auto-Pilot always has candidates even on a remote-first feed.
+        # The recruiter screen still gates these, so it is not spray-and-pray.
         tasks.append(lambda: internshala.fetch(pages=2))  # India internships + PPO (convert-to-FTE) signal
         tasks.append(lambda: instahyre.fetch(limit=60))   # India tech roles, clean public JSON (no login)
-        tasks.append(lambda: foundit.fetch("software developer", limit=25))  # Monster India, open JSON
-        # Big-tech that run their OWN portals (not on ATS boards), reachable with a plain request:
+        # India big-tech that run their OWN portals (not on ATS boards), reachable with a plain
+        # request. A USD-remote India-based user still KEEPS India roles (matcher.location_ok keeps
+        # region 'india' for intl-remote), so surface these in the auto lane too, not only on a
+        # full-India feed , otherwise amazon.jobs/apple/google roles (e.g. an Amazon University SDE)
+        # never enter the pool for that user at all.
         tasks.append(lambda: amazon.fetch())     # amazon.jobs India SDE/backend
         tasks.append(lambda: apple.fetch())      # jobs.apple.com India SWE (hydration JSON)
         tasks.append(lambda: google.fetch())     # google.com/careers India early-career SWE (HTML)
-    elif india_autoapply:
-        # Auto-apply lane for an India-based user who is otherwise on a remote/USD feed: pull the two
-        # no-login boards where the resume is pre-stored and apply is one action (Internshala,
-        # Instahyre), so the one-click Auto-Pilot always has candidates even though the main feed
-        # stays remote-first. The recruiter screen still gates these to 'strong', so it is not
-        # spray-and-pray, it is "the strong matches you can actually apply to in one click".
-        tasks.append(lambda: internshala.fetch(pages=2))
-        tasks.append(lambda: instahyre.fetch(limit=60))
+    if india_wanted:
+        # Monster India is a heavier scrape; keep it to the full-India feed only.
+        tasks.append(lambda: foundit.fetch("software developer", limit=25))
     tasks.append(_ats_capped)  # Greenhouse/Lever/Ashby niche roles (already concurrent internally)
     if telegram_channels.channels():  # public Telegram job channels (set TELEGRAM_JOB_CHANNELS)
         tasks.append(lambda: telegram_channels.fetch(""))
