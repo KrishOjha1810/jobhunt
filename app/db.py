@@ -234,9 +234,18 @@ def _init_db_impl():
         # seed applied_at for legacy applied rows so streaks/calendar have history (approx from sent_at)
         conn.execute(text("UPDATE job_log SET applied_at=sent_at WHERE applied_at IS NULL AND applied=1"))
         # a 'strong' verdict with no recruiter judgment behind it is not a judgment (it came from a seed
-        # or copy path, not the screen): clear it so the quality gate falls back to the score.
-        conn.execute(text("UPDATE job_log SET verdict=NULL WHERE verdict='strong' "
-                          "AND (why_fit IS NULL OR TRIM(why_fit)='')"))
+        # or copy path, not the screen): demote it to 'maybe' (same as the runner and log_job), so it is
+        # left for the user to review and never auto-applied. Only untouched 'saved' rows: applied /
+        # interview / offer history is not rewritten. Emptiness is decided in Python (str.strip) so
+        # tabs/newlines count as empty the same way they do in gate_verdict; SQL TRIM only strips
+        # spaces and differs across sqlite/Postgres. The LENGTH bound keeps the boot scan small.
+        stale = [rid for rid, why in conn.execute(
+            select(job_log.c.id, job_log.c.why_fit).where(
+                job_log.c.verdict == "strong", job_log.c.status == "saved",
+                job_log.c.why_fit.is_(None) | (func.length(job_log.c.why_fit) <= 64))).all()
+            if not (why or "").strip()]
+        if stale:
+            conn.execute(update(job_log).where(job_log.c.id.in_(stale)).values(verdict="maybe"))
     # backfill dashboard tokens + referral codes for any user missing them
     with engine.begin() as conn:
         for (uid,) in conn.execute(select(users.c.id).where(users.c.dash_token.is_(None))).all():
@@ -337,9 +346,10 @@ def log_job(user_id, job):
     verdict = job.get("verdict")
     if verdict == "strong":
         # Every tracker write goes through here, so this is where "strong" is enforced: it needs a real
-        # screen judgment (why_fit) and a role not above the user's level. Rows seeded or copied without
-        # a judgment used to land as strong (fit=score, empty why_fit), incl. Director/Senior roles for
-        # a 2-yr user, and the autopilot queue trusts strong unconditionally.
+        # screen judgment (why_fit) and a role not above the user's level, else it is stored as 'maybe'
+        # (never NULL: NULL would let the score fallback put it back in the auto-apply queue). Rows
+        # seeded or copied without a judgment used to land as strong (fit=score, empty why_fit), incl.
+        # Director/Senior roles for a 2-yr user.
         from . import matcher as _matcher
         u = get_user_by_id(user_id)
         verdict = _matcher.gate_verdict(job, _matcher.user_years(u) if u else None)

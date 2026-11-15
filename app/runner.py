@@ -646,6 +646,7 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
                                                      rerank_pool[:SCREEN_N], prefs)
                     if screen:
                         screened = True
+                        gate_uy = matcher.user_years(user)  # None when unknown (ranking uses 0)
                         for jb, s in zip(rerank_pool[:SCREEN_N], screen):
                             if not s:
                                 jb["verdict"] = "maybe"  # screen returned nothing for this one; don't reject
@@ -661,10 +662,10 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
                                 jb["tz"] = s["tz"]
                             if s["why"]:
                                 jb["reason"] = s["why"] + (f" (catch: {s['catch']})" if s["catch"] else "")
-                            # 'strong' needs a stated why and a role at the user's level, so the digest
-                            # badge and the stored row agree (log_job applies the same rule)
-                            # (a why-less strong becomes 'maybe' here, like a screen gap, not a reject)
-                            jb["verdict"] = matcher.gate_verdict(jb, uyears) or "maybe"
+                            # 'strong' needs a stated why and a role at the user's level, else 'maybe',
+                            # so the digest badge and the stored row agree (log_job applies the same
+                            # rule, with the same user_years: None when unknown, not the ranking's 0)
+                            jb["verdict"] = matcher.gate_verdict(jb, gate_uy)
                         # keep blended_score as the ONE headline scale (so "90" means the same thing
                         # everywhere); the verdict is purely a gate, fit only orders within the gate.
                         ranked.sort(key=lambda jb: jb.get("score", 0), reverse=True)

@@ -5,6 +5,7 @@ Regression for production rows stored as verdict='strong', fit=score=88, empty w
 written by a seed path that set strong directly; log_job now refuses strong without a judgment and caps
 roles above the user's level at 'maybe'.
 """
+import pytest
 from sqlalchemy import insert, select
 
 from app import autoapply, db, matcher
@@ -16,9 +17,11 @@ def _verdict(uid, url):
 
 # ---- pure rule ---------------------------------------------------------------------------------
 
-def test_strong_without_why_is_no_judgment():
-    assert matcher.gate_verdict({"title": "Backend Engineer", "verdict": "strong"}, 1) is None
-    assert matcher.gate_verdict({"title": "Backend Engineer", "verdict": "strong", "why_fit": "  "}, 1) is None
+def test_strong_without_why_becomes_maybe():
+    assert matcher.gate_verdict({"title": "Backend Engineer", "verdict": "strong"}, 1) == "maybe"
+    for blank in ("  ", "\t", "\n \t"):
+        job = {"title": "Backend Engineer", "verdict": "strong", "why_fit": blank}
+        assert matcher.gate_verdict(job, 1) == "maybe"
     assert matcher.gate_verdict({"title": "Backend Engineer", "verdict": "strong", "why_fit": "Python fit"},
                                 1) == "strong"
 
@@ -60,7 +63,75 @@ def test_jd_years_gets_one_year_slack():
 
 def test_user_years_prefers_explicit_level():
     assert matcher.user_years({"experience": "junior", "resume_text": "10 years of experience"}) == 1
-    assert matcher.user_years({}) == 0
+    assert matcher.user_years({}) is None  # unknown, not a fresher
+    assert matcher.user_years({"resume_text": "Python developer"}) is None
+
+
+# ---- review follow-ups: seniority false negatives / positives ----------------------------------
+
+@pytest.mark.parametrize("title", [
+    "Lead Software Engineer", "Lead Data Engineer", "Frontend Lead", "Backend Lead", "Mobile Lead",
+    "ML Lead", "ML Lead, Payments", "Frontend Lead - Payments", "Associate Director",
+    "Associate Vice President", "Senior Associate",
+    "Associate Principal Engineer", "Junior Director", "AVP Engineering", "Software Engineer IV",
+    "Software Engineer III", "Staff Data Engineer",
+])
+def test_more_senior_titles_capped_for_fresher(title):
+    job = {"title": title, "verdict": "strong", "why_fit": "fit"}
+    assert matcher.gate_verdict(job, 0) == "maybe"
+
+
+@pytest.mark.parametrize("title", [
+    "Staff Accountant", "IV&V Engineer", "Associate Software Engineer", "Junior Backend Developer",
+    "Lead Generation Specialist", "Marketing lead-gen specialist", "Backend Engineer",
+])
+def test_entry_and_lookalike_titles_stay_strong_for_fresher(title):
+    job = {"title": title, "verdict": "strong", "why_fit": "fit"}
+    assert matcher.gate_verdict(job, 0) == "strong"
+
+
+@pytest.mark.parametrize("text,years", [
+    ("2-5 years of experience", 2),
+    ("2\u20135 years of relevant experience", 2),
+    ("5+ years of Python", 5),
+    ("minimum 3 years in backend", 3),
+    ("at least 4 yrs", 4),
+    ("3 years experience in Go", 3),
+    ("Experience: 4-6 years", 4),
+    ("We were founded 20 years ago and serve 30 countries", 0),
+    ("Our 15 year old platform", 0),
+    ("", 0),
+])
+def test_experience_years_required(text, years):
+    assert matcher.experience_years_required(text) == years
+
+
+def test_jd_years_use_lower_end_and_ignore_company_age():
+    base = {"title": "Backend Engineer", "verdict": "strong", "why_fit": "fit"}
+    assert matcher.gate_verdict({**base, "description": "2-5 years of experience"}, 3) == "strong"
+    assert matcher.gate_verdict({**base, "description": "Founded 20 years ago. Python."}, 3) == "strong"
+    assert matcher.gate_verdict({**base, "description": "6-8 years of experience"}, 3) == "maybe"
+
+
+@pytest.mark.parametrize("title,capped", [
+    ("Backend Engineer", False), ("Senior Backend Engineer", False), ("Engineering Manager", False),
+    ("Lead Software Engineer", False),
+    ("Engineering Director", True), ("VP Engineering", True), ("AVP Engineering", True),
+    ("Head of Engineering", True), ("Principal Engineer", True), ("Associate Director", True),
+])
+def test_unknown_years_caps_only_exec_titles(title, capped):
+    job = {"title": title, "verdict": "strong", "why_fit": "fit"}
+    assert matcher.gate_verdict(job, None) == ("maybe" if capped else "strong")
+
+
+def test_unknown_years_user_keeps_strong_on_plain_title(make_user):
+    uid = make_user(resume_text="Python developer")["id"]  # no level, no years in the resume
+    db.log_job(uid, {"title": "Senior Backend Engineer", "company": "A", "url": "http://u/1",
+                     "verdict": "strong", "fit": 90, "why_fit": "Python fit", "score": 80})
+    db.log_job(uid, {"title": "Engineering Director", "company": "B", "url": "http://u/2",
+                     "verdict": "strong", "fit": 90, "why_fit": "Python fit", "score": 80})
+    assert _verdict(uid, "http://u/1") == "strong"
+    assert _verdict(uid, "http://u/2") == "maybe"
 
 
 # ---- the write path (every tracker row goes through log_job) ------------------------------------
@@ -72,9 +143,22 @@ def test_seeded_strong_rows_are_not_stored_as_strong(make_user):
                            "DevRel Engineer, Agentic Infrastructure"]):
         db.log_job(uid, {"title": t, "company": "Co", "url": f"http://s/{i}", "verdict": "strong",
                          "fit": 88, "score": 88, "region": "global"})
-    assert all(j["verdict"] is None for j in db.list_jobs(uid))
-    # still reachable through the score fallback, but not ranked as a screen-approved strong match
-    assert all(c["verdict"] is None for c in autoapply.eligible_candidates(uid))
+    # stored as 'maybe' (not NULL): a NULL verdict with score 88 would re-enter the auto-apply queue
+    # through the score fallback, which is how the Swile Director role stayed in /api/autopilot/queue
+    assert all(j["verdict"] == "maybe" for j in db.list_jobs(uid))
+    assert autoapply.eligible_candidates(uid) == []
+
+
+def test_over_leveled_rows_never_enter_queue_even_with_null_verdict(make_user):
+    """Legacy/manual rows (verdict NULL, high score) above the user's level stay out of the queue."""
+    uid = make_user(experience="junior")["id"]
+    with db.engine.begin() as c:
+        for i, (t, v) in enumerate([("Engineering Director", None), ("Lead Software Engineer", None),
+                                    ("Backend Engineer", None), ("Senior Backend Engineer", "strong")]):
+            c.execute(insert(db.job_log).values(user_id=uid, url=f"http://q/{i}", title=t, company=f"C{i}",
+                                                verdict=v, fit=88, score=88, why_fit="x", status="saved"))
+    assert [c["url"] for c in autoapply.eligible_candidates(uid)] == ["http://q/2"]
+    assert [c["url"] for c in autoapply.review_queue(uid)] == ["http://q/2"]
 
 
 def test_screened_senior_role_capped_at_maybe(make_user):
@@ -89,7 +173,7 @@ def test_screened_senior_role_capped_at_maybe(make_user):
     assert [c["url"] for c in autoapply.eligible_candidates(uid)] == ["http://d/2"]
 
 
-def test_init_db_clears_existing_judgmentless_strong_rows(make_user):
+def test_init_db_demotes_existing_judgmentless_strong_rows(make_user):
     uid = make_user()["id"]
     with db.engine.begin() as c:
         c.execute(insert(db.job_log).values(user_id=uid, url="http://old/1", title="Engineering Director",
@@ -99,7 +183,17 @@ def test_init_db_clears_existing_judgmentless_strong_rows(make_user):
         c.execute(insert(db.job_log).values(user_id=uid, url="http://old/3", title="Backend Engineer",
                                             verdict="strong", fit=91, score=80, why_fit="real why",
                                             status="saved"))
+        c.execute(insert(db.job_log).values(user_id=uid, url="http://old/4", title="Backend Engineer",
+                                            verdict="strong", fit=88, score=88, why_fit=" \t\n ",
+                                            status="saved"))
+        # history is not rewritten: an applied/interview row keeps its verdict
+        c.execute(insert(db.job_log).values(user_id=uid, url="http://old/5", title="Backend Engineer",
+                                            verdict="strong", fit=88, score=88, why_fit="",
+                                            status="applied"))
+        c.execute(insert(db.job_log).values(user_id=uid, url="http://old/6", title="Backend Engineer",
+                                            verdict="strong", fit=88, score=88, status="interview"))
     db.init_db()
     with db.engine.connect() as c:
         rows = dict(c.execute(select(db.job_log.c.url, db.job_log.c.verdict)).all())
-    assert rows == {"http://old/1": None, "http://old/2": None, "http://old/3": "strong"}
+    assert rows == {"http://old/1": "maybe", "http://old/2": "maybe", "http://old/3": "strong",
+                    "http://old/4": "maybe", "http://old/5": "strong", "http://old/6": "strong"}

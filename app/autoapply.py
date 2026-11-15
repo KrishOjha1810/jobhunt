@@ -51,6 +51,11 @@ def eligible_candidates(user_id, limit=DAILY_CAP, threshold=QUALITY_THRESHOLD):
     # score only for rows with NO verdict (legacy/manual adds). A "maybe" is deliberately NOT eligible
     # for auto-apply , that is the whole point of quality-first (it stays for the user to review by hand).
     strong_first = case((jl.c.verdict == "strong", 1), else_=0)
+    # Roles above the user's level never enter the queue, whatever their verdict or score (a NULL
+    # verdict with a high score would otherwise slip through the fallback). That filter runs in Python
+    # on the title, so read a wider window than `limit` and trim after filtering.
+    from . import matcher
+    uyears = matcher.user_years(db.get_user_by_id(user_id) or {})
     with db.engine.connect() as c:
         rows = c.execute(
             select(jl.c.id, jl.c.title, jl.c.company, jl.c.url, jl.c.score,
@@ -65,8 +70,9 @@ def eligible_candidates(user_id, limit=DAILY_CAP, threshold=QUALITY_THRESHOLD):
                 ),
             )
             .order_by(strong_first.desc(), func.coalesce(jl.c.fit, 0).desc(), jl.c.score.desc())
-            .limit(limit)
+            .limit(limit * 5 + 50)
         ).all()
+    rows = [r for r in rows if not matcher.too_senior_for_strong({"title": r[1]}, uyears)][:limit]
     from . import classify
     return [
         {"job_id": r[0], "title": r[1], "company": r[2], "url": r[3],
