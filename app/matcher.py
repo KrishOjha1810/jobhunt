@@ -182,6 +182,71 @@ def is_internship(job: dict) -> bool:
 INTERN_MAX_YEARS = 3  # don't show internships to users with more than this much experience
 
 
+# The user's chosen experience level mapped to approximate years (users.experience drives seniority
+# matching). Explicit level wins; unknown falls back to years parsed from the resume, else 0.
+EXPERIENCE_YEARS = {"fresher": 0, "junior": 1, "mid": 3, "senior": 7, "lead": 11}
+
+
+def user_years(user: dict) -> int:
+    """Approximate years of experience for a user (same derivation the runner uses)."""
+    user = user or {}
+    yrs = EXPERIENCE_YEARS.get(user.get("experience") or "")
+    if yrs is not None:
+        return yrs
+    from . import resume as _resume
+    return _resume.years_experience(user.get("resume_text") or "") or 0
+
+
+# Extra title markers used ONLY by the strong-verdict guard (cap at 'maybe'), deliberately not in
+# title_level: there they would HARD-DROP roles from ranking, and "Account Manager" or "Engineer III"
+# are too broad to drop outright. Entry-level markers still win (see title_level).
+_STRONG_ONLY_SENIOR = {"manager": 5, "iii": 5, "iv": 7}
+
+
+def _is_entry_title(title: str) -> bool:
+    t = (title or "").lower()
+    return any(_tword(t, tok) for tok in _TITLE_JUNIOR)
+
+
+def _strong_only_level(title: str) -> int:
+    t = (title or "").lower()
+    return max((lvl for tok, lvl in _STRONG_ONLY_SENIOR.items() if _tword(t, tok)), default=0)
+
+
+def too_senior_for_strong(job: dict, uyears) -> bool:
+    """True if a role is above the user's level, so it may be at most a 'maybe', never 'strong'.
+    Title markers (Senior/Staff/Lead/Director/Manager/III/'5+ years' in the title) are strict: any
+    title level above the user's years blocks 'strong'; entry-level titles (Junior/Associate/...)
+    never block on their own. A JD-stated 'N+ years' gets one year of slack
+    (a 1-yr user can still be a strong fit for a '2+ years' posting)."""
+    try:
+        uy = int(uyears)
+    except (TypeError, ValueError):
+        return False
+    title = job.get("title", "") or ""
+    if _is_entry_title(title):
+        req_title = years_required(title)  # Junior/Associate/Graduate titles never block on their own
+    else:
+        req_title = max(title_level(title), years_required(title), _strong_only_level(title))
+    req_jd = years_required(job.get("description", "") or "")
+    return req_title > uy or req_jd > uy + 1
+
+
+def gate_verdict(job: dict, uyears=None):
+    """The ONE rule for what verdict may be stored/shown for a job. 'strong' is only legitimate when a
+    real recruiter screen produced a judgment (a non-empty why_fit) AND the role is not above the
+    user's level. Without a judgment the verdict becomes None (the 'no judgment' convention: the
+    quality gate then falls back to the score). Over-leveled roles are capped at 'maybe'."""
+    v = job.get("verdict")
+    if v != "strong":
+        return v
+    if not (job.get("why_fit") or "").strip():
+        return None
+    if uyears is not None and too_senior_for_strong(job, uyears):
+        return "maybe"
+    return v
+
+
 SENIORITY_DROP_GAP = 3  # hard-drop a job that wants >= this many more years than the user has
 
 

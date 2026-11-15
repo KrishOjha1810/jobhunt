@@ -66,9 +66,11 @@ def test_review_queue_throttles_per_company(make_user):
     uid = make_user()["id"]
     for i in range(5):
         db.log_job(uid, {"title": f"Role {i}", "company": "Acme", "url": f"http://acme/{i}",
-                         "score": 80, "verdict": "strong", "fit": 90 - i, "region": "global"})
+                         "score": 80, "verdict": "strong", "fit": 90 - i, "why_fit": "stack fit",
+                         "region": "global"})
     db.log_job(uid, {"title": "Solo", "company": "Beta", "url": "http://beta/1",
-                     "score": 80, "verdict": "strong", "fit": 70, "region": "global"})
+                     "score": 80, "verdict": "strong", "fit": 70, "why_fit": "stack fit",
+                     "region": "global"})
     q = autoapply.review_queue(uid, per_company=2)
     acme = [c for c in q if c["company"] == "Acme"]
     assert len(acme) == 2  # company capped
@@ -186,7 +188,8 @@ def test_eligible_candidates_gate_on_verdict(make_user):
     even at a high score; a verdict-less legacy row still falls back to the score threshold."""
     uid = make_user()["id"]
     db.log_job(uid, {"title": "Strong low score", "company": "A", "url": "http://x/s",
-                     "score": 62, "verdict": "strong", "fit": 90, "region": "global"})
+                     "score": 62, "verdict": "strong", "fit": 90, "why_fit": "stack fit",
+                     "region": "global"})
     db.log_job(uid, {"title": "Maybe high score", "company": "B", "url": "http://x/m",
                      "score": 95, "verdict": "maybe", "fit": 70, "region": "global"})
     db.log_job(uid, {"title": "Legacy high score", "company": "C", "url": "http://x/l",
