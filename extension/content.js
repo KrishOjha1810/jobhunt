@@ -103,8 +103,11 @@
   // Match English + Portuguese/Spanish/French terms, and the Brazil-specific sensitive IDs (CPF/RG) so
   // the orchestrator never auto-fills or asks the user for gender identity, race, disability, or a
   // national ID the user did not provide. \bcpf\b/\brg\b only hit the standalone tokens, not substrings.
-  const _EEO_RE = /gender|g[êé]nero|genre\b|cisgen|transgen|race|ra[çc]a|ethnic|etnia|hispanic|latino|veteran|disab|defici[êe]nci|discapacidad|sexual orientation|orienta[çc][ãa]o sexual|orientaci[óo]n sexual|do you identify|voluntary self|self.?identif|autodeclar|n[ãa]o.?bin[áa]ri|non.?binary|travesti|pronoun|identidade de g[êé]nero|pesquisa demogr[áa]fica|\bcpf\b|\brg\b/i;
-  const _DECLINE_RE = /decline|prefer not|don'?t wish|do not wish|not to answer|not to disclose|not to identify|i don'?t want|choose not|prefiro n[ãa]o|n[ãa]o (?:revelar|informar|declarar|respond)|prefiero no|no deseo|ne pas (?:r[ée]pondre|divulguer)|je ne souhaite/i;
+  // Short stems carry word boundaries so normal fields ("Trace ID", "Grace period", "Graça",
+  // "Disable notifications") are never mistaken for demographic questions.
+  const _EEO_RE = /gender|g[êé]nero|cisgen|transgen|\brace\b|\bracial\b|\bra[çc]a\b|\braza\b|ethnic|etnia|hispanic|latino|veteran|\bdisab(?:ility|ilities|led)\b|defici[êe]nci|discapacidad|\bpcd\b|\bsexo?\b|sexual orientation|orienta[çc][ãa]o sexual|orientaci[óo]n sexual|estado civil|\bmarital\b|do you identify|voluntary self|self.?identif|autodeclar|n[ãa]o.?bin[áa]ri|non.?binary|travesti|pronoun|identidade de g[êé]nero|pesquisa demogr[áa]fica|\bcpf\b|\brg\b/i;
+  // Keep identical to the copy in background.js.
+  const _DECLINE_RE = /decline|prefer not|don'?t wish|do not wish|not to answer|not to disclose|not to identify|i don'?t want|choose not|prefiro n[ãa]o|n[ãa]o (?:revelar|informar|declarar|respond)|n[ãa]o desejo|prefiero no|no deseo|no especificar|ne pas (?:r[ée]pondre|divulguer)|je ne souhaite/i;
   const _CONSENT_RE = /\bi agree\b|consent|privacy policy|terms|certify|acknowledge|i confirm|gdpr|data processing/i;
   function _isIdentity(h) {
     return /first name|last name|full name|your name|candidate name|email|phone|mobile|contact number|linkedin|github|^website$|portfolio|resume|cv\b|cover letter/.test(h);

@@ -118,7 +118,7 @@ async function fillFields(tabId, block, job, ctx) {
       if (f.eeo) {
         // Multilingual decline matcher (mirrors content.js _DECLINE_RE): pt-BR "Prefiro nao revelar",
         // es "Prefiero no decir", fr "Je ne souhaite pas repondre", plus the English set.
-        const dec = (f.options || []).find((o) => /decline|prefer not|don'?t wish|do not wish|not to answer|not to disclose|not to identify|choose not|prefiro n[ãa]o|n[ãa]o (?:revelar|informar|declarar|respond)|prefiero no|no deseo|ne pas (?:r[ée]pondre|divulguer)|je ne souhaite/i.test(o.label));
+        const dec = (f.options || []).find((o) => /decline|prefer not|don'?t wish|do not wish|not to answer|not to disclose|not to identify|i don'?t want|choose not|prefiro n[ãa]o|n[ãa]o (?:revelar|informar|declarar|respond)|n[ãa]o desejo|prefiero no|no deseo|no especificar|ne pas (?:r[ée]pondre|divulguer)|je ne souhaite/i.test(o.label));
         if (dec) { await sendTo(tabId, { type: "FILL_FIELD", field: f, value: dec.label }); bLog(block, `set <b>${f.label.slice(0, 40)}</b> to "prefer not to answer"`); }
         else if (f.required) { bStatus(block, "needs you", "warn"); bLog(block, `required sensitive/demographic question <b>${f.label.slice(0, 40)}</b> has no "prefer not to answer" option , leave it or set it yourself in the tab`); }
         continue;
