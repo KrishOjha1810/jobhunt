@@ -2,8 +2,10 @@
 /agent page has concrete matches to test the assisted-apply flow against.
 
 These are PUBLIC application forms (Greenhouse + Lever apply needs no board login), picked live so they
-are real and open. Each is written as a 'saved' + 'strong' row, which is exactly what makes it show up
-in /api/autopilot/queue (via autoapply.eligible_candidates). Idempotent: log_job dedupes by URL.
+are real and open. Each is written as a 'saved' row with a high score and NO verdict: only the recruiter
+screen may set 'strong' (log_job enforces it), and a verdict-less row with score >= the quality threshold
+still shows up in /api/autopilot/queue (via autoapply.eligible_candidates). Idempotent: log_job dedupes
+by URL.
 
 Usage (point DATABASE_URL at the same DB the site reads, e.g. your Neon URL for the live site):
 
@@ -46,7 +48,7 @@ def main():
     for j in TEST_JOBS:
         before = db.is_seen(user["id"], j["url"])
         db.log_job(user["id"], {
-            **j, "verdict": "strong", "fit": 88, "score": 88,
+            **j, "score": 88,  # no fabricated verdict/fit: those are the recruiter screen's to set
             "region": "global", "category": "software_engineering",
             "employment_type": "full_time",
         })

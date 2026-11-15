@@ -182,6 +182,127 @@ def is_internship(job: dict) -> bool:
 INTERN_MAX_YEARS = 3  # don't show internships to users with more than this much experience
 
 
+# The user's chosen experience level mapped to approximate years (users.experience drives seniority
+# matching). Explicit level wins; unknown falls back to years parsed from the resume.
+EXPERIENCE_YEARS = {"fresher": 0, "junior": 1, "mid": 3, "senior": 7, "lead": 11}
+
+
+def user_years(user: dict):
+    """Approximate years of experience for a user, or None when genuinely unknown (no explicit level
+    and no years found in the resume). Unknown is NOT 0: treating it as a fresher would cap every
+    non-entry role for users who simply never filled the field."""
+    user = user or {}
+    yrs = EXPERIENCE_YEARS.get(user.get("experience") or "")
+    if yrs is not None:
+        return yrs
+    from . import resume as _resume
+    return _resume.years_experience(user.get("resume_text") or "") or None
+
+
+# ---- strong-verdict guard ------------------------------------------------------------------------
+# Everything below is used ONLY by the strong-verdict guard (cap at 'maybe'), deliberately not by
+# title_level / years_required: those drive ranking HARD-DROPS, where broad markers like "Manager" or
+# "Engineer III" would throw away too much. A guard false positive only costs a 'maybe' badge.
+_STRONG_ONLY_SENIOR = {"manager": 5, "avp": 10}
+# Roman-numeral levels only as a standalone trailing level token ("Engineer IV", "Engineer III, Data"),
+# never inside words or acronyms like "IV&V Engineer".
+_ROMAN_LEVEL_RE = re.compile(r"(?<=\s)(iii|iv)(?=\s*(?:$|[,(|/:-]))")
+_ROMAN_LEVELS = {"iii": 5, "iv": 7}
+# "staff" is senior only in a technical ladder (Staff Engineer); "Staff Accountant" is entry-level.
+_STAFF_RE = re.compile(r"\bstaff\s+(?:\w+\s+){0,2}?(engineer|engineering|developer|scientist|architect|"
+                       r"designer|researcher|analyst|swe|sre|manager)\b")
+# Wider lead forms than _LEAD_RE: "Lead Software Engineer", "Lead Data Engineer", and a trailing
+# "<X> Lead" ("Frontend Lead", "ML Lead, Payments").
+_LEAD_WIDE_RE = re.compile(r"\blead\s+(?:\w+\s+)?(?:engineer|developer)\b|"
+                           r"\b\w+\s+lead\s*(?:$|[,(|/:\u2013\u2014]|-\s)")
+# Markers that keep a title senior even next to an entry marker ("Associate Director", "Senior
+# Associate", "Junior Director", "Associate Principal Engineer").
+_HIGH_RE = re.compile(r"(?<![a-z])(director|vp|avp|vice president|principal|senior|sr)(?![a-z])|"
+                      r"\bhead\s+of\b")
+_EXEC_LEVEL = 9  # principal / head of / director / vp: capped even when the user's years are unknown
+
+
+def _is_entry_title(title: str) -> bool:
+    t = (title or "").lower()
+    return any(_tword(t, tok) for tok in _TITLE_JUNIOR) and not _HIGH_RE.search(t)
+
+
+def _guard_title_level(title: str) -> int:
+    """Implied years from a title for the guard: title_level's senior markers ignoring entry markers,
+    with "staff" scoped to technical ladders, plus the guard-only markers above."""
+    t = (title or "").lower()
+    best = max((lvl for tok, lvl in _TITLE_SENIOR.items() if tok != "staff" and _tword(t, tok)),
+               default=0)
+    if _STAFF_RE.search(t):
+        best = max(best, _TITLE_SENIOR["staff"])
+    if _LEAD_RE.search(t) or _LEAD_WIDE_RE.search(t):
+        best = max(best, 6)
+    if _HEAD_RE.search(t):
+        best = max(best, 9)
+    best = max([best] + [lvl for tok, lvl in _STRONG_ONLY_SENIOR.items() if _tword(t, tok)])
+    best = max([best] + [_ROMAN_LEVELS[m] for m in _ROMAN_LEVEL_RE.findall(t)])
+    return best
+
+
+_YRS = r"(?:years?|yrs?)(?:'s)?"
+_RANGE_SEP = "(?:-|\u2013|\u2014|to)"
+_EXP_YEARS_RES = (
+    # "3+ years" / "3 + yrs": the plus sign marks a requirement
+    re.compile(r"(\d{1,2})\s*\+\s*" + _YRS),
+    # "2-5 years of experience", "3 years experience", "4 years of backend experience" (lower end)
+    re.compile(r"(\d{1,2})(?:\s*" + _RANGE_SEP + r"\s*\d{1,2})?\s*" + _YRS +
+               r"\s+(?:of\s+)?(?:[\w/.#-]+\s+){0,3}?(?:experience|exp)\b"),
+    # "minimum 3 years", "at least 2 years", "min. 4 yrs"
+    re.compile(r"(?:minimum|min\.?|at\s+least|atleast)\s+(?:of\s+)?(\d{1,2})\s*\+?\s*" + _YRS),
+    # "experience: 2-4 years", "experience of 3 years"
+    re.compile(r"experience\s*(?:of|:|-)?\s*(\d{1,2})(?:\s*" + _RANGE_SEP + r"\s*\d{1,2})?\s*\+?\s*" + _YRS),
+)
+
+
+def experience_years_required(text: str) -> int:
+    """Years a JD (or title) clearly REQUIRES, for the guard: only experience-requirement phrasing
+    counts ("founded 20 years ago" does not), and a range counts at its lower end ("2-5 years" is 2).
+    Several requirements take the highest one. 0 if none."""
+    t = (text or "").lower()
+    vals = [int(m) for rx in _EXP_YEARS_RES for m in rx.findall(t)]
+    return max(vals, default=0)
+
+
+def too_senior_for_strong(job: dict, uyears) -> bool:
+    """True if a role is above the user's level, so it may be at most a 'maybe', never 'strong'.
+    Title markers (Senior/Staff/Lead/Director/Manager/III/'5+ years' in the title) are strict: any
+    title level above the user's years blocks 'strong'. Entry-level titles (Junior/Associate/...)
+    never block on their own, unless a high marker sits next to them ("Associate Director"). A
+    JD-stated requirement gets one year of slack (a 1-yr user can still be a strong fit for '2+
+    years'). When the user's years are unknown (None) only exec-level titles (principal, head of,
+    director, VP) are capped."""
+    title = job.get("title", "") or ""
+    entry = _is_entry_title(title)
+    level = 0 if entry else _guard_title_level(title)
+    try:
+        uy = int(uyears)
+    except (TypeError, ValueError):
+        return level >= _EXEC_LEVEL
+    req_title = max(level, experience_years_required(title))
+    req_jd = experience_years_required(job.get("description", "") or "")
+    return req_title > uy or req_jd > uy + 1
+
+
+def gate_verdict(job: dict, uyears=None):
+    """The ONE rule for what verdict may be stored/shown for a job. 'strong' is only legitimate when a
+    real recruiter screen produced a judgment (a non-empty why_fit) AND the role is not above the
+    user's level; otherwise it becomes 'maybe' (left for the user to review by hand, never
+    auto-applied). uyears=None means the user's experience is unknown (see too_senior_for_strong)."""
+    v = job.get("verdict")
+    if v != "strong":
+        return v
+    if too_senior_for_strong(job, uyears):
+        return "maybe"
+    if not (job.get("why_fit") or "").strip():
+        return "maybe"
+    return v
+
+
 SENIORITY_DROP_GAP = 3  # hard-drop a job that wants >= this many more years than the user has
 
 
