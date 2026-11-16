@@ -213,11 +213,8 @@ def format_digest(user: dict, jobs: list) -> str:
             b.append(f"   \U0001F552 Overlap: {j['tz']}")
         url = j.get("url", "")
         if tok and url:
-            u = urllib.parse.quote(url, safe="")
-            cq = urllib.parse.quote(j.get("category") or "", safe="")
-            # route Apply through /click so we capture the click-through (the highest-volume engagement
-            # signal); /click logs 'clicked' then redirects to the real posting.
-            b.append(f"   Apply: {url}")  # direct link (the /click redirect broke: free app sleeps/cold-starts)
+            # Direct link: the old /click redirect broke while the free host slept or cold-started.
+            b.append(f"   Apply: {url}")
             # (Mark-applied + good/bad feedback links moved to the dashboard to keep the card clean.)
         else:
             b.append(f"   Apply: {url}")

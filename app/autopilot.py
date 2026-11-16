@@ -15,11 +15,10 @@ Modes:
                   LinkedIn Easy Apply). The extension can run the whole thing hands-off, behind a
                   dry-run the first time then live on the user's go. These are the ONLY boards the
                   one-click "apply to selected" button touches.
-  - "assisted"  : a single-page ATS form (Greenhouse / Lever) where we fill every text field and
-                  answer, but the browser blocks auto-attaching the resume file, so the user attaches
-                  it and clicks submit. One screen, mostly done for them, not zero-touch.
-  - "open_only" : multi-step / account-walled ATS (Workday / Ashby / iCIMS) and arbitrary company
-                  career pages. The submit lives behind an Apply click, several steps and a file
+  - "assisted"  : an ATS form (Greenhouse / Lever / Ashby / Workday) where we fill every text field
+                  and answer, but the browser blocks auto-attaching the resume file, so the user
+                  attaches it and clicks submit. Mostly done for them, not zero-touch.
+  - "open_only" : account-walled ATS (iCIMS and similar) and arbitrary company career pages. The submit lives behind an Apply click, several steps and a file
                   upload, so there is no reliable zero-touch; we prepare the package and open the page.
 
 `group` collapses modes for the UI: "auto" jobs are the auto-apply feed; everything else is the
