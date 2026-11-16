@@ -103,10 +103,17 @@ def test_tailored_docx_endpoint_returns_valid_file(client, make_user, monkeypatc
     db.log_job(u["id"], {"title": "Backend Engineer", "company": "Acme", "url": "http://x/1",
                          "score": 80, "region": "global"})
     jid = db.list_jobs(u["id"])[0]["id"]
-    r = client.get(f"/api/resume/tailored.docx?token={u['dash_token']}&job_id={jid}")
+    # Since 675ced8 the endpoint returns the base resume by default and only tailors with ?tailor=1;
+    # the tailored file is served (X-Resume-Tailored: true) only when it passed validation, otherwise
+    # it falls back to the base resume.
+    r = client.get(f"/api/resume/tailored.docx?token={u['dash_token']}&job_id={jid}&tailor=1")
     assert r.status_code == 200, r.text
-    assert r.headers["X-Resume-Valid"] == "true"
+    assert r.headers["X-Resume-Tailored"] == "true"
     assert r.headers["content-type"].startswith("application/vnd.openxml")
+    base = client.get(f"/api/resume/tailored.docx?token={u['dash_token']}&job_id={jid}")
+    assert base.status_code == 200, base.text
+    assert base.headers["X-Resume-Tailored"] == "false"
+    assert base.headers["content-type"].startswith("application/vnd.openxml")
 
 
 def test_validator_rejects_broken_resume():

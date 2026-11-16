@@ -292,10 +292,10 @@ def test_digest_stays_under_limit_and_keeps_footer():
     assert len(msg) <= 4096                       # never exceeds Telegram's hard limit
     assert "/unsubscribe?t=tok123" in msg          # footer always present (was dropped by blind slice)
     assert "more in your tracker" in msg           # overflow communicated, not silently cut
-    # at least one full job block: its Apply link now routes through /click (click-through tracking),
-    # with the real URL percent-encoded as the redirect target
-    assert "/click?t=tok123&u=" in msg
-    assert "https%3A%2F%2Fboards.greenhouse.io%2Facme%2Fjobs%2F" in msg
+    # at least one full job block with a direct Apply link (d6942c9 dropped the /click redirect because
+    # the free web app sleeps and the redirect broke)
+    assert "Apply: https://boards.greenhouse.io/acme/jobs/" + "0" * 30 in msg
+    assert "/click?" not in msg
 
 
 # --- security one-pass (#11/#12) ---
