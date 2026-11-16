@@ -43,12 +43,10 @@ TITLE_CASES = [
     ("SDE III, Payments", 5),
     ("Senior Backend Engineer", 5),
     ("Sr. Software Engineer", 5),
-    ("Senior Associate", 5),
     ("Senior Member of Technical Staff", 5),
     ("Lead Software Engineer", 6),
     ("Frontend Lead", 6),
     ("Tech Lead, Payments", 6),
-    ("Associate Tech Lead", 6),
     ("Engineering Manager", 7),
     ("Software Development Manager", 7),
     ("Manager, Software Engineering", 7),
@@ -63,6 +61,41 @@ TITLE_CASES = [
     ("Backend Engineer (5+ years)", 5),
     ("Java Developer | 3-5 Yrs | Bangalore", 3),
     ("Junior Developer (3+ years)", 3),
+    # years in a title are years (lower end), never a ladder level
+    ("Java Developer 5-8 years", 5),
+    ("Backend Developer 5 years", 5),
+    ("Python Developer 4 Yrs Exp", 4),
+    ("Software Engineer 4-7 Yrs", 4),
+    ("Node.js Developer - 3 Years", 3),
+    ("Java Developer 3-5 Years", 3),
+    ("Java Developer || 3-5 Yrs", 3),
+    ("Software Engineer 2 to 4 years", 2),
+    ("Data Analyst 1\u20133 yrs", 1),
+    # not engineering managers: guard-only, never a ranking hard-drop
+    ("Business Development Manager", 0),
+    ("Business Development Manager - EdTech", 0),
+    ("Learning and Development Manager", 0),
+    ("Account Development Manager II", 0),
+    ("Business Development Manager, Product Partnerships", 0),
+    ("Product Manager, Technology", 0),
+    ("Assistant Manager - Software Development", 0),
+    ("Deputy Manager - Technology", 0),
+    ("Assistant Engineering Manager", 0),
+    # non-tech trailing "<X> Lead": guard-only
+    ("Growth Lead", 0),
+    ("Content Lead", 0),
+    ("Customer Success Lead", 0),
+    ("Implementation Lead", 0),
+    ("Program Lead - Operations", 0),
+    # Senior Associate / Associate Tech Lead keep the old ranking level (guard still caps them)
+    ("Senior Associate", 2),
+    ("Sr. Associate, Data Engineering", 2),
+    ("Senior Associate - Technology L1", 2),
+    ("Associate Tech Lead", 2),
+    # still senior in ranking
+    ("Lead Data Engineer", 6),
+    ("Backend Lead", 6),
+    ("Manager - Software Engineering", 7),
 ]
 
 
@@ -101,6 +134,9 @@ JD_CASES = [
     ("", 0),
     # company boast + real requirement in the same JD: the requirement wins
     ("Founded 25 years ago. Requirements: 2+ years of Python.", 2),
+    ("With 5+ years, we've become the leader in payments.", 0),
+    ("With 5+ years, our platform serves 2M users.", 0),
+    ("Need 5+ years of experience, we move fast.", 5),
 ]
 
 
@@ -124,7 +160,11 @@ EFFECT_CASES = [
     ("Lead Software Engineer", "", 2, True),
     ("Engineering Manager", "", 2, True),
     ("SDE-3", "", 2, True),
-    ("Senior Associate", "", 2, True),
+    ("Senior Associate", "", 2, False),
+    ("Business Development Manager", "", 2, False),
+    ("Growth Lead", "", 2, False),
+    ("Java Developer 3-5 Years", "", 2, False),
+    ("Java Developer 5-8 years", "", 2, True),
     ("Backend Engineer", "5+ years of experience", 2, True),
     ("Backend Engineer", "7+ years of experience", 2, True),
     ("Backend Engineer", "2-5 years of experience", 2, False),
@@ -206,7 +246,29 @@ def test_ranking_years(user, years):
     ("Member of Technical Staff", M["junior"], False),
     ("Senior Member of Technical Staff", M["junior"], True),
     ("SDE II", M["mid"], False),
+    ("Senior Associate", M["junior"], True),
+    ("Sr. Associate, Data Engineering", M["junior"], True),
+    ("Associate Tech Lead", M["junior"], True),
+    ("Growth Lead", M["junior"], True),
+    ("Business Development Manager", M["junior"], True),
+    ("Assistant Manager - Software Development", M["junior"], True),
+    ("Java Developer 3-5 Years", M["mid"], False),
 ])
 def test_guard_uses_new_levels(title, uy, capped):
     job = {"title": title, "verdict": "strong", "why_fit": "fit"}
     assert matcher.gate_verdict(job, uy) == ("maybe" if capped else "strong")
+
+
+# ---- pathological input must not backtrack ------------------------------------------------------
+
+@pytest.mark.parametrize("text", [
+    "five" + " " * 5000, "Experience" + " " * 5000, "Experience:" + " \t" * 2500 + "x",
+    "3" + " " * 5000 + "years", "min" + " " * 5000, ("2 - " + " " * 50) * 100,
+])
+def test_whitespace_runs_parse_fast(text):
+    import time
+    t0 = time.perf_counter()
+    matcher.experience_years_required(text + "unique-%d" % len(text))
+    matcher.title_level(text)
+    matcher.gate_verdict({"title": text, "description": text, "verdict": "strong", "why_fit": "x"}, 1)
+    assert time.perf_counter() - t0 < 0.5
