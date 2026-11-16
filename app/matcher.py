@@ -1,4 +1,5 @@
 """Score jobs against a user's keyword profile and location preference."""
+import functools
 import re
 
 from . import classify
@@ -116,57 +117,178 @@ def location_ok(job_location: str, locations: list) -> bool:
     return False
 
 
+# ---- experience parsing (shared by ranking hard-drops, the blended score and the strong guard) ----
+# Only REQUIREMENT phrasing counts as years required: "3+ years", "2-4 yrs", "Min 3 Years",
+# "Experience: 5-8 years", "4 years of backend experience". A range counts at its LOWER end ("2-5
+# years" is reachable with 2). Company-age / company-experience mentions ("founded 10 years ago",
+# "20+ years in business", "we have 15 years of experience serving clients") are ignored.
+_YRS = r"(?:years?|yrs?)(?:'s)?"
+_RANGE_SEP = "(?:-|\u2013|\u2014|to)"
+_EXP_YEARS_RES = (
+    # "3+ years" / "3 + yrs": the plus sign marks a requirement
+    re.compile(r"(\d{1,2})\s*\+\s*" + _YRS + r"(?![a-z])"),
+    # bare range "2-4 yrs" / "3 to 5 years" (Naukri-style experience field)
+    re.compile(r"(\d{1,2})\s*" + _RANGE_SEP + r"\s*\d{1,2}\s*\+?\s*" + _YRS + r"(?![a-z])"),
+    # "between 2 and 5 years"
+    re.compile(r"between\s+(\d{1,2})\s+and\s+\d{1,2}\s*" + _YRS + r"(?![a-z])"),
+    # "2-5 years of experience", "3 years experience", "4 years of backend experience" (lower end)
+    re.compile(r"(\d{1,2})(?:\s*" + _RANGE_SEP + r"\s*\d{1,2})?\s*" + _YRS +
+               r"\s+(?:of\s+)?(?:[\w/.#-]+\s+){0,3}?(?:experience|exp)\b"),
+    # "minimum 3 years", "at least 2 years", "min. 4 yrs", "Min 3 Years"
+    re.compile(r"(?:minimum|min\.?|at\s+least|atleast)\s+(?:of\s+)?(\d{1,2})\s*\+?\s*" + _YRS),
+    # "experience: 2-4 years", "experience of 3 years", "Exp: 2-4 yrs", "Experience Required: 5-8 years"
+    re.compile(r"\bexp(?:erience)?\.?\s*(?:required|req\.?|needed)?\s*(?:of|:|-)?\s*(\d{1,2})"
+               r"(?:\s*" + _RANGE_SEP + r"\s*\d{1,2})?\s*\+?\s*" + _YRS),
+)
+_WORD_NUMS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
+              "nine": 9, "ten": 10, "eleven": 11, "twelve": 12}
+# "five years", "five (5) years", "five+ years" become "5 years"
+_WORD_NUM_RE = re.compile(r"\b(" + "|".join(_WORD_NUMS) + r")\s*(?:\(\s*\d{1,2}\s*\))?(?=\s*\+?\s*(?:years?|yrs?)\b)")
+# Context that marks a years-mention as being about the COMPANY, not the candidate.
+_COMPANY_AFTER_RE = re.compile(r"\s*(?:ago\b|old\b|young\b|in\s+business|of\s+(?:history|legacy|"
+                               r"operations?|excellence|service|serving|trust|innovation|growth)\b)")
+_COMPANY_BEFORE_RE = re.compile(r"\b(?:founded|established|incorporated|legacy|heritage|track\s+record|"
+                                r"(?:we|we've|we\s+have|our\s+\w+|the\s+company|company|firm)\s+"
+                                r"(?:has|have|had|brings?|bringing|with|over|of|spanning)|"
+                                r"been\s+(?:around|operating|in))\b")
+_CANDIDATE_RE = re.compile(r"\b(?:you|your|candidates?|applicants?|engineers?|developers?|someone|person|"
+                           r"people|professionals?|hires?|openings?|role|position)\b")
+_MAX_PLAUSIBLE_REQ = 15  # nobody posts a 16+ year requirement; such numbers are company boasts
+
+
+@functools.lru_cache(maxsize=8192)  # the same JD is parsed once per user per run; parse it once
+def experience_years_required(text: str) -> int:
+    """Years a JD (or title) clearly REQUIRES: only experience-requirement phrasing counts, a range
+    counts at its lower end ("2-5 years" is 2), company age / company experience is ignored, and
+    several requirements take the highest one. 0 if none."""
+    t = (text or "").lower()
+    if not t:
+        return 0
+    t = _WORD_NUM_RE.sub(lambda m: str(_WORD_NUMS[m.group(1)]), t)
+    vals = []
+    for rx in _EXP_YEARS_RES:
+        for m in rx.finditer(t):
+            n = int(m.group(1))
+            if n > _MAX_PLAUSIBLE_REQ:
+                continue
+            if _COMPANY_AFTER_RE.match(t, m.end()):
+                continue
+            # look back within the same sentence/line only (at most 60 chars)
+            start = max(0, m.start() - 60)
+            back = re.split(r"[.!?;\n•]", t[start:m.start()])[-1]
+            if _COMPANY_BEFORE_RE.search(back) and not _CANDIDATE_RE.search(back):
+                continue
+            vals.append(n)
+    return max(vals, default=0)
+
+
 def years_required(text: str) -> int:
-    """Best-effort: highest 'N+ years' figure mentioned in the JD (0 if none)."""
-    nums = re.findall(r"(\d{1,2})\s*\+?\s*(?:years|yrs)", text.lower())
-    return max((int(n) for n in nums), default=0)
+    """Years of experience a JD requires (0 if none). Requirement phrasing only, ranges at their lower
+    end; see experience_years_required. (Was: the highest 'N years' anywhere, so 'founded 10 years
+    ago' or the top of a '2-5 years' range hard-dropped jobs a 2-yr user could get.)"""
+    return experience_years_required(text)
 
 
 # Seniority implied by the job TITLE, even when the JD never states "N+ years" (e.g. "Senior Data
-# Engineer"). Junior markers win (an Associate/Junior/Intern title is entry-level regardless of other
-# words); otherwise the strongest senior marker sets an implied experience bar. Unmarked titles imply
-# nothing (0) , we then rely on the stated years.
-# Note: "lead" and "head" are NOT here , they're handled by the scoped regexes below, so "Lead
-# Generation Specialist" / "Head of Growth" aren't mis-read as 6-9 yr engineering roles.
-_TITLE_SENIOR = {"principal": 9, "staff": 8, "architect": 8, "distinguished": 10, "fellow": 10,
-                 "director": 10, "vp": 12, "vice president": 12, "senior": 5, "sr": 5}
+# Engineer"). Junior markers win (an Associate/Junior/Intern title is entry-level) UNLESS a high
+# marker sits next to them ("Associate Director", "Senior Associate", "Associate Tech Lead");
+# otherwise the strongest senior marker sets an implied experience bar. Unmarked titles imply
+# nothing (0), we then rely on the stated years. Only the TITLE is read: "work with senior engineers"
+# or "you will lead the migration" in a JD body never raises the bar.
+# Note: "lead", "head", "staff", "fellow" and "manager" are NOT plain markers, they're handled by the
+# scoped regexes below, so "Lead Generation Specialist", "Head of Growth" (still senior, but via the
+# regex), "Staff Accountant", "Member of Technical Staff", "Research Fellow" and "Account Manager"
+# aren't mis-read as senior engineering roles.
+_TITLE_SENIOR = {"principal": 9, "architect": 8, "distinguished": 10,
+                 "director": 10, "vp": 12, "vice president": 12, "senior": 5, "sr": 5, "snr": 5}
 _TITLE_JUNIOR = {"intern": 0, "internship": 0, "trainee": 0, "apprentice": 0, "fresher": 0,
                  "graduate": 1, "entry": 1, "junior": 1, "jr": 1, "associate": 2}
+_STAFF_LEVEL = 8
 # "lead" only counts as seniority in a job-level context (tech/team/eng lead, lead engineer...), NOT
 # "lead generation"/"lead gen". "head" only in "head of <X>".
 _LEAD_RE = re.compile(r"\b(tech|technical|team|engineering|eng|dev|software|squad|project|product|"
                       r"design|data|qa|platform|staff|group)\s+lead\b|"
                       r"\blead\s+(engineer|developer|architect|designer|scientist|analyst|"
                       r"consultant|sre|devops|qa)\b")
+# Wider lead forms: "Lead Software Engineer", "Lead Data Engineer", and a trailing "<X> Lead"
+# ("Frontend Lead", "ML Lead, Payments"). Not "lead-gen".
+_LEAD_WIDE_RE = re.compile(r"\blead\s+(?:\w+\s+)?(?:engineer|developer)\b|"
+                           r"\b\w+\s+lead\s*(?:$|[,(|/:\u2013\u2014]|-\s)")
 _HEAD_RE = re.compile(r"\bhead\s+of\b")
+# "staff" is senior only in a technical ladder (Staff Engineer, "Software Engineer, Staff");
+# "Staff Accountant" / "Staff Nurse" are entry-level and "Member of Technical Staff" is a generic
+# IC title (its level comes from Senior/Principal/Lead next to it, if any).
+_STAFF_RE = re.compile(r"(?<!technical )\bstaff\s+(?:\w+\s+){0,2}?(engineer|engineering|developer|scientist|"
+                       r"architect|designer|researcher|analyst|swe|sre|manager)\b|"
+                       r"\b(?:engineer|developer|scientist|swe)\s*[,(-]\s*staff\b")
+_FELLOW_RE = re.compile(r"\b(?:engineering|technical|distinguished|senior)\s+fellow\b")
+# People managers of engineering; a generic "Manager" (Account/Community/Product) is left to the
+# strong guard only, a hard-drop on it would throw away too many entry-level roles.
+_ENG_MGR_RE = re.compile(r"\b(?:engineering|software|development|technical|tech|technology|devops|qa|it)\s+"
+                         r"manager\b|\bmanager\s*(?:,|-|\u2013|of|\()\s*(?:\w+\s+)?(?:engineering|software|"
+                         r"development|technology)\b")
+# Numbered ladder levels next to a role word: "SDE II", "SDE-3", "Software Engineer 2", "Engineer III".
+_LEVEL_RE = re.compile(r"\b(sde|swe|mts|engineer|developer|analyst|scientist|programmer)\s*-?\s*"
+                       r"(iv|iii|ii|i|[1-5])(?![a-z0-9+&.])"
+                       r"(?!\s*(?:openings?|positions?|vacanc|roles?|posts?|seats?|nos?\b|hires?))")
+_LEVELS = {"i": 0, "1": 0, "ii": 2, "2": 2, "iii": 4, "3": 4, "iv": 6, "4": 6, "5": 8}
+_SDE_LEVELS = {"iii": 5, "3": 5}  # Indian SDE-3 / SDE III is a senior band (~5+ yrs)
+# Markers that keep a title senior even next to an entry marker ("Associate Director", "Senior
+# Associate", "Junior Director", "Associate Principal Engineer", "Associate Tech Lead").
+_HIGH_RE = re.compile(r"(?<![a-z])(director|vp|avp|vice president|principal|senior|sr|snr)(?![a-z])|"
+                      r"\bhead\s+of\b")
 
 
 def _tword(text: str, tok: str) -> bool:
     return re.search(r"(?<![a-z])" + re.escape(tok) + r"(?![a-z])", text) is not None
 
 
-def title_level(title: str) -> int:
-    """Implied minimum years of experience from a job TITLE (0 if none/entry-level)."""
+def _is_entry_title(title: str) -> bool:
     t = (title or "").lower()
+    return (any(_tword(t, tok) for tok in _TITLE_JUNIOR)
+            and not _HIGH_RE.search(t) and not _LEAD_RE.search(t))
+
+
+def _entry_level(t: str) -> int:
     for tok, lvl in _TITLE_JUNIOR.items():
         if _tword(t, tok):
-            return lvl  # entry-level marker wins outright
-    best = 0
-    for tok, lvl in _TITLE_SENIOR.items():
-        if _tword(t, tok):
-            best = max(best, lvl)
-    if _LEAD_RE.search(t):
+            return lvl
+    return 0
+
+
+def _senior_title_level(t: str) -> int:
+    """Implied years from the senior markers in a lowercased title (entry markers ignored)."""
+    best = max((lvl for tok, lvl in _TITLE_SENIOR.items() if _tword(t, tok)), default=0)
+    if _STAFF_RE.search(t):
+        best = max(best, _STAFF_LEVEL)
+    if _LEAD_RE.search(t) or _LEAD_WIDE_RE.search(t):
         best = max(best, 6)
     if _HEAD_RE.search(t):
         best = max(best, 9)
-    return best
+    if _FELLOW_RE.search(t):
+        best = max(best, 10)
+    if _ENG_MGR_RE.search(t):
+        best = max(best, 7)
+    for role, lv in _LEVEL_RE.findall(t):
+        best = max(best, (_SDE_LEVELS.get(lv) if role == "sde" else None) or _LEVELS[lv])
+    # a requirement stated in the title itself: "Backend Engineer (5+ years)", "Java Dev | 3-5 Yrs"
+    return max(best, experience_years_required(t))
+
+
+def title_level(title: str) -> int:
+    """Implied minimum years of experience from a job TITLE (0 if none/entry-level)."""
+    t = (title or "").lower()
+    if _is_entry_title(t):
+        # entry-level marker wins unless a high marker sits next to it; years stated in the title
+        # ("Junior Developer (3+ years)") still count
+        return max(_entry_level(t), experience_years_required(t))
+    return _senior_title_level(t)
 
 
 def required_experience(job: dict) -> int:
-    """Experience a role likely wants: max of stated 'N+ years' and the title's implied level."""
+    """Experience a role likely wants: max of the JD's stated requirement and the title's level."""
     return max(years_required(job.get("description", "") or ""),
                title_level(job.get("title", "") or ""))
-
 
 _INTERN_RE = re.compile(r"\bintern(ship)?\b|\bco-?op\b")
 
@@ -199,73 +321,34 @@ def user_years(user: dict):
     return _resume.years_experience(user.get("resume_text") or "") or None
 
 
+def ranking_years(user: dict) -> int:
+    """The user's years for RANKING (hard-drop + seniority score): the same derivation as user_years
+    (explicit level, else years from the resume), with unknown treated as 0. One helper so the digest,
+    Browse and the background pre-match can't drift apart (one of them ignored the resume)."""
+    return user_years(user) or 0
+
+
 # ---- strong-verdict guard ------------------------------------------------------------------------
-# Everything below is used ONLY by the strong-verdict guard (cap at 'maybe'), deliberately not by
-# title_level / years_required: those drive ranking HARD-DROPS, where broad markers like "Manager" or
-# "Engineer III" would throw away too much. A guard false positive only costs a 'maybe' badge.
+# The guard is stricter than the ranking hard-drop: on top of title_level's markers it also counts a
+# generic "Manager", "AVP" and a bare trailing Roman level ("Engineer IV", "Data Platform III") at a
+# higher bar. Those stay out of title_level because a ranking HARD-DROP on them would throw away too
+# much; a guard false positive only costs a 'maybe' badge.
 _STRONG_ONLY_SENIOR = {"manager": 5, "avp": 10}
 # Roman-numeral levels only as a standalone trailing level token ("Engineer IV", "Engineer III, Data"),
 # never inside words or acronyms like "IV&V Engineer".
 _ROMAN_LEVEL_RE = re.compile(r"(?<=\s)(iii|iv)(?=\s*(?:$|[,(|/:-]))")
 _ROMAN_LEVELS = {"iii": 5, "iv": 7}
-# "staff" is senior only in a technical ladder (Staff Engineer); "Staff Accountant" is entry-level.
-_STAFF_RE = re.compile(r"\bstaff\s+(?:\w+\s+){0,2}?(engineer|engineering|developer|scientist|architect|"
-                       r"designer|researcher|analyst|swe|sre|manager)\b")
-# Wider lead forms than _LEAD_RE: "Lead Software Engineer", "Lead Data Engineer", and a trailing
-# "<X> Lead" ("Frontend Lead", "ML Lead, Payments").
-_LEAD_WIDE_RE = re.compile(r"\blead\s+(?:\w+\s+)?(?:engineer|developer)\b|"
-                           r"\b\w+\s+lead\s*(?:$|[,(|/:\u2013\u2014]|-\s)")
-# Markers that keep a title senior even next to an entry marker ("Associate Director", "Senior
-# Associate", "Junior Director", "Associate Principal Engineer").
-_HIGH_RE = re.compile(r"(?<![a-z])(director|vp|avp|vice president|principal|senior|sr)(?![a-z])|"
-                      r"\bhead\s+of\b")
 _EXEC_LEVEL = 9  # principal / head of / director / vp: capped even when the user's years are unknown
-
-
-def _is_entry_title(title: str) -> bool:
-    t = (title or "").lower()
-    return any(_tword(t, tok) for tok in _TITLE_JUNIOR) and not _HIGH_RE.search(t)
 
 
 def _guard_title_level(title: str) -> int:
     """Implied years from a title for the guard: title_level's senior markers ignoring entry markers,
-    with "staff" scoped to technical ladders, plus the guard-only markers above."""
+    plus the guard-only markers above."""
     t = (title or "").lower()
-    best = max((lvl for tok, lvl in _TITLE_SENIOR.items() if tok != "staff" and _tword(t, tok)),
-               default=0)
-    if _STAFF_RE.search(t):
-        best = max(best, _TITLE_SENIOR["staff"])
-    if _LEAD_RE.search(t) or _LEAD_WIDE_RE.search(t):
-        best = max(best, 6)
-    if _HEAD_RE.search(t):
-        best = max(best, 9)
+    best = _senior_title_level(t)
     best = max([best] + [lvl for tok, lvl in _STRONG_ONLY_SENIOR.items() if _tword(t, tok)])
     best = max([best] + [_ROMAN_LEVELS[m] for m in _ROMAN_LEVEL_RE.findall(t)])
     return best
-
-
-_YRS = r"(?:years?|yrs?)(?:'s)?"
-_RANGE_SEP = "(?:-|\u2013|\u2014|to)"
-_EXP_YEARS_RES = (
-    # "3+ years" / "3 + yrs": the plus sign marks a requirement
-    re.compile(r"(\d{1,2})\s*\+\s*" + _YRS),
-    # "2-5 years of experience", "3 years experience", "4 years of backend experience" (lower end)
-    re.compile(r"(\d{1,2})(?:\s*" + _RANGE_SEP + r"\s*\d{1,2})?\s*" + _YRS +
-               r"\s+(?:of\s+)?(?:[\w/.#-]+\s+){0,3}?(?:experience|exp)\b"),
-    # "minimum 3 years", "at least 2 years", "min. 4 yrs"
-    re.compile(r"(?:minimum|min\.?|at\s+least|atleast)\s+(?:of\s+)?(\d{1,2})\s*\+?\s*" + _YRS),
-    # "experience: 2-4 years", "experience of 3 years"
-    re.compile(r"experience\s*(?:of|:|-)?\s*(\d{1,2})(?:\s*" + _RANGE_SEP + r"\s*\d{1,2})?\s*\+?\s*" + _YRS),
-)
-
-
-def experience_years_required(text: str) -> int:
-    """Years a JD (or title) clearly REQUIRES, for the guard: only experience-requirement phrasing
-    counts ("founded 20 years ago" does not), and a range counts at its lower end ("2-5 years" is 2).
-    Several requirements take the highest one. 0 if none."""
-    t = (text or "").lower()
-    vals = [int(m) for rx in _EXP_YEARS_RES for m in rx.findall(t)]
-    return max(vals, default=0)
 
 
 def too_senior_for_strong(job: dict, uyears) -> bool:
