@@ -13,6 +13,7 @@ def test_force_runs_now_without_resending(client, monkeypatch):
     calls = []
     monkeypatch.setattr(main.runner, "run_once", _fake(calls))
     monkeypatch.setattr(main, "_run_in_flight", lambda: False)
+    monkeypatch.setitem(main._run_state, "running", False)  # a boot catch-up thread may hold it
     r = client.get("/run?force=1&token=test-run-token")
     assert r.status_code == 200 and r.json()["started"] is True
     assert r.json()["resend"] is False
@@ -23,6 +24,7 @@ def test_resend_is_explicit_and_needs_token(client, monkeypatch):
     calls = []
     monkeypatch.setattr(main.runner, "run_once", _fake(calls))
     monkeypatch.setattr(main, "_run_in_flight", lambda: False)
+    monkeypatch.setitem(main._run_state, "running", False)  # a boot catch-up thread may hold it
     assert client.get("/run?resend=1&token=bogus").status_code == 403
     r = client.get("/run?resend=1&token=test-run-token")
     assert r.status_code == 200 and r.json()["resend"] is True
