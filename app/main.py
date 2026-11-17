@@ -292,11 +292,15 @@ def _run_in_flight():
         return False
 
 
-def _trigger_run(force=False):
+def _trigger_run(force=False, resend=None):
     """Start a matcher run in a daemon thread if it's due (or forced). Idempotent and safe to call
     on every request: it no-ops unless CATCHUP_HOURS have passed or force=True, and never lets two
     runs overlap (in-process lock + a persisted 10-min in-flight marker across restarts). This is
-    the reliable trigger on hosts whose background schedulers freeze on idle."""
+    the reliable trigger on hosts whose background schedulers freeze on idle.
+    resend (defaults to force) also resends already-seen jobs and ignores cadence; pass resend=False
+    to only skip the due check."""
+    if resend is None:
+        resend = force
     if not (force or _last_run_age_hours() >= CATCHUP_HOURS):
         return False
     if _run_in_flight():
@@ -308,7 +312,7 @@ def _trigger_run(force=False):
 
     def _go():
         try:
-            runner.run_once(verbose=False, force=force)
+            runner.run_once(verbose=False, force=resend)
         except Exception as e:
             print(f"[trigger] run failed: {e}")
         finally:
@@ -1218,15 +1222,18 @@ async def api_event(request: Request, token: str = ""):
 
 
 @app.api_route("/run", methods=["GET", "POST"])
-def trigger_run(token: str = "", force: str = "", sync: str = "1"):
+def trigger_run(token: str = "", force: str = "", sync: str = "1", resend: str = ""):
     """Trigger a matching run. Safe to call openly: by default it only runs when *due*
-    (CATCHUP_HOURS since the last). force=1 (resend to everyone, ignore due) needs the RUN_TOKEN.
+    (CATCHUP_HOURS since the last). force=1 (run now, ignore due) needs the RUN_TOKEN. It is a normal
+    run: only unseen jobs, each user's cadence respected. resend=1 (also needs the token) additionally
+    resends everyone's current top matches and ignores cadence, a one-off test only.
 
     sync=1 (default) runs INLINE and returns only after it finishes, so the work completes within the
     HTTP request, this is what keeps a Render-free instance awake for the whole run (a backgrounded
     run can be killed when the instance suspends). Point an external cron at this URL to get reliable
     fixed-time runs. sync=0 returns immediately (fire-and-forget)."""
-    want_force = bool(force)
+    want_resend = str(resend) in ("1", "true", "yes")
+    want_force = bool(force) or want_resend
     if want_force and RUN_TOKEN and token != RUN_TOKEN:
         return JSONResponse({"error": "force requires a valid token"}, status_code=403)
     due = want_force or _last_run_age_hours() >= CATCHUP_HOURS
@@ -1234,7 +1241,7 @@ def trigger_run(token: str = "", force: str = "", sync: str = "1"):
         return {"ok": True, "started": False, "last_run_age_h": round(_last_run_age_hours(), 1),
                 "message": "No run needed yet (not due). Use force=1 with the token to override."}
     if str(sync) in ("0", "false", "no"):
-        started = _trigger_run(force=want_force)
+        started = _trigger_run(force=want_force, resend=want_resend)
         return {"ok": True, "started": started, "async": True}
     # Synchronous: run inline so the instance stays awake until completion. Take the SAME in-process
     # lock /healthz's _trigger_run uses, so a cron /run and a keep-awake ping can't both start a run
@@ -1247,11 +1254,11 @@ def trigger_run(token: str = "", force: str = "", sync: str = "1"):
         _run_state["running"] = True
     try:
         db.set_meta("run_started", _dt.utcnow().strftime("%Y-%m-%d %H:%M UTC"))
-        runner.run_once(verbose=False, force=want_force)
+        runner.run_once(verbose=False, force=want_resend)
     finally:
         _run_state["running"] = False
     s = db.global_stats()
-    return {"ok": True, "started": True, "forced": want_force,
+    return {"ok": True, "started": True, "forced": want_force, "resend": want_resend,
             "last_run": s.get("last_run"), "sent": s.get("last_run_sent"),
             "users": s.get("last_run_users"), "phase": s.get("run_phase")}
 
