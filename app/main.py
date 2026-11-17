@@ -1051,6 +1051,24 @@ async def admin_ingest(request: Request, token: str = ""):
     return {"ok": True, "received": len(jobs), "added": added}
 
 
+@app.get("/admin/detect-board")
+def admin_detect_board(token: str = "", url: str = "", validate: int = 1, add: int = 0):
+    """Detect which ATS a company careers URL uses and return (board, slug), so a company can be added
+    to the crawl by URL. validate=1 (default) runs the real fetcher once and reports the open-job count;
+    add=1 also adds the board to the crawl set, but only when it validated with at least one job.
+    Requires RUN_TOKEN. Workday boards are reported but must be added to ats.WORKDAY by hand."""
+    if not RUN_TOKEN or token != RUN_TOKEN:
+        return JSONResponse({"error": "valid token required (set RUN_TOKEN, pass ?token=...)"}, status_code=403)
+    if not url.strip() or len(url) > 2048:
+        return JSONResponse({"error": "pass ?url=<company careers page>"}, status_code=400)
+    from .sources import detect as _detect
+    res = _detect.detect(url, validate=bool(validate or add))
+    res["added"] = False
+    if add and res.get("board") and res["board"] != "workday" and (res.get("jobs") or 0) > 0:
+        res["added"] = db.add_discovered_board(res["board"], res["slug"])
+    return res
+
+
 @app.get("/admin/user")
 def admin_user(token: str = "", q: str = ""):
     """Per-user health diagnostic by email or name ('why isn't <friend> getting matches'). Requires
