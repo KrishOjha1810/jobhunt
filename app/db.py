@@ -582,15 +582,12 @@ def list_catalog_ranked(user, category=None, q=None, limit=200):
     deal-breakers (avoid / remote-only / rejected companies), the semantic signal, and the warm-started
     preference vector. The only intentional difference is no per-request LLM screen (too costly to run
     on every browse). Global signals are cached; no LLM."""
-    from . import matcher, resume as _resume, embeddings
+    from . import matcher, embeddings
     rows = list_catalog(category=category, q=q, limit=limit * 2)
     kw = user.get("keywords") or []
     cats = user.get("categories") or []
     # same uyears derivation as the runner: explicit level, else parse from the resume
-    exp_map = {"fresher": 0, "junior": 1, "mid": 3, "senior": 7, "lead": 11}
-    uyears = exp_map.get(user.get("experience") or "", None)
-    if uyears is None:
-        uyears = _resume.years_experience(user.get("resume_text") or "") or 0
+    uyears = matcher.ranking_years(user)
     # warm-started theta (same seed as the digest) so cold-start browse is personalized too
     theta = dict(get_pref_vector(user["id"]) or {})
     for c in cats:

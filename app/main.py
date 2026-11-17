@@ -219,8 +219,7 @@ def _seed_matches(user_id):
         blocked = db.closed_urls()
         if blocked:
             pool = [j for j in pool if j.get("url") not in blocked]
-        exp = {"fresher": 0, "junior": 1, "mid": 3, "senior": 7, "lead": 11}
-        uyears = exp.get(u.get("experience") or "", 0)
+        uyears = matcher.ranking_years(u)  # explicit level, else resume years (same as the digest)
         cats = u.get("categories") or []
         ranked = matcher.rank_matches(pool, u.get("keywords") or [], u.get("locations") or [], MIN_SCORE, uyears, cats)
         if cats:

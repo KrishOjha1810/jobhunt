@@ -499,12 +499,9 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
             if not _cadence_due(user, force):
                 d["why"] = f"cadence:{user.get('cadence')}"
                 detail.append(d); continue
-            from . import resume as _resume
             # Prefer the user's explicit experience level (reliable) over years parsed from the
             # resume (often missing, which left senior roles un-demoted = "everything's senior").
-            exp_years = {"fresher": 0, "junior": 1, "mid": 3, "senior": 7, "lead": 11}
-            uyears = exp_years.get(user.get("experience") or "",
-                                   _resume.years_experience(user.get("resume_text") or "") or 0)
+            uyears = matcher.ranking_years(user)
             cats = user.get("categories") or []
             # Pass the chosen roles so in-role jobs aren't dropped by the keyword overlap floor (aligns
             # matched with Browse-by-role, which was surfacing good jobs the matcher was discarding).
