@@ -215,7 +215,8 @@ def board_from_url(url):
 # Subdomains that belong to the ATS vendor itself (marketing, app, docs), never a customer board.
 _VENDOR_SUBS = {"www", "app", "api", "apply", "jobs", "help", "support", "docs", "status", "blog",
                 "login", "auth", "partner", "partners", "marketplace", "developers", "resources",
-                "cdn", "static", "assets", "mail", "go", "info", "careers-page", "embed"}
+                "cdn", "static", "assets", "mail", "go", "info", "careers-page", "embed",
+                "careers", "career-site", "marketing", "academy", "community", "press", "news"}
 
 
 def _board_from_url_more(u):
@@ -234,7 +235,7 @@ def _board_from_url_more(u):
         m = re.match(r"/(?:api/v[13]/(?:widget/)?accounts/)?([A-Za-z0-9_-]+)", path)
         slug = m.group(1) if m else ""
         if slug and slug.lower() not in ("j", "api", "careers", "embed", "static"):
-            return ("workable", slug)
+            return ("workable", slug.lower())   # Workable slugs are case-insensitive
         return None
     for suffix, prov, need_path in ((".workable.com", "workable", ""), (".recruitee.com", "recruitee", ""),
                                     (".bamboohr.com", "bamboohr", "/careers"), (".breezy.hr", "breezy", ""),
@@ -244,6 +245,11 @@ def _board_from_url_more(u):
                                     (".keka.com", "keka", "/careers")):
         if host.endswith(suffix):
             sub = host[: -len(suffix)]
+            if suffix == ".teamtailor.com" and sub.endswith(".na"):
+                sub = sub[:-3]  # North America region host; its RSS lives on the same host
+                if not sub or "." in sub or sub in _VENDOR_SUBS:
+                    return None
+                return ("teamtailor", sub + ".na")
             if not sub or "." in sub or sub in _VENDOR_SUBS:
                 return None
             if need_path and not path.lower().startswith(need_path):

@@ -25,7 +25,7 @@ _ROLE = re.compile(r"\b(engineer|engineers|engineering|developer|developers|dev|
                    r"head of|cto|founding|intern|internship|ml|ai|data|frontend|backend|"
                    r"full[- ]?stack|mobile|ios|android|security|product|qa|tester)\b", re.I)
 _PLACEISH = re.compile(r"\b(remote|onsite|on-site|hybrid|in[- ]office|anywhere|worldwide|global|"
-                       r"timezone|utc|est|pst|[a-z]+,\s*[a-z]+)\b", re.I)
+                       r"timezone|utc|est|pst)\b", re.I)
 _EMPLOY = re.compile(r"^(full[- ]?time|part[- ]?time|contract(or)?|freelance|internships?|"
                      r"permanent|ft|pt|full time,? (and |& )?part time)$", re.I)
 _MONEY = re.compile(r"[$€£₹]|\b\d+\s?k\b|\bequity\b|\bsalary\b|\busd\b|\beur\b", re.I)
@@ -59,9 +59,10 @@ def parse_comment(hit):
     if len(parts) < 2:
         return None
     company = re.sub(r"\s*\(.*?\)\s*$", "", parts[0]).strip()[:80] or parts[0][:80]
-    if re.match(r"^(location|remote|onsite|hybrid)\b", company, re.I):
+    if re.match(r"^(location|remote|onsite|hybrid|hiring|we'?re hiring|we are hiring|now hiring)\b",
+                company, re.I):
         return None  # header does not start with a company name, so we cannot attribute it
-    title, locs = "", []
+    title, locs, other = "", [], []
     for p in parts[1:]:
         if re.match(r"^https?://", p) or _MONEY.search(p) or _EMPLOY.match(p):
             continue
@@ -70,10 +71,14 @@ def parse_comment(hit):
             continue
         if _PLACEISH.search(p) or (p[:1].isupper() and len(p) <= 60):
             locs.append(p)
+        elif p != title:
+            other.append(p)
     if not title:
         return None  # roles only listed in the body; a guessed title would mislead matching
     remote = "remote" in header.lower()
-    location = " | ".join(locs[:2])[:120]
+    # No recognizable place part: keep the leftover header text rather than a blank, so the
+    # matcher's region check can still spot "NYC" or "US only" in it (a blank reads as global).
+    location = " | ".join(locs[:2] or other[:2])[:120]
     if remote and "remote" not in location.lower():
         location = ("Remote | " + location) if location else "Remote"
     body = re.sub(r"\s+", " ", text).strip()

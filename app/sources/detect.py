@@ -18,6 +18,7 @@ loopback and link-local addresses (this runs on the server).
 import ipaddress
 import re
 import socket
+import time
 from urllib.parse import urljoin, urlsplit
 
 import requests
@@ -35,12 +36,13 @@ ORDER = ("greenhouse", "lever", "ashby", "smartrecruiters", "workday") + ats_mor
 _SLUG = r"([A-Za-z0-9][A-Za-z0-9_-]{0,62})"
 _SIGS = [
     ("greenhouse", re.compile(r"(?:boards|job-boards)(?:\.eu)?\.greenhouse\.io/embed/job_board(?:/js)?\?for=" + _SLUG, re.I)),
+    ("greenhouse", re.compile(r"(?:boards|job-boards)(?:\.eu)?\.greenhouse\.io/embed/job_app\?(?:[^\"'\s>]*&(?:amp;)?)?for=" + _SLUG, re.I)),
     ("greenhouse", re.compile(r"boards-api\.greenhouse\.io/v1/boards/" + _SLUG, re.I)),
     ("greenhouse", re.compile(r"(?:boards|job-boards)(?:\.eu)?\.greenhouse\.io/(?!embed\b)" + _SLUG, re.I)),
     ("lever", re.compile(r"(?:jobs|api)\.lever\.co/(?:v0/postings/)?" + _SLUG, re.I)),
     ("ashby", re.compile(r"(?:jobs\.ashbyhq\.com|api\.ashbyhq\.com/posting-api/job-board)/" + _SLUG, re.I)),
     ("smartrecruiters", re.compile(r"(?:jobs|careers|api)\.smartrecruiters\.com/(?:v1/companies/)?" + _SLUG, re.I)),
-    ("workday", re.compile(r"([a-z0-9-]+)\.(wd\d+)\.myworkdayjobs\.com/(?:[a-z]{2}-[A-Z]{2}/)?([A-Za-z0-9_-]+)", re.I)),
+    ("workday", re.compile(r"([a-z0-9-]+)\.(wd\d+)\.myworkdayjobs\.com/(?:wday/cxs/[a-z0-9-]+/)?(?:[a-z]{2}-[A-Z]{2}/)?([A-Za-z0-9_-]+)", re.I)),
     ("workable", re.compile(r"apply\.workable\.com/(?:api/v[13]/(?:widget/)?accounts/)?" + _SLUG, re.I)),
     ("workable", re.compile(r"//" + _SLUG + r"\.workable\.com", re.I)),
     ("recruitee", re.compile(r"//" + _SLUG + r"\.recruitee\.com", re.I)),
@@ -67,9 +69,13 @@ def _public_host(host):
             ip = ipaddress.ip_address(info[4][0].split("%", 1)[0])
         except ValueError:
             return False
-        if (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast
-                or ip.is_reserved or ip.is_unspecified):
+        # is_global also rejects CGNAT 100.64/10 (Tailscale), 6to4 and other non-public ranges
+        # that the individual is_private/is_loopback checks miss on older Pythons.
+        if not ip.is_global or ip.is_multicast:
             return False
+        if ip.version == 6 and (ip.sixtofour or ip.teredo
+                                or (ip.ipv4_mapped and not ip.ipv4_mapped.is_global)):
+            return False  # tunnel/mapped forms can wrap a private IPv4
     return True
 
 
@@ -89,8 +95,13 @@ def fetch_page(url, max_hops=3):
         if not _safe_url(cur):
             return cur, ""
         try:
-            with requests.get(cur, headers=_UA, timeout=_TIMEOUT, stream=True,
-                              allow_redirects=False) as r:
+            # trust_env=False: never route through an env-configured proxy. (Known gap: the name is
+            # resolved again at connect time, so DNS rebinding is not fully closed; the endpoint is
+            # RUN_TOKEN-only and only reads the page.)
+            sess = requests.Session()
+            sess.trust_env = False
+            with sess.get(cur, headers=_UA, timeout=_TIMEOUT, stream=True,
+                          allow_redirects=False) as r:
                 if r.is_redirect or r.status_code in (301, 302, 303, 307, 308):
                     nxt = r.headers.get("location") or ""
                     if not nxt:
@@ -101,11 +112,11 @@ def fetch_page(url, max_hops=3):
                     continue
                 if r.status_code != 200:
                     return cur, ""
-                buf, n = [], 0
+                buf, n, deadline = [], 0, time.monotonic() + 20
                 for chunk in r.iter_content(65536):
                     n += len(chunk)
                     buf.append(chunk)
-                    if n >= _MAX_HTML:
+                    if n >= _MAX_HTML or time.monotonic() > deadline:
                         break  # the embed markers live near the top; the tail is not needed
                 return cur, b"".join(buf).decode(r.encoding or "utf-8", errors="replace")
         except Exception:
@@ -120,7 +131,9 @@ def scan_html(html):
     for prov, rx in _SIGS:
         for m in rx.finditer(html or ""):
             if prov == "workday":
-                slug = f"{m.group(1).lower()}|{m.group(2).lower()}|{m.group(3)}"
+                slug = _workday_from(m.group(0) if m.group(0).startswith("http") else "https://" + m.group(0))
+                if not slug:
+                    continue  # locale-only or /wday/cxs API paths are not a site name
             elif prov == "personio":
                 slug = m.group(1).lower() + (".com" if m.group(2).lower() == "com" else "")
             else:
@@ -155,9 +168,9 @@ def count_jobs(board, slug):
 
 def _workday_from(url):
     """Workday boards are (tenant, datacenter, site); encode them as one 'tenant|wdN|site' slug."""
-    m = re.match(r"https?://([a-z0-9-]+)\.(wd\d+)\.myworkdayjobs\.com/(?:[a-z]{2}-[A-Z]{2}/)?([A-Za-z0-9_-]+)",
-                 url or "", re.I)
-    if not m or m.group(3).lower() in ("wday", "en-us"):
+    m = re.match(r"https?://([a-z0-9-]+)\.(wd\d+)\.myworkdayjobs\.com/(?:wday/cxs/[a-z0-9-]+/)?"
+                 r"(?:[a-z]{2}-[A-Z]{2}/)?([A-Za-z0-9_-]+)", url or "")
+    if not m or m.group(3).lower() in ("wday", "en-us") or re.fullmatch(r"[a-z]{2}-[A-Z]{2}", m.group(3)):
         return None
     return f"{m.group(1).lower()}|{m.group(2).lower()}|{m.group(3)}"
 

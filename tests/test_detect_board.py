@@ -87,3 +87,22 @@ def test_admin_detect_board_endpoint(client, monkeypatch):
         "url": url, "board": "breezy", "slug": "ghost", "via": "html", "candidates": [], "jobs": 0})
     r = client.get("/admin/detect-board?token=test-run-token&url=https://ghost.example&add=1")
     assert r.json()["added"] is False
+
+
+def test_scan_html_workday_ignores_locale_and_api_paths():
+    assert detect.scan_html('<a href="https://acme.wd1.myworkdayjobs.com/en-US">x</a>') == []
+    c = detect.scan_html('<script>fetch("https://acme.wd5.myworkdayjobs.com/wday/cxs/acme/Ext/jobs")</script>')
+    assert c and (c[0]["board"], c[0]["slug"]) == ("workday", "acme|wd5|Ext")
+
+
+def test_scan_html_greenhouse_job_app_embed():
+    c = detect.scan_html('<iframe src="https://boards.greenhouse.io/embed/job_app?token=123&amp;for=acmeco"></iframe>')
+    assert c and (c[0]["board"], c[0]["slug"]) == ("greenhouse", "acmeco")
+
+
+def test_public_host_rejects_cgnat_and_6to4(monkeypatch):
+    for addr in ("100.64.0.1", "10.0.0.5", "2002:a00:1::1", "::ffff:127.0.0.1", "fd00::1"):
+        monkeypatch.setattr(detect.socket, "getaddrinfo", lambda h, p, a=addr: [(0, 0, 0, "", (a, 0))])
+        assert detect._public_host("x.example") is False, addr
+    monkeypatch.setattr(detect.socket, "getaddrinfo", lambda h, p: [(0, 0, 0, "", ("93.184.216.34", 0))])
+    assert detect._public_host("x.example") is True

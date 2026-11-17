@@ -29,7 +29,9 @@ import email.utils
 import json
 import os
 import re
+import time
 import xml.etree.ElementTree as ET
+from urllib.parse import urljoin, urlsplit
 
 import requests
 
@@ -38,7 +40,10 @@ from .ats import _norm, _strip_html
 # A plain, honest User-Agent for these boards (they serve JSON to any client).
 _UA = "JobHuntBot/1.0 (personal job matcher; reads public job board feeds)"
 _HDRS = {"User-Agent": _UA, "Accept": "application/json, application/xml, text/xml, */*"}
-_TIMEOUT = float(os.environ.get("ATS_MORE_TIMEOUT", "") or "12")
+# Short per-read timeout plus a total per-request deadline: these boards are small, and they share
+# ats.fetch()'s worker pool and wall-clock budget with ~160 Greenhouse/Ashby boards.
+_TIMEOUT = float(os.environ.get("ATS_MORE_TIMEOUT", "") or "8")
+_DEADLINE = float(os.environ.get("ATS_MORE_DEADLINE", "") or "15")
 _MAX_BYTES = int(os.environ.get("ATS_MORE_MAX_BYTES", "") or str(3 * 1024 * 1024))
 PER_BOARD = int(os.environ.get("ATS_MORE_PER_BOARD", "") or "80")
 
@@ -81,19 +86,34 @@ KEKA = [
 ]
 
 
-def _get(url, max_bytes=None):
-    """GET with a timeout and a hard byte ceiling (streamed), so a giant or hostile response is cut
-    off instead of being buffered whole. Returns (status, text) or (0, "") on any error."""
+def _vendor_root(host):
+    """The vendor's name label ("personio" for both jobs.personio.de and jobs.personio.com)."""
+    parts = (host or "").lower().split(".")
+    return parts[-2] if len(parts) >= 2 else ""
+
+
+def _get(url, max_bytes=None, _hops=2):
+    """GET with a timeout, a total deadline and a hard byte ceiling (streamed), so a giant, hostile
+    or slow-drip response is cut off instead of holding a thread and memory. Follows up to 2
+    redirects, only within the same vendor domain (e.g. jobs.personio.de to jobs.personio.com).
+    Returns (status, text) or (0, "") on any error."""
     cap = max_bytes or _MAX_BYTES
+    deadline = time.monotonic() + _DEADLINE
     try:
         with requests.get(url, headers=_HDRS, timeout=_TIMEOUT, stream=True, allow_redirects=False) as r:
+            if r.status_code in (301, 302, 303, 307, 308) and _hops > 0:
+                nxt = urljoin(url, r.headers.get("location") or "")
+                if nxt.startswith("https://") and \
+                        _vendor_root(urlsplit(nxt).hostname) == _vendor_root(urlsplit(url).hostname):
+                    return _get(nxt, max_bytes, _hops - 1)
+                return r.status_code, ""
             if r.status_code != 200:
                 return r.status_code, ""
             buf, n = [], 0
             for chunk in r.iter_content(65536):
                 n += len(chunk)
-                if n > cap:
-                    return 0, ""   # over budget: drop the board for this run rather than OOM
+                if n > cap or time.monotonic() > deadline:
+                    return 0, ""   # over budget: drop the board for this run rather than OOM/hang
                 buf.append(chunk)
             # requests assumes ISO-8859-1 for text/* without a charset, which turns UTF-8 feeds
             # (Personio XML: "Zürich") into mojibake; only trust an explicit charset, else UTF-8.
@@ -283,6 +303,11 @@ def _keka(entry):
     rows = _json(f"https://{slug}.keka.com/careers/api/jobs/default/active")
     if not isinstance(rows, list):
         return []
+    if not name and rows:
+        # a discovered board has no curated name; use the portal's own (the same call the careers
+        # page makes) so dedupe against other sources matches "WebEngage", not "webklipper"
+        info = _json(f"https://{slug}.keka.com/careers/api/organization/default/careerportalinfo")
+        name = ((info or {}).get("name") or "").strip() if isinstance(info, dict) else ""
     out = []
     for j in rows[:PER_BOARD]:
         if not isinstance(j, dict) or not j.get("id"):

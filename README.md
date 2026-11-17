@@ -106,7 +106,7 @@ and the run carries on.
 Knobs: `SRC_<NAME>=0` turns off one of the newer sources (`SRC_WORKABLE`, `SRC_RECRUITEE`,
 `SRC_BAMBOOHR`, `SRC_BREEZY`, `SRC_PERSONIO`, `SRC_TEAMTAILOR`, `SRC_KEKA`, `SRC_HN`).
 `ATS_MORE_PER_BOARD` (default 80) caps jobs per board, `ATS_MORE_MAX_BYTES` (default 3 MB) caps
-the size of a single feed, and `ATS_MORE_TIMEOUT` (default 12 s) sets the request timeout.
+the size of a single feed, `ATS_MORE_TIMEOUT` (default 8 s) sets the read timeout, and `ATS_MORE_DEADLINE` (default 15 s) sets the total time allowed per feed.
 `HN_MAX` / `HN_CAP` cap the comments read and jobs kept. The existing `POOL_CAP`, `ATS_CAP`,
 `ATS_WORKERS` and `ATS_FETCH_BUDGET` still bound the whole run.
 

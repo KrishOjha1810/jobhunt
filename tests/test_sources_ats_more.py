@@ -136,7 +136,9 @@ def test_keka(served):
     assert jobs[0]["company"] == "Kickdrum"
     assert "India" in jobs[0]["location"]
     assert jobs[0]["url"].startswith("https://kickdrum.keka.com/careers/jobdetails/")
-    assert ats_more._keka("kickdrum")[0]["company"] == "kickdrum"   # discovered slug, no name
+    # a discovered slug (no curated name) takes the portal's own name
+    served["kickdrum.keka.com/careers/api/organization/default/careerportalinfo"] = '{"name": "Kickdrum Technology"}'
+    assert ats_more._keka("kickdrum")[0]["company"] == "Kickdrum Technology"
 
 
 def test_failures_return_empty(served):
@@ -232,6 +234,10 @@ def test_autopilot_new_boards_are_open_only():
     ("https://signzy.keka.com/careers/jobdetails/5", ("keka", "signzy")),
     ("https://app.keka.com/careers", None),
     ("https://example.com/blog?x=acme.recruitee.com", None),      # vendor name in query is not a host
+    ("https://careers.workable.com/", None),                      # vendor's own careers site
+    ("https://marketing.breezy.hr/", None),
+    ("https://apply.workable.com/Apna/j/X1/", ("workable", "apna")),  # case-insensitive slug
+    ("https://acme.na.teamtailor.com/jobs/1", ("teamtailor", "acme.na")),
 ])
 def test_board_from_url_new_providers(url, expected):
     assert ats.board_from_url(url) == expected
@@ -248,3 +254,50 @@ def test_ats_cap_keeps_every_provider_when_floors_exceed_cap(monkeypatch):
     out = sources._ats_capped()
     assert len(out) == 300
     assert {j["source"].split(":")[0] for j in out} == set(provs)
+
+
+def test_get_follows_same_vendor_redirect_only(monkeypatch):
+    class R:
+        def __init__(self, status, loc=None, body=b""):
+            self.status_code, self.headers, self._b = status, {"location": loc or "", "content-type": "text/xml"}, body
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def iter_content(self, n):
+            yield self._b
+    seen = []
+
+    def fake(url, **kw):
+        seen.append(url)
+        if "personio.de" in url:
+            return R(301, "https://acme.jobs.personio.com/xml")
+        if "personio.com" in url:
+            return R(200, body="<ok/>".encode())
+        return R(302, "https://evil.example/x")
+    monkeypatch.setattr(ats_more.requests, "get", fake)
+    assert ats_more._get("https://acme.jobs.personio.de/xml") == (200, "<ok/>")
+    assert ats_more._get("https://acme.recruitee.com/api/offers/") == (302, "")   # off-vendor: not followed
+    assert "https://evil.example/x" not in seen
+
+
+def test_get_total_deadline(monkeypatch):
+    class R:
+        status_code, headers = 200, {}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def iter_content(self, n):
+            while True:
+                yield b"x"
+    clock = iter(range(0, 10_000, 1))
+    monkeypatch.setattr(ats_more.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(ats_more.requests, "get", lambda *a, **k: R())
+    assert ats_more._get("https://slow.example/feed") == (0, "")

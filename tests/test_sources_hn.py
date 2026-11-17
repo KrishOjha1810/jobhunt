@@ -34,7 +34,14 @@ def test_hn_parse_rejects_non_posts():
     assert hn_hiring.parse_comment({"objectID": "1", "comment_text": "Great thread, thanks!"}) is None
     assert hn_hiring.parse_comment({"objectID": "1", "comment_text": "Location: REMOTE | 50% rev share"}) is None
     assert hn_hiring.parse_comment({"objectID": "1", "comment_text": "Acme | Berlin | ONSITE<p>We hire"}) is None
+    assert hn_hiring.parse_comment({"objectID": "1", "comment_text": "Hiring | Acme | Backend Engineer<p>x"}) is None
     assert hn_hiring.parse_comment({}) is None
+
+
+def test_hn_tech_list_is_not_a_location():
+    j = hn_hiring.parse_comment({"objectID": "9", "comment_text":
+                                 "Acme | Backend Engineer | python, go, rust | REMOTE (India OK)<p>Join us"})
+    assert "python" not in j["location"].lower() and "REMOTE" in j["location"]
 
 
 def test_hn_fetch_end_to_end(monkeypatch):
