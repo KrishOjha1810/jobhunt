@@ -3,6 +3,7 @@ import functools
 import re
 
 from . import classify
+from .sources.ats_more import BOARD_PROVIDERS as _BOARD_PROVIDERS
 
 
 def _contains(text: str, term: str) -> bool:
@@ -658,7 +659,7 @@ def _recency_unit(job: dict) -> float:
 YC_COMPANIES = {
     "coinbase", "stripe", "airbnb", "dropbox", "reddit", "doordash", "instacart", "gitlab", "brex",
     "faire", "gusto", "razorpay", "checkr", "deel", "twitch", "supabase", "posthog", "resend",
-    "inngest", "meesho", "flexport",
+    "inngest", "meesho", "flexport", "razorpaysoftwareprivatelimited",
 }
 
 
@@ -750,7 +751,7 @@ def blended_score(job: dict, ctx: dict) -> tuple:
     # positive-action rate per board). So a source that performs gets promoted past its prior, and one
     # that only draws dismissals gets buried, even if the guess said otherwise.
     src = (job.get("source") or "").split(":")[0]
-    if src in ("greenhouse", "lever", "ashby", "smartrecruiters", "workday"):
+    if src in _BOARD_PROVIDERS:
         Sq = 0.5
     elif src == "adzuna":
         Sq = -0.6

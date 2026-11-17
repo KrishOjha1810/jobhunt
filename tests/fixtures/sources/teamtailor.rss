@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:tt="https://teamtailor.com/locations">
+  <channel>
+    <title>Teamtailor</title>
+    <description>Current job openings</description>
+    <link>https://career.teamtailor.com/jobs</link>
+    <item>
+      <title>Enterprise Account Executive - Chicago</title>
+      <description>&lt;figure&gt;&lt;lite-youtube videoid="sc-TJB8qo00" title="Play: Video" posterquality="sddefault"&gt;&lt;/lite-youtube&gt;&lt;/figure&gt;&lt;h4&gt;&lt;strong&gt;Join us to shape the future!&lt;/strong&gt;&lt;/h4&gt;&lt;p&gt;Teamtailor is a global Employer Branding and ATS SaaS platform used by over 13,000 companies, 250,000 users, and available in 90 countries worldwide. 🌍&lt;/p&gt;&lt;p&gt;Working at &lt;a target="_blank" href="https://www.teamtailor.com/en/"&gt;Teamtailor&lt;/a</description>
+      <pubDate>Wed, 11 Nov 2026 17:34:36 +0100</pubDate>
+      <link>https://career.teamtailor.com/jobs/8706432-enterprise-account-executive-chicago</link>
+      <remoteStatus>hybrid</remoteStatus>
+      <guid>b5508148-ada5-4a7e-b2cb-55a3fd123a6f</guid>
+      <tt:locations>
+        <tt:location>
+          <tt:name>Chicago</tt:name>
+          <tt:address>125 S Clark St</tt:address>
+          <tt:zip>60603</tt:zip>
+          <tt:city>Chicago</tt:city>
+          <tt:country>United States</tt:country>
+        </tt:location>
+      </tt:locations>
+      <tt:department>Sales</tt:department>
+      <tt:role>Account Executive</tt:role>
+      <tt:division/>
+    </item>
+<item>
+      <title>SMB Account Executive</title>
+      <description>&lt;figure&gt;&lt;lite-youtube videoid="sc-TJB8qo00" title="Play: Video" posterquality="sddefault"&gt;&lt;/lite-youtube&gt;&lt;/figure&gt;&lt;h4&gt;&lt;strong&gt;Join us to shape the future!&lt;/strong&gt;&lt;/h4&gt;&lt;p&gt;Teamtailor is a global Employer Branding and ATS SaaS platform used by over 13,000 companies, 250,000 users, and available in 90 countries worldwide. 🌍&lt;/p&gt;&lt;p&gt;&lt;span&gt;Working at &lt;/span&gt;&lt;a target="_blank" href="https://www.teamtailor.com/en/"&gt;</description>
+      <pubDate>Tue, 10 Nov 2026 09:41:26 +0100</pubDate>
+      <link>https://career.teamtailor.com/jobs/8694933-smb-account-executive</link>
+      <remoteStatus>hybrid</remoteStatus>
+      <guid>f1bda991-e6d0-4373-98d9-76a8257f3856</guid>
+      <tt:locations>
+        <tt:location>
+          <tt:name>Sydney</tt:name>
+          <tt:address>WeWork - Office Space &amp; Coworking</tt:address>
+          <tt:zip>2000</tt:zip>
+          <tt:city>Sydney</tt:city>
+          <tt:country>Australia</tt:country>
+        </tt:location>
+      </tt:locations>
+      <tt:department>Sales</tt:department>
+      <tt:role>Account Executive</tt:role>
+      <tt:division/>
+    </item>
+  </channel>
+</rss>

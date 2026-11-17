@@ -9,6 +9,7 @@ import random
 from datetime import datetime, timedelta
 from . import db, sources, matcher, notifier, embeddings, enrich
 from .config import MIN_SCORE, MAX_MATCHES_PER_RUN, BASE_URL
+from .sources.ats_more import DETAIL_PROVIDERS as _DETAIL_PROVIDERS
 
 # LLM re-rank of each user's top candidates by true fit (strongest matching signal). On when an LLM
 # key is set; set LLM_RERANK=0 to disable. Bounded to the top N candidates to cap cost/latency.
@@ -263,7 +264,7 @@ def _prewarm_jds(jobs, cap=60):
         try:
             src = (j.get("source") or "").split(":")[0]
             body = ""
-            if src in ("workday", "smartrecruiters", "greenhouse"):
+            if src in _DETAIL_PROVIDERS:
                 body = _ats.fetch_detail(j) or ""
             if len(body) < 200:
                 from . import jobfetch
@@ -614,7 +615,7 @@ def run_once(verbose: bool = True, only_user_id=None, force: bool = False):
                 from .sources import ats as _ats
                 enriched = []
                 for j in rerank_pool:
-                    if (j.get("source") or "").split(":")[0] in ("workday", "smartrecruiters", "greenhouse") \
+                    if (j.get("source") or "").split(":")[0] in _DETAIL_PROVIDERS \
                             and len(j.get("description") or "") < 200:
                         body = _ats.fetch_detail(j)
                         if body:

@@ -79,6 +79,9 @@ def fetch_detail(job):
             if not r.ok:
                 return ""
             return _strip_html((r.json().get("jobPostingInfo") or {}).get("jobDescription", ""))
+        if src.split(":", 1)[0] in ("workable", "bamboohr"):
+            from . import ats_more
+            return ats_more.fetch_detail(job)
     except Exception:
         return ""
     return ""
@@ -87,7 +90,7 @@ def fetch_detail(job):
 GREENHOUSE = [
     "coinbase", "chainalysis", "consensys", "circle", "gemini", "ripple", "anchorage",
     "dydx", "matterlabs", "alchemy", "databricks", "anthropic", "stripe",
-    "razorpay", "postman", "hasura", "mongodb", "datadog", "gitlab", "hashicorp",
+    "razorpaysoftwareprivatelimited", "postman", "hasura", "mongodb", "datadog", "gitlab", "hashicorp",
     "twilio", "dropbox", "pinterest", "doordash", "affirm", "plaid", "robinhood",
     # verified-live additions (strong tech employers, high volume)
     "figma", "brex", "scaleai", "samsara", "instacart", "asana", "flexport", "discord",
@@ -109,6 +112,9 @@ GREENHOUSE = [
     # batch 7 (verified live 2026-06-15): YC / prominent startups (AI, dev-tools, fintech-security)
     "cresta", "checkr", "togetherai", "cribl", "tailscale", "fireworksai", "typeface", "alloy",
     "instabase", "knock", "found", "imbue",
+    # batch 8 (verified live 2026-11-17 via ATS auto-detect on their careers pages): India product cos
+    # (razorpay's live board is "razorpaysoftwareprivatelimited"; the old "razorpay" slug returns 0)
+    "zenoti", "glance", "sahajsoftware",
 ]
 LEVER = [
     "blockchain", "ledger", "chainlink", "kraken", "nethermind", "blockdaemon", "fireblocks",
@@ -117,6 +123,7 @@ LEVER = [
     # verified live 2026-06-10: India employers (paytm/meesho/cred have heavy non-dev hiring too)
     "paytm", "meesho", "mindtickle", "fampay", "fi", "cred", "zeta",
     "gohighlevel", "metabase", "wealthfront",  # verified live 2026-06-11
+    "hevodata",  # verified live 2026-11-17 (auto-detected from hevodata.com/careers)
 ]
 ASHBY = [
     "openai", "vercel", "mercury", "replit", "uniswap-labs", "wintermute", "gauntlet",
@@ -133,11 +140,14 @@ ASHBY = [
     # batch 7 (verified live 2026-06-15): YC / prominent startups (airwallex has heavy India hiring)
     "airwallex", "drata", "gamma", "persona", "column", "middesk", "posthog", "character",
     "resend", "unit", "runway", "opensea", "inngest", "contextual",
+    # batch 8 (verified live 2026-11-17 via ATS auto-detect): India AI / legal-tech / dev-tools
+    "sarvam", "spotdraft", "composio",
 ]
 # SmartRecruiters: keyless public board (api.smartrecruiters.com/v1/companies/<slug>/postings).
 # Big enterprises with real India presence live here. Slugs are case-sensitive.
 SMARTRECRUITERS = [
     "Visa", "BoschGroup", "NielsenIQ", "WeWork", "Experian", "McDonaldsCorporation",
+    "Freshworks",  # verified live 2026-11-17 (auto-detected from freshworks.com careers)
 ]
 # Workday: keyless per-tenant JSON (POST .../wday/cxs/<tenant>/<site>/jobs). Big MNCs with heavy
 # India hiring live here. Each entry is (tenant, datacenter, site) read off the careers URL
@@ -158,6 +168,10 @@ WORKDAY = [
     ("micron", "wd1", "External", "India"),
     ("cisco", "wd5", "Cisco_Careers", "India"),
     ("broadcom", "wd1", "External_Career", "India"),
+    # verified live 2026-11-17 via ATS auto-detect on their careers pages (India product cos)
+    ("browserstack", "wd3", "External"),
+    ("quantiphi", "wd1", "Careers_at_Quantiphi"),
+    ("uniphore", "wd503", "Uniphore", "India"),
 ]
 
 # Keep only technical roles, these feeds list every department (HR, legal, sales...).
@@ -195,6 +209,54 @@ def board_from_url(url):
             slug = m.group(1).strip("/")
             if slug and slug.lower() not in ("v1", "v2", "embed", "search"):
                 return (prov, slug)
+    return _board_from_url_more(u)
+
+
+# Subdomains that belong to the ATS vendor itself (marketing, app, docs), never a customer board.
+_VENDOR_SUBS = {"www", "app", "api", "apply", "jobs", "help", "support", "docs", "status", "blog",
+                "login", "auth", "partner", "partners", "marketplace", "developers", "resources",
+                "cdn", "static", "assets", "mail", "go", "info", "careers-page", "embed",
+                "careers", "career-site", "marketing", "academy", "community", "press", "news"}
+
+
+def _board_from_url_more(u):
+    """Customer boards on the newer providers, keyed by the company subdomain (or Workable path).
+    Host matching is anchored on the parsed hostname so a vendor name inside a path or query string
+    (e.g. a blog link that mentions recruitee.com) is never mistaken for a board."""
+    try:
+        from urllib.parse import urlsplit
+        p = urlsplit(u if "://" in u else "https://" + u)
+        host, path = (p.hostname or "").lower(), p.path or "/"
+    except Exception:
+        return None
+    if not host:
+        return None
+    if host == "apply.workable.com":
+        m = re.match(r"/(?:api/v[13]/(?:widget/)?accounts/)?([A-Za-z0-9_-]+)", path)
+        slug = m.group(1) if m else ""
+        if slug and slug.lower() not in ("j", "api", "careers", "embed", "static"):
+            return ("workable", slug.lower())   # Workable slugs are case-insensitive
+        return None
+    for suffix, prov, need_path in ((".workable.com", "workable", ""), (".recruitee.com", "recruitee", ""),
+                                    (".bamboohr.com", "bamboohr", "/careers"), (".breezy.hr", "breezy", ""),
+                                    (".jobs.personio.de", "personio", ""),
+                                    (".jobs.personio.com", "personio", ""),
+                                    (".teamtailor.com", "teamtailor", ""),
+                                    (".keka.com", "keka", "/careers")):
+        if host.endswith(suffix):
+            sub = host[: -len(suffix)]
+            if suffix == ".teamtailor.com" and sub.endswith(".na"):
+                sub = sub[:-3]  # North America region host; its RSS lives on the same host
+                if not sub or "." in sub or sub in _VENDOR_SUBS:
+                    return None
+                return ("teamtailor", sub + ".na")
+            if not sub or "." in sub or sub in _VENDOR_SUBS:
+                return None
+            if need_path and not path.lower().startswith(need_path):
+                return None
+            if suffix == ".jobs.personio.com":
+                sub += ".com"
+            return (prov, sub)
     return None
 
 
@@ -213,6 +275,11 @@ def _norm(title, company, location, url, desc, posted, source):
             "salary": "", "source": source}
 
 
+# Boards whose slug is not the company's name: keep the name the catalog (and YC_COMPANIES) already
+# uses, so a slug change does not split dedupe or drop the boost.
+_COMPANY_ALIAS = {"razorpaysoftwareprivatelimited": "razorpay"}
+
+
 def _greenhouse(slug):
     # Lightweight listing by default (content=true returns ~8MB/board and blew 512MB on Render across
     # many concurrent boards; JDs are then backfilled lazily for top candidates). On a roomy host set
@@ -226,7 +293,7 @@ def _greenhouse(slug):
         for j in r.json().get("jobs", []):
             loc = (j.get("location") or {}).get("name", "")
             desc = _strip_html(j.get("content", "")) if _FULL_CONTENT else ""
-            d = _norm(j.get("title"), slug, loc, j.get("absolute_url"), desc,
+            d = _norm(j.get("title"), _COMPANY_ALIAS.get(slug, slug), loc, j.get("absolute_url"), desc,
                       j.get("updated_at", ""), f"greenhouse:{slug}")
             if not _FULL_CONTENT:
                 d["_gh_id"] = j.get("id")  # transient: lets fetch_detail backfill the JD body later
@@ -359,12 +426,15 @@ def fetch(limit_companies: int = 0) -> list:
     lv = list(lv) + [s for s in disc.get("lever", []) if s not in lv]
     ab = list(ab) + [s for s in disc.get("ashby", []) if s not in ab]
     sr = list(sr) + [s for s in disc.get("smartrecruiters", []) if s not in sr]
+    from . import ats_more  # Workable/Recruitee/BambooHR/Breezy/Personio/Teamtailor/Keka boards
+    more = ats_more.tasks(disc, limit_companies)
     # Submit the SLOW, few providers FIRST (Workday POSTs + SmartRecruiters), then the many fast ones.
     # Otherwise WD/SR sit at the back of a _WORKERS-wide queue behind ~160 fast Greenhouse/Ashby tasks
     # and the as_completed budget expires before a worker even starts them , which is why they were
     # silently dropping to 0 in the catalog. (Lever returns 0 from Render's IP anyway; it's relayed.)
     tasks += [(_workday, e) for e in wd]
     tasks += [(_smartrecruiters, s) for s in sr]
+    tasks += more  # few boards each, small payloads; ahead of the long Greenhouse/Ashby tail
     tasks += [(_greenhouse, s) for s in gh]
     tasks += [(_ashby, s) for s in ab]
     tasks += [(_lever, s) for s in lv]
