@@ -48,7 +48,8 @@ def test_workable(served):
     _shape_ok(j, "workable")
     assert j["company"] == "Hugging Face"
     assert j["location"].startswith("Remote")          # telecommuting flag surfaces as Remote
-    assert j["url"].startswith("https://apply.workable.com/j/")
+    assert j["url"].startswith("https://apply.workable.com/huggingface/j/")
+    assert ats.board_from_url(j["url"]) == ("workable", "huggingface")
     assert j["_wk_code"]
 
 
@@ -127,20 +128,15 @@ def test_teamtailor(served):
     assert "Chicago" in jobs[0]["location"]
 
 
-def test_keka_with_known_guid(served):
-    served["kickdrum.keka.com/careers/api/embedjobs/default/active/685d8736"] = _fx("keka_active.json")
-    jobs = ats_more._keka(("kickdrum", "685d8736-d012-4881-b6b1-ae16b4745feb"))
+def test_keka(served):
+    served["kickdrum.keka.com/careers/api/jobs/default/active"] = _fx("keka_active.json")
+    jobs = ats_more._keka(("kickdrum", "Kickdrum"))
     assert len(jobs) == 2
     _shape_ok(jobs[0], "keka")
+    assert jobs[0]["company"] == "Kickdrum"
     assert "India" in jobs[0]["location"]
     assert jobs[0]["url"].startswith("https://kickdrum.keka.com/careers/jobdetails/")
-
-
-def test_keka_resolves_guid_from_careers_page(served):
-    served["kickdrum.keka.com/careers/api/embedjobs"] = _fx("keka_active.json")
-    served["kickdrum.keka.com/careers/"] = _fx("keka_careers.html")
-    assert ats_more.keka_portal_guid("kickdrum") == "685d8736-d012-4881-b6b1-ae16b4745feb"
-    assert len(ats_more._keka("kickdrum")) == 2
+    assert ats_more._keka("kickdrum")[0]["company"] == "kickdrum"   # discovered slug, no name
 
 
 def test_failures_return_empty(served):
@@ -175,10 +171,10 @@ def test_get_enforces_byte_ceiling(monkeypatch):
 
 
 def test_env_toggle_and_discovered_merge(monkeypatch):
-    monkeypatch.setattr(ats_more, "KEKA", [("signzy", "g")])
+    monkeypatch.setattr(ats_more, "KEKA", [("signzy", "Signzy")])
     t = ats_more.tasks({"keka": ["signzy", "newco"], "breezy": ["acme"]})
     keka = [e for fn, e in t if fn is ats_more._keka]
-    assert keka == [("signzy", "g"), "newco"]                # seeded entry not duplicated by slug
+    assert keka == [("signzy", "Signzy"), "newco"]                # seeded entry not duplicated by slug
     assert any(fn is ats_more._breezy and e == "acme" for fn, e in t)
     monkeypatch.setenv("SRC_KEKA", "0")
     assert not any(fn is ats_more._keka for fn, _ in ats_more.tasks({"keka": ["newco"]}))
@@ -239,3 +235,16 @@ def test_autopilot_new_boards_are_open_only():
 ])
 def test_board_from_url_new_providers(url, expected):
     assert ats.board_from_url(url) == expected
+
+
+def test_ats_cap_keeps_every_provider_when_floors_exceed_cap(monkeypatch):
+    """12 providers x floor 60 > cap 300: every provider must still be represented."""
+    provs = list(ats_more.BOARD_PROVIDERS)
+    jobs = [{"source": f"{p}:x", "posted_at": "2026-11-01", "url": f"https://{p}.example/{i}", "title": "t"}
+            for p in provs for i in range(80)]
+    monkeypatch.setattr(sources.ats, "fetch", lambda: list(jobs))
+    monkeypatch.setattr(sources, "ATS_CAP", 300)
+    monkeypatch.setattr(sources, "ATS_PROVIDER_FLOOR", 60)
+    out = sources._ats_capped()
+    assert len(out) == 300
+    assert {j["source"].split(":")[0] for j in out} == set(provs)

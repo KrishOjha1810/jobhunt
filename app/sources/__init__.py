@@ -175,9 +175,13 @@ def _ats_capped():
     by_prov = {}
     for j in aj:
         by_prov.setdefault((j.get("source") or "?").split(":")[0], []).append(j)
+    # With a dozen board providers, N * ATS_PROVIDER_FLOOR can exceed ATS_CAP, and the final
+    # [:ATS_CAP] slice would then silently drop whichever providers came last. Shrink the floor so
+    # every provider's floor fits inside the cap.
+    floor = max(1, min(ATS_PROVIDER_FLOOR, ATS_CAP // max(1, len(by_prov))))
     kept, seen = [], set()
     for lst in by_prov.values():
-        for j in lst[:ATS_PROVIDER_FLOOR]:
+        for j in lst[:floor]:
             kept.append(j)
             seen.add(id(j))
     for j in aj:  # fill remaining slots by global freshness

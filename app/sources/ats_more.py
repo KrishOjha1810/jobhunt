@@ -13,9 +13,8 @@ Endpoints (all public, no login, no key; verified live before a company was adde
   breezy:      GET <slug>.breezy.hr/json                                       (JSON, no JD body)
   personio:    GET <slug>.jobs.personio.de/xml  (or .com)                      (XML, with JD)
   teamtailor:  GET <slug>.teamtailor.com/jobs.rss                              (RSS, with JD)
-  keka:        GET <slug>.keka.com/careers/api/embedjobs/default/active/<org>  (JSON, with JD)
-               where <org> is the portal GUID read once off <slug>.keka.com/careers/ (both paths
-               are under /careers, which Keka's robots.txt allows).
+  keka:        GET <slug>.keka.com/careers/api/jobs/default/active                (JSON, with JD)
+               (the call Keka's own careers page makes; /careers is what its robots.txt allows)
 
 Every provider can be switched off with SRC_<PROVIDER>=0 (e.g. SRC_KEKA=0). Each board response is
 read with a byte ceiling (ATS_MORE_MAX_BYTES) and each board contributes at most ATS_MORE_PER_BOARD
@@ -57,13 +56,13 @@ def enabled(provider):
 
 
 # ---- curated boards (each verified live with open roles; India or remote-India friendly) ----
-# Keka entries are (subdomain, portal GUID); the GUID is resolved from the careers page when absent.
 WORKABLE = []
 RECRUITEE = []
 BAMBOOHR = []
 BREEZY = []
 PERSONIO = []      # "<slug>" (.de host) or "<slug>.com" for the jobs.personio.com host
 TEAMTAILOR = []
+# Keka entries are (subdomain, display name); a bare subdomain also works (name falls back to it).
 KEKA = []
 
 
@@ -81,7 +80,14 @@ def _get(url, max_bytes=None):
                 if n > cap:
                     return 0, ""   # over budget: drop the board for this run rather than OOM
                 buf.append(chunk)
-            return 200, b"".join(buf).decode(r.encoding or "utf-8", errors="replace")
+            # requests assumes ISO-8859-1 for text/* without a charset, which turns UTF-8 feeds
+            # (Personio XML: "Zürich") into mojibake; only trust an explicit charset, else UTF-8.
+            m = re.search(r"charset=([\w-]+)", r.headers.get("content-type", ""), re.I)
+            enc = m.group(1) if m else "utf-8"
+            try:
+                return 200, b"".join(buf).decode(enc, errors="replace")
+            except LookupError:
+                return 200, b"".join(buf).decode("utf-8", errors="replace")
     except Exception:
         return 0, ""
 
@@ -132,9 +138,13 @@ def _workable(slug):
             loc = _join("Remote", loc)
         desc = " ".join(filter(None, [j.get("department"), j.get("function"), j.get("industry"),
                                       j.get("employment_type"), j.get("experience")]))
-        jd = _norm(j.get("title"), company, loc, j.get("url") or j.get("shortlink"), desc,
+        code = j.get("shortcode")
+        # the canonical /<slug>/j/<code>/ form (not the /j/<code> shortlink) carries the company,
+        # so board_from_url can grow the crawl set from a saved Workable job
+        url = f"https://apply.workable.com/{slug}/j/{code}/" if code else (j.get("url") or "")
+        jd = _norm(j.get("title"), company, loc, url, desc,
                    j.get("published_on") or j.get("created_at"), f"workable:{slug}")
-        jd["_wk_code"] = j.get("shortcode")   # transient: lets fetch_detail pull the JD body later
+        jd["_wk_code"] = code   # transient: lets fetch_detail pull the JD body later
         out.append(jd)
     return out
 
@@ -251,37 +261,25 @@ def _teamtailor(slug):
 
 # ---- Keka ----
 
-_KEKA_GUID = re.compile(r"/ats/documents/([0-9a-fA-F-]{36})/")
-
-
-def keka_portal_guid(slug):
-    """Read the career-portal GUID off <slug>.keka.com/careers/ (the page the browser loads first)."""
-    st, txt = _get(f"https://{slug}.keka.com/careers/", max_bytes=256 * 1024)
-    m = _KEKA_GUID.search(txt or "") if st == 200 else None
-    return m.group(1) if m else ""
-
-
 def _keka(entry):
-    slug, guid = (entry, "") if isinstance(entry, str) else (entry[0], entry[1])
-    guid = guid or keka_portal_guid(slug)
-    if not guid:
-        return []
-    rows = _json(f"https://{slug}.keka.com/careers/api/embedjobs/default/active/{guid}")
+    # entry: "slug" (discovered) or (slug, display name) from the curated list. The jobs list lives
+    # at /careers/api/jobs/default/active, the same call the public careers page makes on load.
+    slug, name = (entry, "") if isinstance(entry, str) else (tuple(entry) + ("",))[:2]
+    rows = _json(f"https://{slug}.keka.com/careers/api/jobs/default/active")
     if not isinstance(rows, list):
         return []
     out = []
     for j in rows[:PER_BOARD]:
-        jid = j.get("id")
-        if not jid:
+        if not isinstance(j, dict) or not j.get("id"):
             continue
         loc = "; ".join(_join(l.get("city"), l.get("countryName"))
                         for l in (j.get("jobLocations") or []) if isinstance(l, dict))
-        skills = ", ".join(j.get("skillNames") or [])
+        skills = ", ".join(str(x) for x in (j.get("skillNames") or []) if x)
         desc = _strip_html(j.get("description") or "") + (f" Skills: {skills}." if skills else "")
         if j.get("experience"):
             desc = f"Experience: {j['experience']} years. " + desc
-        out.append(_norm(j.get("title"), slug, loc or "India",
-                         f"https://{slug}.keka.com/careers/jobdetails/{jid}", desc,
+        out.append(_norm(j.get("title"), name or slug, loc or "India",
+                         f"https://{slug}.keka.com/careers/jobdetails/{j['id']}", desc,
                          j.get("publishedOn"), f"keka:{slug}"))
     return out
 
