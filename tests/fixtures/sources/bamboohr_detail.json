@@ -1,0 +1,18 @@
+{
+ "meta": {},
+ "result": {
+  "jobOpening": {
+   "jobOpeningName": "Software Engineer",
+   "jobOpeningStatus": "Open",
+   "departmentLabel": "Product",
+   "employmentStatusLabel": "Full-Time",
+   "location": {
+    "city": "Sydney",
+    "state": "New South Wales",
+    "postalCode": "2000",
+    "addressCountry": "Australia"
+   },
+   "description": "<p><span style=\"font-weight: bold;\">About Us</span></p>\r\n<p><br></p>\r\n<p><span style=\"font-family: 'Source Sans Pro', Arial, Helvetica, sans-serif;\">Our mission is simple: we want to set people free to do meaningful work. People love our software--and it turns out that people love working here too. We\u2019ve been recognized as a \u201cBest Company to Work For\u201d, and we\u2019re proud of our team for receiving awards for workplace effectiveness and flexibility.</span></p>\r\n<p><br></p>\r\n<p><strong>What You'll Do</strong></p>\r\n<p><br></p>\r\n<p>Our ideal Sr. Software Engineer/Developer (with experience in PHP, Perl, Python or Ruby) will\u00a0be an integral contributor to the current and next generation of our APP<strong>.</strong>\u00a0\u00a0You'll be working on multiple projects to continue making us the #1 HR Software for SMB business.\u00a0 If you get a kick out of solving problems and building beautiful world class software"
+  }
+ }
+}

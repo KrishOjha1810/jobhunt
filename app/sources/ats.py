@@ -79,6 +79,9 @@ def fetch_detail(job):
             if not r.ok:
                 return ""
             return _strip_html((r.json().get("jobPostingInfo") or {}).get("jobDescription", ""))
+        if src.split(":", 1)[0] in ("workable", "bamboohr"):
+            from . import ats_more
+            return ats_more.fetch_detail(job)
     except Exception:
         return ""
     return ""
@@ -195,6 +198,48 @@ def board_from_url(url):
             slug = m.group(1).strip("/")
             if slug and slug.lower() not in ("v1", "v2", "embed", "search"):
                 return (prov, slug)
+    return _board_from_url_more(u)
+
+
+# Subdomains that belong to the ATS vendor itself (marketing, app, docs), never a customer board.
+_VENDOR_SUBS = {"www", "app", "api", "apply", "jobs", "help", "support", "docs", "status", "blog",
+                "login", "auth", "partner", "partners", "marketplace", "developers", "resources",
+                "cdn", "static", "assets", "mail", "go", "info", "careers-page", "embed"}
+
+
+def _board_from_url_more(u):
+    """Customer boards on the newer providers, keyed by the company subdomain (or Workable path).
+    Host matching is anchored on the parsed hostname so a vendor name inside a path or query string
+    (e.g. a blog link that mentions recruitee.com) is never mistaken for a board."""
+    try:
+        from urllib.parse import urlsplit
+        p = urlsplit(u if "://" in u else "https://" + u)
+        host, path = (p.hostname or "").lower(), p.path or "/"
+    except Exception:
+        return None
+    if not host:
+        return None
+    if host == "apply.workable.com":
+        m = re.match(r"/(?:api/v[13]/(?:widget/)?accounts/)?([A-Za-z0-9_-]+)", path)
+        slug = m.group(1) if m else ""
+        if slug and slug.lower() not in ("j", "api", "careers", "embed", "static"):
+            return ("workable", slug)
+        return None
+    for suffix, prov, need_path in ((".workable.com", "workable", ""), (".recruitee.com", "recruitee", ""),
+                                    (".bamboohr.com", "bamboohr", "/careers"), (".breezy.hr", "breezy", ""),
+                                    (".jobs.personio.de", "personio", ""),
+                                    (".jobs.personio.com", "personio", ""),
+                                    (".teamtailor.com", "teamtailor", ""),
+                                    (".keka.com", "keka", "/careers")):
+        if host.endswith(suffix):
+            sub = host[: -len(suffix)]
+            if not sub or "." in sub or sub in _VENDOR_SUBS:
+                return None
+            if need_path and not path.lower().startswith(need_path):
+                return None
+            if suffix == ".jobs.personio.com":
+                sub += ".com"
+            return (prov, sub)
     return None
 
 
@@ -359,12 +404,15 @@ def fetch(limit_companies: int = 0) -> list:
     lv = list(lv) + [s for s in disc.get("lever", []) if s not in lv]
     ab = list(ab) + [s for s in disc.get("ashby", []) if s not in ab]
     sr = list(sr) + [s for s in disc.get("smartrecruiters", []) if s not in sr]
+    from . import ats_more  # Workable/Recruitee/BambooHR/Breezy/Personio/Teamtailor/Keka boards
+    more = ats_more.tasks(disc, limit_companies)
     # Submit the SLOW, few providers FIRST (Workday POSTs + SmartRecruiters), then the many fast ones.
     # Otherwise WD/SR sit at the back of a _WORKERS-wide queue behind ~160 fast Greenhouse/Ashby tasks
     # and the as_completed budget expires before a worker even starts them , which is why they were
     # silently dropping to 0 in the catalog. (Lever returns 0 from Render's IP anyway; it's relayed.)
     tasks += [(_workday, e) for e in wd]
     tasks += [(_smartrecruiters, s) for s in sr]
+    tasks += more  # few boards each, small payloads; ahead of the long Greenhouse/Ashby tail
     tasks += [(_greenhouse, s) for s in gh]
     tasks += [(_ashby, s) for s in ab]
     tasks += [(_lever, s) for s in lv]

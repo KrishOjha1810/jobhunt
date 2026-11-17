@@ -56,6 +56,16 @@ _BOARD_RULES = [
     ("jobs.ashbyhq.com", ("ashby", "assisted")),
     ("ashbyhq.com", ("ashby", "assisted")),
     ("myworkdayjobs.com", ("workday", "assisted")),
+    # Newer company-board ATSs and HN: the extension has no host permission or filler for these, so
+    # they are honest "open it yourself" boards (named, so the UI can label them).
+    ("workable.com", ("workable", "open_only")),
+    ("recruitee.com", ("recruitee", "open_only")),
+    ("bamboohr.com", ("bamboohr", "open_only")),
+    ("breezy.hr", ("breezy", "open_only")),
+    ("jobs.personio.de", ("personio", "open_only")),
+    ("jobs.personio.com", ("personio", "open_only")),
+    ("teamtailor.com", ("teamtailor", "open_only")),
+    ("keka.com", ("keka", "open_only")),
 ]
 
 # human labels for the UI
@@ -63,7 +73,8 @@ BOARD_LABELS = {
     "greenhouse": "Greenhouse", "lever": "Lever", "ashby": "Ashby", "workday": "Workday",
     "naukri": "Naukri", "instahyre": "Instahyre", "internshala": "Internshala",
     "foundit": "foundit", "ycombinator": "Y Combinator", "hirist": "Hirist", "iimjobs": "iimjobs",
-    "linkedin": "LinkedIn", "other": "Company site",
+    "linkedin": "LinkedIn", "workable": "Workable", "recruitee": "Recruitee", "bamboohr": "BambooHR",
+    "breezy": "Breezy HR", "personio": "Personio", "teamtailor": "Teamtailor", "keka": "Keka", "other": "Company site",
 }
 
 # mode -> which feed group it belongs to in the UI

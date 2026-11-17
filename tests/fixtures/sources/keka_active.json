@@ -1,0 +1,62 @@
+[
+ {
+  "id": 59894,
+  "title": "People Success Partner",
+  "description": "<div><strong style=\"background-color: transparent; color: rgb(0, 0, 0);\">About Kickdrum</strong></div><div><span style=\"background-color: transparent; color: rgb(0, 0, 0);\">Kickdrum is a world-class software product engineering firm that partners with technology investors and Fortune 500 executives to accelerate enterprise value. Founded in 2012 in Austin, Texas, with a dedicated engineering center in Bengaluru since 2017, we\u2019ve built a reputation for solving the hardest technical challenges, th",
+  "departmentIdentifier": "a5ee132e-6f2d-48ab-8d0d-45330620cd0f",
+  "departmentName": "HR",
+  "excerpt": "About KickdrumKickdrum is a world-class software product engineering firm that partners with technology investors and Fortune 500 executives to accelerate enterprise value. Founded in 2012 in Austin, Texas, with a dedicated engineering center in Bengaluru since 2017, we\u2019ve built a reputation for solving the hardest technical challenges, the kind others wouldn\u2019t dare touch.How we embrace talent: At Kickdrum, we believe great people build great products. Our culture is built on collaboration, continuous learning, and setting a high bar for excellence. We invest in future technology leaders and entrepreneurs. Whether you\u2019re fresh out of college or an experienced professional, you\u2019ll find mentorship, challenging problems, and a team that genuinely cares about your success.People Success at KickdrumThe People Success function at Kickdrum is a strategic driver of how we build, grow, and retain world-class talent. We\u2019re a small but mighty team responsible for the full employee lifecycle: from identifying and onboarding exceptional talent through our campus hiring program, to designing career development frameworks, running performance cycles, and creating experiences that make people want to stay and grow with us.How we operate: We work as strategic partners to leadership, not just executors of policy. We design programs that matter, use data to make decisions, and reimagine traditional HR practices when they don\u2019t serve our people or business. We move fast, wear multiple hats, and prioritize outcomes over activity.The RoleWe&#39;re looking for a People Success Partner who can own high-impact programs that directly shape Kickdrum&#39;s talent pipeline and employee experience. This role is a blend of program management, strategic HR, and hands-on execution. You&#39;ll be the driving force behind KDU (Kickdrum University) program, our flagship early in career investment initiative that brings in top engineering talent and transforms them into enterprise-grade developers. Beyond KDU, you&#39;ll design and run programs like mentorship frameworks, employee engagement initiatives, and leadership development, all while partnering closely with the leadership team to ensure our people practices support our ambitious growth goals.Experience4\u20136 years in HR, HR Business Partner, or Talent Development, with demonstrated program management experience in a fast-paced or scaling environmentExperience designing and running employee programs (like engagement, learning, mentorship, onboarding) from conception through execution and iterationWe&#39;d love it if you also bring:Experience working with or supporting early-career talent pipelines - including campus hiring, graduate programs, or structured onboarding at scale\u00a0Exposure to HR tech stack tools (HRIS, ATS, LMS, or engagement platforms) and a comfort navigating systems to manage program operations efficiently\u00a0Skills:Program Management: You can take ambiguity, structure it, execute, measure, and iterateStakeholder Management: You build trusting relationships across levels; you influence without authority and push back constructively when neededData-Driven: You track metrics, use data to make decisions, and can explain program impact quantitativelyAI &amp; Automation: You&#39;re curious about and comfortable using AI tools and HR tech to work smarter, whether that&#39;s streamlining workflows, analysing program data, or experimenting with new tools to improve the employee experienceOwner\u2019s Mindset: You see gaps and fix them without waiting to be told; you communicate risks early with context and options",
+  "jobLocations": [
+   {
+    "id": 9024,
+    "name": "Kickdrum Bengaluru",
+    "city": "Bengaluru",
+    "state": "KA",
+    "countryCode": "IN",
+    "countryName": "India"
+   }
+  ],
+  "jobType": 2,
+  "experience": "4-6",
+  "jobNumber": "KD-047",
+  "salaryRange": {
+   "currency": "INR",
+   "salaryPeriod": 0,
+   "cultureInfo": "en-IN"
+  },
+  "salaryRangeFormat": "",
+  "publishedOn": "2026-07-17T12:40:34.317Z",
+  "publishedSinceDays": 123,
+  "skillNames": []
+ },
+ {
+  "id": 48089,
+  "title": "C# / .NET Lead Engineer",
+  "description": "<div><strong>About the role</strong></div><div><br></div><div>We're looking for a hands-on C#/.NET Lead who can design, build, and ship cloud-native systems, lead a squad of engineers, and partner directly with Kickdrum leadership and customer teams. You'll move fast, own outcomes, and set a high technical bar across backend, cloud, data, and modern TypeScript frontends.</div><div><br></div><div><strong>You will:</strong></div><div><br></div><ul><li>Lead a team of 3\u20136 engineers to deliver modern",
+  "departmentIdentifier": "cf75eddc-62d4-49c6-bc5e-a4f8ae06092d",
+  "departmentName": "Engineering",
+  "excerpt": "About the roleWe're looking for a hands-on C#/.NET Lead who can design, build, and ship cloud-native systems, lead a squad of engineers, and partner directly with Kickdrum leadership and customer teams. You'll move fast, own outcomes, and set a high technical bar across backend, cloud, data, and modern TypeScript frontends.You will:Lead a team of 3\u20136 engineers to deliver modern, cloud-native software from discovery to production. Review and approve estimates, designs, code, and test plans.Translate business requirements into clear technical designs, tasks, and release plans; drive sprint execution and remove blockers.Design and evolve distributed architectures on Azure or AWS: microservices, event-driven systems, APIs, background workers.Build services in C# / ASP.NET Core (REST/gRPC), use .NET Aspire and Dapr building blocks where appropriate; use EF Core for data access; guide healthy API contracts (OpenAPI/Swagger).Engineer robust data layers: deep SQL Server expertise (query tuning, indexing, isolation levels, deadlocks), Dapper and/or EF Core, and pragmatic use of NoSQL (Cosmos DB/MongoDB), caching (Redis), search (Elasticsearch/OpenSearch).Architect eventing and integration with Azure Event Hubs/Service Bus, Kafka, or SQS/SNS; select and justify eventual vs immediate consistency strategies.Establish observability using OpenTelemetry (OTEL) for tracing/metrics/logs; integrate with Application Insights, Prometheus/Grafana, or ELK.Champion API-first development (OpenAPI/Swagger), security (OAuth2/OIDC, Azure AD/Entra, Key Vault/Secrets Manager), and reliability patterns (circuit breakers, retries, idempotency).Guide frontend engineers using TypeScript, React (and optionally Angular): API contracts, state management, performance, and DX.Ship MVPs in weeks (not months), run data-driven iterations, and communicate progress crisply to stakeholders.You are one among us if you\u2026Love building enterprise-grade software that delivers real business outcomes, quickly.Move fast, communicate crisply, and mentor engineers through change.Thrive in ambiguity and enjoy owning complex technical challenges end-to-end.Bring energy, candor, and a bias for data-driven decisions.Energize teams: mentor, give/receive constructive feedback, and foster open, high-trust collaboration.Are comfortable working with remote/hybrid teams and customers across time zones.Learn fast and stay current with evolving .NET, cloud, and frontend ecosystems.Must-have qualifications:8\u201312+ years in software engineering with 3+ years leading teams as a tech lead/lead engineer.Strong C# across both .NET Framework and modern .NET; production experience with ASP.NET Core and REST/gRPC services.Experience working with .NET Framework systems (reading legacy code, stabilizing, and planning upgrades).Familiarity with .NET Upgrade Assistant, code analyzers, multi-targeting, and compatibility shims is a plus here.Deep SQL Server skills: T-SQL, query plans, indexing strategies, isolation/locking, deadlock analysis, DMVs/profiling.Cloud-native design on Azure and/or AWS, including:&nbsp;Containers (Docker, Kubernetes/AKS/EKS), networking, secrets, cost/perf trade-offs.&nbsp;Compute (AKS/EKS, App Service, Functions/Lambda), Containers (Docker, Kubernetes)&nbsp;Data: Cosmos DB/MongoDB, Redis/ElastiCache, file/object storage&nbsp;Messaging/streaming: Event Hubs/Service Bus, Kafka, SQS/SNS&nbsp;Observability with OpenTelemetry; dashboards/alerts (App Insights, Grafana, CloudWatch)Experience with .NET Aspire (AppHost/ServiceDefaults, components, dashboard) and Dapr (service invocation, pub/sub, state, bindings), plus EF Core for data access; can articulate when to use Aspire/Dapr vs direct SDKs.CI/CD (Azure DevOps/GitHub Actions/Jenkins), IaC (Bicep/ARM/Terraform)Practical EF Core and data-access patternsSolid understanding of distributed systems: idempotency, sagas/outbox, partitioning/sharding, eventual consistency, resiliency patterns.Frontend leadership exposure with TypeScript + React (routing, state management, testing, performance).Testing culture: xUnit/NUnit, mocking, contract testing (e.g., Pact), API/integration tests, Playwright/Cypress/Jest where relevant; CI quality gates.Excellent communication and stakeholder management.Nice to haveAI-assisted development with Cursor, GitHub Copilot, Claude Code, or similar; experience setting team guardrails for AI-assisted coding.Built/shipped AI features using Azure AI Foundry (Azure OpenAI), AWS Bedrock, Ollama/llama.cpp; familiarity with LangChain, Semantic Kernel, or other agentic SDKs; RAG patterns and vector stores (Azure AI Search Pinecone, Redis Stack, pgvector).Frontend depth with Next.js, Vite, performance budgets, accessibility.Security &amp; compliance: OWASP ASVS/Top10, secrets management, threat modeling.Experience with feature flags, A/B testing, and product analytics.Domain-Driven Design, Clean Architecture, and migration strategies from legacy .NET Framework to modern .NET.We are technology agnostic in our approach. Having said that, here are the technologies we are currently working with and looking for in this role;Backend: C#, .NET Framework and .NET 6/7/8/9+, ASP.NET Core, gRPC, .NET Aspire, Dapr, EF Core, Azure Functions / AWS LambdaFrontend: TypeScript, React (preferred), Angular (nice to have), Vite/Webpack, Jest/Cypress, StorybookData: SQL Server, Cosmos DB/DynamoDB/MongoDB, Redis, Elasticsearch/OpenSearch, Azure Blob Storage, S3Messaging/Streaming: Azure Event Hubs/Service Bus, Kafka, SQS/SNSCloud/DevOps: Azure (preferred) / AWS, Docker, Kubernetes (AKS/EKS), Terraform/Bicep, GitHub Actions/Azure DevOps/JenkinsObservability: OpenTelemetry, Application Insights, Prometheus/Grafana, ELK, AWS CloudWatch &amp; X-RaySecurity: OAuth2/OIDC, Azure AD/Entra, Key Vault/Secrets Manager",
+  "jobLocations": [
+   {
+    "id": 9024,
+    "name": "Kickdrum Bengaluru",
+    "city": "Bengaluru",
+    "state": "KA",
+    "countryCode": "IN",
+    "countryName": "India"
+   }
+  ],
+  "jobType": 2,
+  "experience": "8-12",
+  "jobNumber": "KD-044",
+  "salaryRange": {
+   "currency": "INR",
+   "salaryPeriod": 0,
+   "cultureInfo": "en-IN"
+  },
+  "salaryRangeFormat": "",
+  "publishedOn": "2025-11-24T04:46:43.38Z",
+  "publishedSinceDays": 358,
+  "skillNames": []
+ }
+]

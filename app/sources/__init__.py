@@ -7,6 +7,7 @@ path kept for tests/compatibility.
 import re as _re
 from . import remotive, remoteok, arbeitnow, adzuna, jsearch, jobicy, himalayas, ats, telegram_channels
 from . import themuse, internships, theirstack, jooble, amazon, apple, google, internshala, instahyre, foundit
+from .ats_more import BOARD_PROVIDERS as _BOARD_PROVIDERS
 
 PRIORITY_TERMS = [
     "rust", "solidity", "typescript", "python", "java", "golang", "go",
@@ -82,7 +83,7 @@ def _canon_url(u: str) -> str:
 # is the stalest. When the SAME role appears on a company board AND an aggregator, we keep the board
 # copy , so source-priority actually wins instead of luck-of-arrival-order.
 _SOURCE_RANK = {
-    "greenhouse": 0, "lever": 0, "ashby": 0, "smartrecruiters": 0, "workday": 0,
+    **{p: 0 for p in _BOARD_PROVIDERS},  # Greenhouse/Lever/Ashby/SR/Workday + Workable/Keka/... boards
     "remotive": 1, "remoteok": 1, "arbeitnow": 1, "jobicy": 1, "himalayas": 1,
     "themuse": 1, "internships": 1,  # employer-posted / structured , above the noisier aggregators
     "theirstack": 1, "jooble": 1,    # licensed aggregators (incl. Naukri via TheirStack)
