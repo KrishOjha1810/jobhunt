@@ -56,14 +56,29 @@ def enabled(provider):
 
 
 # ---- curated boards (each verified live with open roles; India or remote-India friendly) ----
-WORKABLE = []
+# Verified live 2026-11-17. Slug guessing is NOT proof of identity (e.g. "zepto.bamboohr.com" is an
+# Australian company, "icertis.bamboohr.com" a demo tenant), so every entry here was matched to the
+# real company through its own careers page or its job content before being added.
+WORKABLE = ["apna"]
+# No India-based product company was found on these five yet (a 480-name slug sweep plus a
+# 230-careers-page auto-detect sweep turned up only EU/US boards). They stay wired so boards
+# auto-discovered from user saves, or added via /admin/detect-board, are crawled.
 RECRUITEE = []
 BAMBOOHR = []
 BREEZY = []
 PERSONIO = []      # "<slug>" (.de host) or "<slug>.com" for the jobs.personio.com host
 TEAMTAILOR = []
-# Keka entries are (subdomain, display name); a bare subdomain also works (name falls back to it).
-KEKA = []
+# Keka is where Indian startups and SMB product companies actually host their careers pages.
+# Entries are (subdomain, display name); a bare subdomain also works (name falls back to it).
+KEKA = [
+    ("zluri", "Zluri"), ("jupiter", "Jupiter"), ("lambdatest", "LambdaTest"), ("kukufm", "Kuku FM"),
+    ("ekacare", "Eka Care"), ("kickdrum", "Kickdrum"), ("hr", "Keka"), ("workindia", "WorkIndia"),
+    ("liminal", "Liminal"), ("fynd", "Fynd"), ("reelo", "Reelo"), ("vyaparapp", "Vyapar"),
+    ("wingify", "Wingify"), ("scrut", "Scrut Automation"), ("signzy", "Signzy"),
+    ("urbanpiper", "UrbanPiper"), ("truemeds", "Truemeds"), ("gokwik", "GoKwik"),
+    ("webklipper", "WebEngage"), ("skit", "Skit.ai"), ("niyo", "Niyo"), ("teachmint", "Teachmint"),
+    ("toddle", "Toddle"), ("adda247", "Adda247"),
+]
 
 
 def _get(url, max_bytes=None):

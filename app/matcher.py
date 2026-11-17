@@ -659,7 +659,7 @@ def _recency_unit(job: dict) -> float:
 YC_COMPANIES = {
     "coinbase", "stripe", "airbnb", "dropbox", "reddit", "doordash", "instacart", "gitlab", "brex",
     "faire", "gusto", "razorpay", "checkr", "deel", "twitch", "supabase", "posthog", "resend",
-    "inngest", "meesho", "flexport",
+    "inngest", "meesho", "flexport", "razorpaysoftwareprivatelimited",
 }
 
 

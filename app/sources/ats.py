@@ -90,7 +90,7 @@ def fetch_detail(job):
 GREENHOUSE = [
     "coinbase", "chainalysis", "consensys", "circle", "gemini", "ripple", "anchorage",
     "dydx", "matterlabs", "alchemy", "databricks", "anthropic", "stripe",
-    "razorpay", "postman", "hasura", "mongodb", "datadog", "gitlab", "hashicorp",
+    "razorpaysoftwareprivatelimited", "postman", "hasura", "mongodb", "datadog", "gitlab", "hashicorp",
     "twilio", "dropbox", "pinterest", "doordash", "affirm", "plaid", "robinhood",
     # verified-live additions (strong tech employers, high volume)
     "figma", "brex", "scaleai", "samsara", "instacart", "asana", "flexport", "discord",
@@ -112,6 +112,9 @@ GREENHOUSE = [
     # batch 7 (verified live 2026-06-15): YC / prominent startups (AI, dev-tools, fintech-security)
     "cresta", "checkr", "togetherai", "cribl", "tailscale", "fireworksai", "typeface", "alloy",
     "instabase", "knock", "found", "imbue",
+    # batch 8 (verified live 2026-11-17 via ATS auto-detect on their careers pages): India product cos
+    # (razorpay's live board is "razorpaysoftwareprivatelimited"; the old "razorpay" slug returns 0)
+    "zenoti", "glance", "sahajsoftware",
 ]
 LEVER = [
     "blockchain", "ledger", "chainlink", "kraken", "nethermind", "blockdaemon", "fireblocks",
@@ -120,6 +123,7 @@ LEVER = [
     # verified live 2026-06-10: India employers (paytm/meesho/cred have heavy non-dev hiring too)
     "paytm", "meesho", "mindtickle", "fampay", "fi", "cred", "zeta",
     "gohighlevel", "metabase", "wealthfront",  # verified live 2026-06-11
+    "hevodata",  # verified live 2026-11-17 (auto-detected from hevodata.com/careers)
 ]
 ASHBY = [
     "openai", "vercel", "mercury", "replit", "uniswap-labs", "wintermute", "gauntlet",
@@ -136,11 +140,14 @@ ASHBY = [
     # batch 7 (verified live 2026-06-15): YC / prominent startups (airwallex has heavy India hiring)
     "airwallex", "drata", "gamma", "persona", "column", "middesk", "posthog", "character",
     "resend", "unit", "runway", "opensea", "inngest", "contextual",
+    # batch 8 (verified live 2026-11-17 via ATS auto-detect): India AI / legal-tech / dev-tools
+    "sarvam", "spotdraft", "composio",
 ]
 # SmartRecruiters: keyless public board (api.smartrecruiters.com/v1/companies/<slug>/postings).
 # Big enterprises with real India presence live here. Slugs are case-sensitive.
 SMARTRECRUITERS = [
     "Visa", "BoschGroup", "NielsenIQ", "WeWork", "Experian", "McDonaldsCorporation",
+    "Freshworks",  # verified live 2026-11-17 (auto-detected from freshworks.com careers)
 ]
 # Workday: keyless per-tenant JSON (POST .../wday/cxs/<tenant>/<site>/jobs). Big MNCs with heavy
 # India hiring live here. Each entry is (tenant, datacenter, site) read off the careers URL
@@ -161,6 +168,10 @@ WORKDAY = [
     ("micron", "wd1", "External", "India"),
     ("cisco", "wd5", "Cisco_Careers", "India"),
     ("broadcom", "wd1", "External_Career", "India"),
+    # verified live 2026-11-17 via ATS auto-detect on their careers pages (India product cos)
+    ("browserstack", "wd3", "External"),
+    ("quantiphi", "wd1", "Careers_at_Quantiphi"),
+    ("uniphore", "wd503", "Uniphore", "India"),
 ]
 
 # Keep only technical roles, these feeds list every department (HR, legal, sales...).
@@ -258,6 +269,11 @@ def _norm(title, company, location, url, desc, posted, source):
             "salary": "", "source": source}
 
 
+# Boards whose slug is not the company's name: keep the name the catalog (and YC_COMPANIES) already
+# uses, so a slug change does not split dedupe or drop the boost.
+_COMPANY_ALIAS = {"razorpaysoftwareprivatelimited": "razorpay"}
+
+
 def _greenhouse(slug):
     # Lightweight listing by default (content=true returns ~8MB/board and blew 512MB on Render across
     # many concurrent boards; JDs are then backfilled lazily for top candidates). On a roomy host set
@@ -271,7 +287,7 @@ def _greenhouse(slug):
         for j in r.json().get("jobs", []):
             loc = (j.get("location") or {}).get("name", "")
             desc = _strip_html(j.get("content", "")) if _FULL_CONTENT else ""
-            d = _norm(j.get("title"), slug, loc, j.get("absolute_url"), desc,
+            d = _norm(j.get("title"), _COMPANY_ALIAS.get(slug, slug), loc, j.get("absolute_url"), desc,
                       j.get("updated_at", ""), f"greenhouse:{slug}")
             if not _FULL_CONTENT:
                 d["_gh_id"] = j.get("id")  # transient: lets fetch_detail backfill the JD body later
