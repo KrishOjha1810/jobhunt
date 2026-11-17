@@ -35,6 +35,9 @@ _BOARD_RULES = [
     ("foundit.in", ("foundit", "auto")),
     ("foundit.com", ("foundit", "auto")),
     ("monsterindia.com", ("foundit", "auto")),
+    # HN "Who is hiring" comment links live on news.ycombinator.com; they are posts, not YC's
+    # one-click Work at a Startup apply, so this must match before the ycombinator.com rule.
+    ("news.ycombinator.com", ("hn", "open_only")),
     ("workatastartup.com", ("ycombinator", "auto")),
     ("ycombinator.com", ("ycombinator", "auto")),
     ("hirist.tech", ("hirist", "auto")),
@@ -74,7 +77,8 @@ BOARD_LABELS = {
     "naukri": "Naukri", "instahyre": "Instahyre", "internshala": "Internshala",
     "foundit": "foundit", "ycombinator": "Y Combinator", "hirist": "Hirist", "iimjobs": "iimjobs",
     "linkedin": "LinkedIn", "workable": "Workable", "recruitee": "Recruitee", "bamboohr": "BambooHR",
-    "breezy": "Breezy HR", "personio": "Personio", "teamtailor": "Teamtailor", "keka": "Keka", "other": "Company site",
+    "breezy": "Breezy HR", "personio": "Personio", "teamtailor": "Teamtailor", "keka": "Keka",
+    "hn": "Hacker News", "other": "Company site",
 }
 
 # mode -> which feed group it belongs to in the UI

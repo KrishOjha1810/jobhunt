@@ -7,6 +7,7 @@ path kept for tests/compatibility.
 import re as _re
 from . import remotive, remoteok, arbeitnow, adzuna, jsearch, jobicy, himalayas, ats, telegram_channels
 from . import themuse, internships, theirstack, jooble, amazon, apple, google, internshala, instahyre, foundit
+from . import hn_hiring
 from .ats_more import BOARD_PROVIDERS as _BOARD_PROVIDERS
 
 PRIORITY_TERMS = [
@@ -84,6 +85,7 @@ def _canon_url(u: str) -> str:
 # copy , so source-priority actually wins instead of luck-of-arrival-order.
 _SOURCE_RANK = {
     **{p: 0 for p in _BOARD_PROVIDERS},  # Greenhouse/Lever/Ashby/SR/Workday + Workable/Keka/... boards
+    "hn": 1,                             # HN Who is hiring: posted by the company itself, monthly
     "remotive": 1, "remoteok": 1, "arbeitnow": 1, "jobicy": 1, "himalayas": 1,
     "themuse": 1, "internships": 1,  # employer-posted / structured , above the noisier aggregators
     "theirstack": 1, "jooble": 1,    # licensed aggregators (incl. Naukri via TheirStack)
@@ -147,6 +149,8 @@ ATS_CAP = int(_os.environ.get("ATS_CAP", "") or "300")
 # Adzuna is the stalest source (aggregator, lots of closed listings), so cap how much it can flood the
 # pool. The user reported "almost all jobs were from Adzuna" , this reins it in.
 ADZUNA_CAP = int(_os.environ.get("ADZUNA_CAP", "") or "60")
+# HN "Who is hiring" is one big monthly thread; keep it a slice of the pool, not a flood.
+HN_CAP = int(_os.environ.get("HN_CAP", "") or "120")
 
 
 ATS_PROVIDER_FLOOR = int(_os.environ.get("ATS_PROVIDER_FLOOR", "") or "60")
@@ -229,6 +233,8 @@ def _fetch(terms: list, india_wanted: bool, max_adzuna_terms: int = 3, india_aut
         # Monster India is a heavier scrape; keep it to the full-India feed only.
         tasks.append(lambda: foundit.fetch("software developer", limit=25))
     tasks.append(_ats_capped)  # Greenhouse/Lever/Ashby niche roles (already concurrent internally)
+    if hn_hiring.enabled():    # HN "Who is hiring?" (official Algolia API, 2 requests, SRC_HN=0 to skip)
+        tasks.append(lambda: hn_hiring.fetch(cap=HN_CAP))
     if telegram_channels.channels():  # public Telegram job channels (set TELEGRAM_JOB_CHANNELS)
         tasks.append(lambda: telegram_channels.fetch(""))
     if adzuna.available():
